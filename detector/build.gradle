@@ -1,0 +1,8 @@
+// Detector — Kafka Streams 로 엔드포인트 이벤트 상관분석 (group: detector)
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter'
+    implementation 'org.springframework.kafka:spring-kafka'
+    implementation 'org.apache.kafka:kafka-streams'
+    implementation 'com.fasterxml.jackson.core:jackson-databind'   // 이벤트 JSON serde
+    testImplementation 'org.apache.kafka:kafka-streams-test-utils' // TopologyTestDriver
+}

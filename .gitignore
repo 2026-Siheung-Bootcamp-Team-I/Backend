@@ -1,0 +1,57 @@
+# ===== Build output =====
+build/
+target/
+out/
+bin/
+*.class
+
+# ===== Gradle =====
+.gradle/
+!gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.properties
+
+# ===== IDE - IntelliJ IDEA =====
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# ===== IDE - Eclipse / VS Code =====
+.classpath
+.project
+.settings/
+.vscode/
+.apt_generated/
+.factorypath
+
+# ===== Logs =====
+*.log
+logs/
+
+# ===== Env / Secrets =====
+.env
+.env.*
+*.local
+application-local.yml
+application-local.yaml
+application-secret*.yml
+application-secret*.yaml
+*.p12
+*.jks
+*.pem
+*.key
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
+
+# ===== Claude / OMC operational state =====
+.claude/
+.omc/
+!.omc/skills/
+CLAUDE.md
+
+# ===== Misc =====
+*.tmp
+*.bak
+*.pid

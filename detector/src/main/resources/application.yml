@@ -1,0 +1,24 @@
+spring:
+  application:
+    name: detector
+  kafka:
+    bootstrap-servers: localhost:9092
+    streams:
+      application-id: detector
+      properties:
+        default.key.serde: org.apache.kafka.common.serialization.Serdes$StringSerde
+        default.value.serde: org.apache.kafka.common.serialization.Serdes$StringSerde
+
+server:
+  port: 8081
+
+edrdog:
+  kafka:
+    events-topic: events      # osquery/Zeek 원시 이벤트 (판정 입력)
+    alerts-topic: alerts      # SUSPECT 결과
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info
