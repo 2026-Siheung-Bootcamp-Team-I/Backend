@@ -1,0 +1,6 @@
+// Responder — alerts 를 소비해 권장 조치를 dry-run(표시만)으로 로그 출력 (group: responder)
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter'
+    implementation 'org.springframework.kafka:spring-kafka'
+    implementation 'com.fasterxml.jackson.core:jackson-databind'   // alerts JSON 역직렬화
+}
