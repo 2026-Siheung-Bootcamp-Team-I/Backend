@@ -1,4 +1,4 @@
-package com.edrdog.detector.global;
+package com.edrdog.detector.kafkastreams.serde;
 
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
