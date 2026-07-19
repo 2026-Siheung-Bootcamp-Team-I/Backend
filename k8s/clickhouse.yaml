@@ -1,0 +1,65 @@
+# ClickHouse — 이벤트 저장·조회(archiver/api-server). 개발용, 영속성 없음(emptyDir).
+# 스키마(테이블)는 이후 이슈에서. 여기서는 edrdog DB 만 준비.
+#   HTTP   8123 -> host localhost:8123
+#   native 9000 -> host localhost:9000
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clickhouse
+  namespace: edrdog
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: clickhouse
+  template:
+    metadata:
+      labels:
+        app: clickhouse
+    spec:
+      containers:
+        - name: clickhouse
+          image: clickhouse/clickhouse-server:24.8
+          ports:
+            - containerPort: 8123  # HTTP
+            - containerPort: 9000  # native TCP
+          env:
+            - name: CLICKHOUSE_DB
+              value: edrdog
+            - name: CLICKHOUSE_USER
+              value: edrdog
+            - name: CLICKHOUSE_PASSWORD
+              value: edrdog
+            - name: CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT
+              value: "1"
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: 8123
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              memory: 2Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: clickhouse
+  namespace: edrdog
+spec:
+  type: NodePort
+  selector:
+    app: clickhouse
+  ports:
+    - name: http
+      port: 8123
+      targetPort: 8123
+      nodePort: 30123
+    - name: native
+      port: 9000
+      targetPort: 9000
+      nodePort: 30900
