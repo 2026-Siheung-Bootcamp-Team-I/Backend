@@ -51,6 +51,9 @@ Thumbs.db
 !.omc/skills/
 CLAUDE.md
 
+# ===== 로컬 설계 노트 =====
+edr-notes.md
+
 # ===== Misc =====
 *.tmp
 *.bak
