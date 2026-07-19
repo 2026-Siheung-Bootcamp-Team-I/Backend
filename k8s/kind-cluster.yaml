@@ -1,0 +1,21 @@
+# EDRdog 로컬 kind 클러스터 정의 (Issue #10)
+# 호스트에서 실행되는 Spring 서비스(detector 등)가 클러스터 안 인프라
+# (Kafka/ClickHouse)에 접근하도록 NodePort 를 호스트 포트로 매핑한다.
+#
+#   생성:  kind create cluster --config k8s/kind-cluster.yaml
+#   삭제:  kind delete cluster --name edrdog
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: edrdog
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - containerPort: 30092   # Kafka (EXTERNAL)    -> host localhost:9092
+        hostPort: 9092
+        protocol: TCP
+      - containerPort: 30123   # ClickHouse HTTP     -> host localhost:8123
+        hostPort: 8123
+        protocol: TCP
+      - containerPort: 30900   # ClickHouse native   -> host localhost:9000
+        hostPort: 9000
+        protocol: TCP
