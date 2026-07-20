@@ -1,0 +1,99 @@
+name: CI/CD
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  # CI: 빌드 + 최소 테스트 (PR/푸시 공통, 전 모듈)
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build + test
+        run: ./gradlew build
+      - name: Strip plain jars
+        if: github.event_name == 'push'
+        run: find . -name '*-plain.jar' -delete
+      - name: Upload boot jars
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: boot-jars
+          path: |
+            detector/build/libs/*.jar
+            responder/build/libs/*.jar
+            archiver/build/libs/*.jar
+
+  # 이미지 빌드 + GHCR 푸시 (main 푸시에만, 모듈별 matrix)
+  image:
+    needs: build
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        module: [detector, responder, archiver]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: boot-jars
+      - id: vars
+        run: echo "image_base=ghcr.io/${IMAGE,,}" >> "$GITHUB_OUTPUT"
+        env:
+          IMAGE: ${{ github.repository }}/${{ matrix.module }}
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.module }}
+          push: true
+          tags: |
+            ${{ steps.vars.outputs.image_base }}:${{ github.sha }}
+            ${{ steps.vars.outputs.image_base }}:latest
+
+  # CD: Kubernetes 배포 (main 푸시에만, 전 모듈)
+  deploy:
+    needs: image
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-kubectl@v4
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p "$HOME/.kube"
+          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > "$HOME/.kube/config"
+      - name: Deploy
+        env:
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          NS: edrdog
+        run: |
+          # 앱 매니페스트만 적용 (인프라/ kind-cluster.yaml 제외)
+          kubectl apply -f k8s/00-namespace.yaml
+          kubectl apply -n "$NS" \
+            -f k8s/detector.yaml \
+            -f k8s/responder.yaml \
+            -f k8s/archiver.yaml
+          for m in detector responder archiver; do
+            kubectl set image deployment/$m "$m=ghcr.io/${REPO,,}/$m:${SHA}" -n "$NS"
+          done
+          for m in detector responder archiver; do
+            kubectl rollout status deployment/$m -n "$NS" --timeout=120s
+          done
