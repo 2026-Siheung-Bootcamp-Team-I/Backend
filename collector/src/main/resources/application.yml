@@ -1,0 +1,27 @@
+spring:
+  application:
+    name: collector
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: collector
+      auto-offset-reset: earliest       # 원시 이벤트는 유실 없이 처음부터 정규화
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    producer:                           # 정규화 결과(Event JSON 문자열)를 events 로 발행
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+
+server:
+  port: 8082
+
+edrdog:
+  kafka:
+    events-raw-topic: events-raw        # osquery/Zeek 원시 result-log (소비 입력)
+    events-topic: events                # 정규화된 이벤트 (재발행 출력, detector/archiver 입력)
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info

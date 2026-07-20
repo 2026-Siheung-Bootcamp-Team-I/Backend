@@ -1,0 +1,5 @@
+// Collector — osquery/Zeek 원시 result-log(events-raw) 를 소비해 detector 스키마(Event)로 정규화 후 events 로 재발행
+dependencies {
+    implementation 'org.springframework.kafka:spring-kafka'
+    implementation 'com.fasterxml.jackson.core:jackson-databind'        // 원시 osquery JSON 파싱 + Event JSON 직렬화
+}

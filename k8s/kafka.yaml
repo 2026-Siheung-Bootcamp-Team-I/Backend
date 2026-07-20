@@ -90,7 +90,9 @@ spec:
       targetPort: 9092
       nodePort: 30092
 ---
-# 토픽 생성 Job — events / alerts (Issue #10 명시 요구)
+# 토픽 생성 Job — events-raw / events / alerts
+#   events-raw : osquery/Zeek 원시 result-log (collector 입력)
+#   events     : collector 가 정규화한 이벤트 (detector/archiver 입력)
 # kafka 준비 전 실행되면 실패하므로 OnFailure + backoffLimit 로 재시도.
 apiVersion: batch/v1
 kind: Job
@@ -109,6 +111,8 @@ spec:
           args:
             - |
               BS=kafka.edrdog.svc.cluster.local:9094
+              /opt/kafka/bin/kafka-topics.sh --bootstrap-server $BS \
+                --create --if-not-exists --topic events-raw --partitions 3 --replication-factor 1
               /opt/kafka/bin/kafka-topics.sh --bootstrap-server $BS \
                 --create --if-not-exists --topic events --partitions 3 --replication-factor 1
               /opt/kafka/bin/kafka-topics.sh --bootstrap-server $BS \
