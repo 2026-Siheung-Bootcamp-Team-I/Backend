@@ -42,5 +42,5 @@ kind delete cluster --name edrdog    # 클러스터째 삭제 (데이터 emptyDi
 ## 메모
 
 - 개발용이라 **영속성 없음**(emptyDir). 파드 재시작 시 데이터 소멸.
-- ClickHouse **테이블 스키마는 이후 이슈**에서 (여기선 `edrdog` DB 만 준비).
+- ClickHouse `edrdog.events` **테이블은 archiver 부팅 시 자동 생성**(`CREATE TABLE IF NOT EXISTS`). 여기선 `edrdog` DB 만 준비.
 - watchdog 클러스터와 호스트 포트(9092/8123/9000)가 겹치므로 **동시 실행 불가**.
