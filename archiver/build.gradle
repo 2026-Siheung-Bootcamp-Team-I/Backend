@@ -1,0 +1,6 @@
+// Archiver — events 를 별도 컨슈머 그룹(archiver)으로 소비해 ClickHouse 에 적재 (detector 와 독립)
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-web'   // RestClient (ClickHouse HTTP)
+    implementation 'org.springframework.kafka:spring-kafka'
+    implementation 'com.fasterxml.jackson.core:jackson-databind'        // events JSON 역직렬화 + JSONEachRow 직렬화
+}

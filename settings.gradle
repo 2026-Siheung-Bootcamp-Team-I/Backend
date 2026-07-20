@@ -1,3 +1,5 @@
 rootProject.name = 'edrdog-backend'
 
 include 'detector'
+include 'responder'
+include 'archiver'
