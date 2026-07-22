@@ -28,9 +28,9 @@ jobs:
         with:
           name: boot-jars
           path: |
-            detector/build/libs/*.jar
-            responder/build/libs/*.jar
-            archiver/build/libs/*.jar
+            detector-service/build/libs/*.jar
+            responder-service/build/libs/*.jar
+            archiver-service/build/libs/*.jar
 
   # 이미지 빌드 + GHCR 푸시 (main 푸시에만, 모듈별 matrix)
   image:
@@ -42,7 +42,7 @@ jobs:
       packages: write
     strategy:
       matrix:
-        module: [detector, responder, archiver]
+        module: [detector-service, responder-service, archiver-service]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -88,12 +88,12 @@ jobs:
           # 앱 매니페스트만 적용 (인프라/ kind-cluster.yaml 제외)
           kubectl apply -f k8s/00-namespace.yaml
           kubectl apply -n "$NS" \
-            -f k8s/detector.yaml \
-            -f k8s/responder.yaml \
-            -f k8s/archiver.yaml
-          for m in detector responder archiver; do
+            -f k8s/detector-service.yaml \
+            -f k8s/responder-service.yaml \
+            -f k8s/archiver-service.yaml
+          for m in detector-service responder-service archiver-service; do
             kubectl set image deployment/$m "$m=ghcr.io/${REPO,,}/$m:${SHA}" -n "$NS"
           done
-          for m in detector responder archiver; do
+          for m in detector-service responder-service archiver-service; do
             kubectl rollout status deployment/$m -n "$NS" --timeout=120s
           done
