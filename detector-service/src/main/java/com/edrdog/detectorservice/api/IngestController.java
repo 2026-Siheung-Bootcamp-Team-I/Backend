@@ -42,16 +42,22 @@ public class IngestController {
     }
 
     @Operation(summary = "공격 시나리오 발행",
-            description = "룰을 확실히 트리거하는 2-이벤트 시퀀스를 발행한다. name: process-chain(T1059/HIGH) 또는 download-exec(T1105/CRITICAL).")
+            description = "룰을 확실히 트리거하는 2-이벤트 시퀀스를 발행한다. name: process-chain(T1059/HIGH) 또는 download-exec(T1105/CRITICAL). "
+                    + "tenantId 는 로그인 tenant 의 PK(GET /api/auth/me 의 tenantId, 예: 1)여야 해당 tenant 로 alert 조회/Slack 이 도달한다.")
     @PostMapping("/events/scenario/{name}")
     public ResponseEntity<Map<String, Object>> publishScenario(
             @PathVariable String name,
             @RequestParam(defaultValue = "demo-host-01") String host,
-            @RequestParam(defaultValue = "tenant-a") String tenantId) {
+            @RequestParam String tenantId) {
         if (!Scenarios.isSupported(name)) {
             return ResponseEntity.badRequest().body(Map.of(
                     "error", "미지원 시나리오: " + name,
                     "supported", List.of(Scenarios.PROCESS_CHAIN, Scenarios.DOWNLOAD_EXEC)));
+        }
+        if (!TenantIds.isValidPk(tenantId)) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "tenantId 는 tenant PK(양의 정수)여야 합니다: " + tenantId,
+                    "hint", "회원가입/로그인 후 GET /api/auth/me 의 tenantId 를 사용하세요"));
         }
         // 발행 시각 기준으로 윈도우 안 시퀀스 생성 (판정은 이벤트 ts 필드로 상관)
         long baseTs = System.currentTimeMillis();
