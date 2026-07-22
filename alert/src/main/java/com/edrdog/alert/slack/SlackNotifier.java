@@ -1,0 +1,63 @@
+package com.edrdog.alert.slack;
+
+import com.edrdog.alert.dto.Alert;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.MediaType;
+import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClient;
+
+import java.util.Map;
+
+/**
+ * alert 를 Slack Incoming Webhook 으로 전송한다.
+ * webhook URL 이 비어 있으면(미설정) 발송을 건너뛴다 — 로컬/테스트에서 안전하게 동작.
+ * 메시지 포맷은 순수 로직(format)으로 분리해 단위 테스트한다.
+ */
+@Component
+public class SlackNotifier {
+
+    private static final Logger log = LoggerFactory.getLogger(SlackNotifier.class);
+
+    private final RestClient client;
+    private final String webhookUrl;
+
+    public SlackNotifier(@Value("${edrdog.slack.webhook-url:}") String webhookUrl) {
+        this.webhookUrl = webhookUrl;
+        this.client = RestClient.builder().build();
+    }
+
+    /** alert 를 Slack 으로 전송. webhook 미설정 시 경고 로그 후 skip. */
+    public void send(Alert alert) {
+        if (webhookUrl == null || webhookUrl.isBlank()) {
+            log.warn("Slack webhook URL 미설정 → 발송 skip (host={}, rule={})", alert.host(), alert.ruleId());
+            return;
+        }
+        try {
+            client.post()
+                    .uri(webhookUrl)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(Map.of("text", format(alert)))
+                    .retrieve()
+                    .toBodilessEntity();
+        } catch (Exception e) {
+            log.warn("Slack 발송 실패 (host={}, rule={}): {}", alert.host(), alert.ruleId(), e.getMessage());
+        }
+    }
+
+    /** alert → Slack 메시지 한 줄. 심각도 아이콘 + 핵심 필드. */
+    static String format(Alert alert) {
+        return String.format("%s [%s] host=%s rule=%s mitre=%s action=%s",
+                icon(alert.severity()), alert.severity(),
+                alert.host(), alert.ruleId(), alert.mitre(), alert.action());
+    }
+
+    private static String icon(String severity) {
+        return switch (severity == null ? "" : severity) {
+            case Alert.SEV_CRITICAL -> "🔴";
+            case Alert.SEV_HIGH -> "🟠";
+            default -> "⚪";
+        };
+    }
+}
