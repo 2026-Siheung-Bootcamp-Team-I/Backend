@@ -1,0 +1,32 @@
+spring:
+  application:
+    name: archiver
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: archiver
+      auto-offset-reset: earliest       # 적재는 유실 없이 처음부터 (detector 와 독립 그룹)
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.value.default.type: com.edrdog.archiverservice.dto.Event
+        spring.json.trusted.packages: com.edrdog.archiverservice.dto
+
+server:
+  port: 8083
+
+edrdog:
+  kafka:
+    events-topic: events              # 원시 이벤트 (소비 입력)
+  clickhouse:
+    url: http://localhost:8123        # k8s NodePort HTTP
+    database: edrdog
+    user: edrdog
+    password: edrdog
+    table: edrdog.events              # 적재 대상 테이블
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info

@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: detector-service
+  namespace: edrdog
+  labels:
+    app: detector-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: detector-service
+  template:
+    metadata:
+      labels:
+        app: detector-service
+    spec:
+      containers:
+        - name: detector-service
+          # 배포 시 CI 가 kubectl set image 로 실제 태그(:<sha>) 주입
+          image: ghcr.io/2026-siheung-bootcamp-team-i/backend/detector-service:latest
+          ports:
+            - containerPort: 8081
+          env:
+            # 실제 Kafka 주소로 교체 (ConfigMap 으로 분리해도 됨)
+            - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
+              value: "kafka:9094"
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8081
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8081
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: detector-service
+  namespace: edrdog
+  labels:
+    app: detector-service
+spec:
+  selector:
+    app: detector-service
+  ports:
+    - port: 80
+      targetPort: 8081
