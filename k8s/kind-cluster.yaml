@@ -19,6 +19,6 @@ nodes:
       - containerPort: 30900   # ClickHouse native   -> host localhost:9000
         hostPort: 9000
         protocol: TCP
-      - containerPort: 30432   # Postgres            -> host localhost:5432
-        hostPort: 5432
+      - containerPort: 30306   # MySQL               -> host localhost:3306
+        hostPort: 3306
         protocol: TCP
