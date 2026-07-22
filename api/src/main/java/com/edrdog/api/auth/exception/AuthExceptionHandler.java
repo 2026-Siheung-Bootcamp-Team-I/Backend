@@ -1,6 +1,6 @@
-package com.edrdog.api.auth.web;
+package com.edrdog.api.auth.exception;
 
-import com.edrdog.api.auth.AuthException;
+import com.edrdog.api.auth.controller.AuthController;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;

@@ -1,4 +1,4 @@
-package com.edrdog.api.auth;
+package com.edrdog.api.auth.service;
 
 import java.security.SecureRandom;
 import java.util.Base64;

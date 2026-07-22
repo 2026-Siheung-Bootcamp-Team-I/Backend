@@ -1,4 +1,4 @@
-package com.edrdog.api.auth;
+package com.edrdog.api.auth.exception;
 
 /**
  * 인증/회원가입 실패를 나타내는 예외. kind 로 HTTP status 매핑을 구분한다.

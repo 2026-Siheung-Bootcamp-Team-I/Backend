@@ -1,8 +1,9 @@
-package com.edrdog.api.auth;
+package com.edrdog.api.auth.service;
 
 import com.edrdog.api.auth.domain.AppUser;
 import com.edrdog.api.auth.domain.Tenant;
 import com.edrdog.api.auth.domain.UserSession;
+import com.edrdog.api.auth.exception.AuthException;
 import com.edrdog.api.auth.repository.SessionRepository;
 import com.edrdog.api.auth.repository.TenantRepository;
 import com.edrdog.api.auth.repository.UserRepository;

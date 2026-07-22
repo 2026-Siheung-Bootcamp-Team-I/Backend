@@ -1,4 +1,4 @@
-package com.edrdog.api.auth;
+package com.edrdog.api.auth.service;
 
 /**
  * 회원가입/로그인 입력 검증(순수). 해커톤 수준의 최소 규칙만 둔다.

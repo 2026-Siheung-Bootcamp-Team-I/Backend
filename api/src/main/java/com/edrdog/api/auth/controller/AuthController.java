@@ -1,8 +1,12 @@
-package com.edrdog.api.auth.web;
+package com.edrdog.api.auth.controller;
 
-import com.edrdog.api.auth.AuthResult;
-import com.edrdog.api.auth.AuthService;
-import com.edrdog.api.auth.Principal;
+import com.edrdog.api.auth.dto.AuthResponse;
+import com.edrdog.api.auth.dto.LoginRequest;
+import com.edrdog.api.auth.dto.MeResponse;
+import com.edrdog.api.auth.dto.SignupRequest;
+import com.edrdog.api.auth.service.AuthResult;
+import com.edrdog.api.auth.service.AuthService;
+import com.edrdog.api.auth.service.Principal;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.HttpStatus;

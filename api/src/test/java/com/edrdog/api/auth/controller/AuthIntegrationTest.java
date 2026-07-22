@@ -1,4 +1,4 @@
-package com.edrdog.api.auth.web;
+package com.edrdog.api.auth.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
