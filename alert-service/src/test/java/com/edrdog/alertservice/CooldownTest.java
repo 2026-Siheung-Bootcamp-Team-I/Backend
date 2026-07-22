@@ -31,4 +31,20 @@ class CooldownTest {
         cooldown.allow("host-1|RULE", 1_000);
         assertThat(cooldown.allow("host-2|RULE", 1_000)).isTrue();
     }
+
+    @Test
+    @DisplayName("같은 host+rule 이라도 tenant 가 다르면 각각 통과한다")
+    void differentTenant_sameHostRule_independent() {
+        Cooldown cooldown = new Cooldown(60_000);
+        assertThat(cooldown.allow("t1|host-1|RULE", 1_000)).isTrue();
+        assertThat(cooldown.allow("t2|host-1|RULE", 1_000)).isTrue();
+    }
+
+    @Test
+    @DisplayName("같은 tenant+host+rule 은 윈도우 안에서 억제된다")
+    void sameTenantHostRule_withinWindow_suppressed() {
+        Cooldown cooldown = new Cooldown(60_000);
+        assertThat(cooldown.allow("t1|host-1|RULE", 1_000)).isTrue();
+        assertThat(cooldown.allow("t1|host-1|RULE", 30_000)).isFalse();
+    }
 }

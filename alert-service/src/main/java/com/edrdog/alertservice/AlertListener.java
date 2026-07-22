@@ -2,16 +2,21 @@ package com.edrdog.alertservice;
 
 import com.edrdog.alertservice.dto.Alert;
 import com.edrdog.alertservice.slack.SlackNotifier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
 /**
- * alerts 토픽을 소비해 Slack 으로 알림을 보내는 리스너.
- * 같은 host+ruleId 는 쿨다운 창 안에서 중복 발송을 억제한다 (Slack 스팸 방지).
+ * alerts 토픽을 소비해 tenant 별 Slack 으로 알림을 보내는 리스너.
+ * 같은 tenant+host+ruleId 는 쿨다운 창 안에서 중복 발송을 억제한다 (Slack 스팸 방지).
+ * tenantId 없는 alert 는 webhook 조회가 불가능하므로 skip 한다.
  */
 @Component
 public class AlertListener {
+
+    private static final Logger log = LoggerFactory.getLogger(AlertListener.class);
 
     private final SlackNotifier slack;
     private final Cooldown cooldown;
@@ -26,7 +31,11 @@ public class AlertListener {
         if (alert == null || alert.host() == null || alert.ruleId() == null) {
             return;
         }
-        String key = alert.host() + "|" + alert.ruleId();
+        if (alert.tenantId() == null) {
+            log.warn("tenantId 없는 alert → webhook 조회 불가로 skip (host={}, rule={})", alert.host(), alert.ruleId());
+            return;
+        }
+        String key = alert.tenantId() + "|" + alert.host() + "|" + alert.ruleId();
         if (cooldown.allow(key, alert.ts())) {
             slack.send(alert);
         }

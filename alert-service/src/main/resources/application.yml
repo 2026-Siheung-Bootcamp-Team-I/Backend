@@ -19,9 +19,12 @@ edrdog:
   kafka:
     alerts-topic: alerts        # detector 가 발행한 판정 결과 (소비 입력)
   alert:
-    cooldown-ms: 60000          # 같은 host+ruleId 중복 발송 억제 창
-  slack:
-    webhook-url: ${SLACK_WEBHOOK_URL:}   # Slack Incoming Webhook URL (미설정 시 발송 skip)
+    cooldown-ms: 60000          # 같은 tenant+host+ruleId 중복 발송 억제 창
+  api:
+    base-url: ${EDRDOG_API_BASE_URL:http://localhost:8084}   # api-service 내부 엔드포인트 base
+    webhook-cache-ttl-ms: 60000                              # tenant webhook 조회 캐시 TTL
+  internal:
+    key: ${INTERNAL_API_KEY:dev-internal-key}                # 내부 엔드포인트 인증 X-Internal-Key (api-service 와 동일)
 
 management:
   endpoints:
