@@ -1,0 +1,16 @@
+# launchd 데몬(io.osquery.agent)용 플래그. /var/osquery/osquery.flags 로 복사해 사용.
+# 데몬은 osqueryd 를 시스템 데몬으로 띄우므로 FDA 가 osqueryd 자체에 귀속돼 EndpointSecurity 가 확실히 동작한다.
+--config_path=/var/osquery/osquery.conf
+
+# EndpointSecurity(es_process_events) 활성화
+--disable_events=false
+--disable_endpointsecurity=false
+
+# Kafka 로거 -> events-raw
+--logger_plugin=kafka_producer
+--logger_kafka_brokers=localhost:9092
+--logger_kafka_topic=events-raw
+--logger_kafka_acks=all
+
+--host_identifier=hostname
+--disable_watchdog=true

@@ -1,0 +1,9 @@
+# 배관 검증용 osquery 플래그 (FDA 불필요). processes(스냅샷) 차등 로그를 kafka_producer 로 events-raw 에 전송.
+# 실제 운영 플래그는 osquery.flags 참고. 이건 로컬 e2e 확인 전용.
+--logger_plugin=kafka_producer
+--logger_kafka_brokers=localhost:9092
+--logger_kafka_topic=events-raw
+--logger_kafka_acks=all
+--disable_watchdog=true
+--database_path=/tmp/osquery-smoketest.db
+--pidfile=/tmp/osquery-smoketest.pid
