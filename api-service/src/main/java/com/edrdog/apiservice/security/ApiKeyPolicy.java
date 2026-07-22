@@ -13,6 +13,7 @@ public class ApiKeyPolicy {
             "/v3/api-docs",
             "/api/auth/",
             "/api/events",  // 조회는 세션 Bearer 로 인증하고 tenant 를 뽑는다(EventQueryController)
+            "/api/alerts",  // 알림 조회·트리아지도 세션 Bearer 로 인증(AlertController)
             "/api/internal/"  // 서비스 간 조회는 별도 X-Internal-Key 로 인증(TenantController), 프론트 키와 분리
     );
 
