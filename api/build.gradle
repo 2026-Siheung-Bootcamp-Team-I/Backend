@@ -1,0 +1,6 @@
+// API — ClickHouse(edrdog.events) 읽기 전용 조회·요약 REST (프론트 제공). archiver 와 DB 공유(읽기).
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-web'   // RestClient(ClickHouse HTTP) + REST 호스팅
+    implementation 'com.fasterxml.jackson.core:jackson-databind'        // ClickHouse JSON 응답 파싱
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.9'  // Swagger UI (/swagger-ui.html)
+}
