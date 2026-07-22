@@ -11,7 +11,8 @@ public class ApiKeyPolicy {
             "/actuator/health",
             "/swagger-ui",
             "/v3/api-docs",
-            "/api/auth/"
+            "/api/auth/",
+            "/api/events"   // 조회는 세션 Bearer 로 인증하고 tenant 를 뽑는다(EventQueryController)
     );
 
     private final String configuredKey;
