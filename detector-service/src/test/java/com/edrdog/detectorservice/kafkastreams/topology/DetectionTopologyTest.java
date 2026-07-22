@@ -49,11 +49,11 @@ class DetectionTopologyTest {
     }
 
     private Event process(String host, String proc, String parent, long ts) {
-        return new Event(host, Event.TYPE_PROCESS, ts, proc, parent, proc, null, 0);
+        return new Event(host, Event.TYPE_PROCESS, ts, proc, parent, proc, null, 0, "tenant-a");
     }
 
     private Event network(String host, int destPort, long ts) {
-        return new Event(host, Event.TYPE_NETWORK, ts, null, null, null, "203.0.113.9", destPort);
+        return new Event(host, Event.TYPE_NETWORK, ts, null, null, null, "203.0.113.9", destPort, "tenant-a");
     }
 
     @Test

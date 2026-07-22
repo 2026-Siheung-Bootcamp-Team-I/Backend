@@ -46,6 +46,7 @@ public class ClickHouseWriter {
         execute("""
                 CREATE TABLE IF NOT EXISTS %s (
                     host String,
+                    tenant_id String,
                     type LowCardinality(String),
                     ts UInt64,
                     process String,
@@ -55,7 +56,7 @@ public class ClickHouseWriter {
                     dest_port UInt16,
                     ingested_at DateTime64(3) DEFAULT now64(3)
                 ) ENGINE = MergeTree
-                ORDER BY (host, ts)
+                ORDER BY (tenant_id, host, ts)
                 """.formatted(table));
         log.info("ClickHouse 스키마 준비 완료: {}", table);
     }

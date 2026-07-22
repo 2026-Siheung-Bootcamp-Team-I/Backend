@@ -20,6 +20,7 @@ public final class EventRow {
     public static String toJson(Event e, ObjectMapper mapper) {
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("host", nz(e.host()));
+        row.put("tenant_id", nz(e.tenantId()));
         row.put("type", nz(e.type()));
         row.put("ts", e.ts());
         row.put("process", nz(e.process()));

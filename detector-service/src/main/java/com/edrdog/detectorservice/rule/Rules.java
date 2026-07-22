@@ -71,7 +71,8 @@ public final class Rules {
                 Alert.SEV_HIGH,
                 Alert.actionFor(Alert.SEV_HIGH),
                 current.ts(),
-                List.of(summary(officeExec.get()), summary(current))));
+                List.of(summary(officeExec.get()), summary(current)),
+                current.tenantId()));
     }
 
     /** R2 T1105+T1204: 버퍼의 network 다운로드 → 이후 process 실행. */
@@ -93,7 +94,8 @@ public final class Rules {
                 Alert.SEV_CRITICAL,
                 Alert.actionFor(Alert.SEV_CRITICAL),
                 current.ts(),
-                List.of(summary(download.get()), summary(current))));
+                List.of(summary(download.get()), summary(current)),
+                current.tenantId()));
     }
 
     private static boolean isProcess(Event e) {

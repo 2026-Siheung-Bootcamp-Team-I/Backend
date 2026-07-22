@@ -28,9 +28,9 @@ class ApiKeyPolicyTest {
     }
 
     @Test
-    void 일반_API_경로는_예외가_아님() {
-        assertFalse(policy.isExempt("/api/events"));
-        assertFalse(policy.isExempt("/api/events/summary"));
+    void events_조회는_세션_Bearer_로_보호되므로_API키_예외() {
+        assertTrue(policy.isExempt("/api/events"));
+        assertTrue(policy.isExempt("/api/events/summary"));
     }
 
     @Test

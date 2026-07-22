@@ -12,6 +12,7 @@ package com.edrdog.detectorservice.dto;
  * @param cmdline   명령행
  * @param destIp    목적지 IP — network 이벤트
  * @param destPort  목적지 포트 — network 이벤트
+ * @param tenantId  조직(tenant) 식별자 — 멀티테넌시 격리 태그. 판정에는 쓰지 않고 태그로만 흐른다.
  */
 public record Event(
         String host,
@@ -21,7 +22,8 @@ public record Event(
         String parent,
         String cmdline,
         String destIp,
-        int destPort
+        int destPort,
+        String tenantId
 ) {
     public static final String TYPE_PROCESS = "process";
     public static final String TYPE_NETWORK = "network";
