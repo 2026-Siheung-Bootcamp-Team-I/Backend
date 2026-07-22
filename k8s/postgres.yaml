@@ -1,0 +1,57 @@
+# Postgres — 회원가입/로그인용 유저·조직 저장. 개발용, 영속성 없음(emptyDir 없음).
+#   TCP 5432 -> host localhost:5432 (HTTP 아님)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: edrdog
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: edrdog
+            - name: POSTGRES_USER
+              value: edrdog
+            - name: POSTGRES_PASSWORD
+              value: edrdog
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - edrdog
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: edrdog
+spec:
+  type: NodePort
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+      nodePort: 30432
