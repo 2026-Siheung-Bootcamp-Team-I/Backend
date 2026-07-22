@@ -2,7 +2,7 @@ spring:
   application:
     name: api
   datasource:
-    url: ${DB_URL:jdbc:postgresql://localhost:5432/edrdog}
+    url: ${DB_URL:jdbc:mysql://localhost:3306/edrdog}
     username: ${DB_USER:edrdog}
     password: ${DB_PASSWORD:edrdog}
   jpa:
@@ -16,6 +16,8 @@ server:
 edrdog:
   api:
     key: ${EDRDOG_API_KEY:dev-api-key}   # 프론트가 X-API-Key 헤더로 보낼 값 (운영은 환경변수로 주입)
+  internal:
+    key: ${INTERNAL_API_KEY:dev-internal-key}   # 서비스 간 내부 조회 전용 키 (프론트 X-API-Key 와 분리, X-Internal-Key 헤더)
   clickhouse:
     url: http://localhost:8123           # k8s NodePort HTTP (archiver 와 동일 DB, 읽기)
     database: edrdog

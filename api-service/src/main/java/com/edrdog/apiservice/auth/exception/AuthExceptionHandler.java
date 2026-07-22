@@ -20,6 +20,7 @@ public class AuthExceptionHandler {
         HttpStatus status = switch (e.getKind()) {
             case INVALID_INPUT -> HttpStatus.BAD_REQUEST;
             case UNAUTHORIZED -> HttpStatus.UNAUTHORIZED;
+            case NOT_FOUND -> HttpStatus.NOT_FOUND;
             case DUPLICATE -> HttpStatus.CONFLICT;
         };
         return ResponseEntity.status(status).body(Map.of("error", e.getMessage()));

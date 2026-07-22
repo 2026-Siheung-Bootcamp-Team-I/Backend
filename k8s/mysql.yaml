@@ -1,0 +1,59 @@
+# MySQL — 회원가입/로그인용 유저·조직 저장. 개발용, 영속성 없음(emptyDir 없음).
+#   TCP 3306 -> host localhost:3306 (HTTP 아님)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql
+  namespace: edrdog
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysql
+  template:
+    metadata:
+      labels:
+        app: mysql
+    spec:
+      containers:
+        - name: mysql
+          image: mysql:8.0
+          ports:
+            - containerPort: 3306
+          env:
+            - name: MYSQL_DATABASE
+              value: edrdog
+            - name: MYSQL_USER
+              value: edrdog
+            - name: MYSQL_PASSWORD
+              value: edrdog
+            - name: MYSQL_ROOT_PASSWORD
+              value: edrdog
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - mysqladmin ping -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD"
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql
+  namespace: edrdog
+spec:
+  type: NodePort
+  selector:
+    app: mysql
+  ports:
+    - port: 3306
+      targetPort: 3306
+      nodePort: 30306

@@ -8,6 +8,7 @@ public class AuthException extends RuntimeException {
     public enum Kind {
         INVALID_INPUT,  // 400
         UNAUTHORIZED,   // 401
+        NOT_FOUND,      // 404
         DUPLICATE       // 409
     }
 
@@ -28,6 +29,10 @@ public class AuthException extends RuntimeException {
 
     public static AuthException unauthorized(String message) {
         return new AuthException(Kind.UNAUTHORIZED, message);
+    }
+
+    public static AuthException notFound(String message) {
+        return new AuthException(Kind.NOT_FOUND, message);
     }
 
     public static AuthException duplicate(String message) {

@@ -26,6 +26,9 @@ public class Tenant {
     @Column(nullable = false)
     private Instant createdAt;
 
+    @Column
+    private String slackWebhookUrl;
+
     protected Tenant() {
     }
 
@@ -48,5 +51,14 @@ public class Tenant {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public String getSlackWebhookUrl() {
+        return slackWebhookUrl;
+    }
+
+    /** Slack webhook URL 을 갱신한다. */
+    public void updateWebhook(String url) {
+        this.slackWebhookUrl = url;
     }
 }
