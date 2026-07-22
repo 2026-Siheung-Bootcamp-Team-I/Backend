@@ -22,9 +22,21 @@ class ApiKeyPolicyTest {
     }
 
     @Test
+    void auth_엔드포인트는_인증_예외() {
+        assertTrue(policy.isExempt("/api/auth/login"));
+        assertTrue(policy.isExempt("/api/auth/signup"));
+    }
+
+    @Test
     void 일반_API_경로는_예외가_아님() {
         assertFalse(policy.isExempt("/api/events"));
         assertFalse(policy.isExempt("/api/events/summary"));
+    }
+
+    @Test
+    void auth_접두어만_같은_경로는_예외가_아님() {
+        assertFalse(policy.isExempt("/api/authz"));
+        assertFalse(policy.isExempt("/api/auth-logs"));
     }
 
     @Test
