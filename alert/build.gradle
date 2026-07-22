@@ -1,0 +1,6 @@
+// Alert — alerts 를 별도 컨슈머 그룹(alert)으로 소비해 Slack 으로 알림 전송 (responder 와 독립)
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-web'   // RestClient (Slack webhook)
+    implementation 'org.springframework.kafka:spring-kafka'
+    implementation 'com.fasterxml.jackson.core:jackson-databind'        // alerts JSON 역직렬화
+}
