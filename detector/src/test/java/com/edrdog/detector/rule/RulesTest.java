@@ -14,13 +14,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 class RulesTest {
 
     private static final String HOST = "host-1";
+    private static final String TENANT = "tenant-a";
 
     private Event process(String proc, String parent, long ts) {
-        return new Event(HOST, Event.TYPE_PROCESS, ts, proc, parent, proc + " args", null, 0);
+        return new Event(HOST, Event.TYPE_PROCESS, ts, proc, parent, proc + " args", null, 0, TENANT);
     }
 
     private Event network(String destIp, int destPort, long ts) {
-        return new Event(HOST, Event.TYPE_NETWORK, ts, null, null, null, destIp, destPort);
+        return new Event(HOST, Event.TYPE_NETWORK, ts, null, null, null, destIp, destPort, TENANT);
     }
 
     @Test
@@ -40,6 +41,7 @@ class RulesTest {
         assertThat(a.action()).isEqualTo(Alert.ACTION_KILL);
         assertThat(a.ts()).isEqualTo(2000);
         assertThat(a.matched()).hasSize(2);
+        assertThat(a.tenantId()).isEqualTo(TENANT);
     }
 
     @Test

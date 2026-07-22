@@ -18,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class ScenariosTest {
 
     private static final String HOST = "demo-host-01";
+    private static final String TENANT = "tenant-a";
 
     /** 마지막 이벤트를 current, 나머지를 prior 버퍼로 넣어 판정. */
     private static Optional<Alert> detect(List<Event> events) {
@@ -28,7 +29,7 @@ class ScenariosTest {
 
     @Test
     void process_chain_시나리오는_T1059_HIGH_를_트리거한다() {
-        List<Event> events = Scenarios.build(Scenarios.PROCESS_CHAIN, HOST, 1_000_000L);
+        List<Event> events = Scenarios.build(Scenarios.PROCESS_CHAIN, HOST, 1_000_000L, TENANT);
 
         Optional<Alert> alert = detect(events);
 
@@ -42,7 +43,7 @@ class ScenariosTest {
 
     @Test
     void download_exec_시나리오는_T1105_CRITICAL_을_트리거한다() {
-        List<Event> events = Scenarios.build(Scenarios.DOWNLOAD_EXEC, HOST, 1_000_000L);
+        List<Event> events = Scenarios.build(Scenarios.DOWNLOAD_EXEC, HOST, 1_000_000L, TENANT);
 
         Optional<Alert> alert = detect(events);
 
@@ -54,7 +55,7 @@ class ScenariosTest {
 
     @Test
     void 두_이벤트는_같은_host_와_윈도우_안_순서를_가진다() {
-        List<Event> events = Scenarios.build(Scenarios.PROCESS_CHAIN, HOST, 1_000_000L);
+        List<Event> events = Scenarios.build(Scenarios.PROCESS_CHAIN, HOST, 1_000_000L, TENANT);
 
         assertThat(events).hasSize(2);
         assertThat(events).allMatch(e -> HOST.equals(e.host()));
@@ -62,8 +63,25 @@ class ScenariosTest {
     }
 
     @Test
+    void 시나리오_이벤트는_모두_주어진_tenant_로_태깅된다() {
+        List<Event> events = Scenarios.build(Scenarios.DOWNLOAD_EXEC, HOST, 1_000_000L, TENANT);
+
+        assertThat(events).allMatch(e -> TENANT.equals(e.tenantId()));
+    }
+
+    @Test
+    void 판정된_alert_는_트리거_이벤트의_tenant_를_그대로_물려받는다() {
+        List<Event> events = Scenarios.build(Scenarios.PROCESS_CHAIN, HOST, 1_000_000L, TENANT);
+
+        Optional<Alert> alert = detect(events);
+
+        assertThat(alert).isPresent();
+        assertThat(alert.get().tenantId()).isEqualTo(TENANT);
+    }
+
+    @Test
     void 미지원_시나리오는_예외() {
-        assertThatThrownBy(() -> Scenarios.build("nope", HOST, 0L))
+        assertThatThrownBy(() -> Scenarios.build("nope", HOST, 0L, TENANT))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 }

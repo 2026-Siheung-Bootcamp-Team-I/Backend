@@ -46,7 +46,8 @@ public class IngestController {
     @PostMapping("/events/scenario/{name}")
     public ResponseEntity<Map<String, Object>> publishScenario(
             @PathVariable String name,
-            @RequestParam(defaultValue = "demo-host-01") String host) {
+            @RequestParam(defaultValue = "demo-host-01") String host,
+            @RequestParam(defaultValue = "tenant-a") String tenantId) {
         if (!Scenarios.isSupported(name)) {
             return ResponseEntity.badRequest().body(Map.of(
                     "error", "미지원 시나리오: " + name,
@@ -54,11 +55,12 @@ public class IngestController {
         }
         // 발행 시각 기준으로 윈도우 안 시퀀스 생성 (판정은 이벤트 ts 필드로 상관)
         long baseTs = System.currentTimeMillis();
-        List<Event> events = Scenarios.build(name, host, baseTs);
+        List<Event> events = Scenarios.build(name, host, baseTs, tenantId);
         events.forEach(producer::publish);
         return ResponseEntity.accepted().body(Map.of(
                 "scenario", name,
                 "host", host,
+                "tenantId", tenantId,
                 "published", events,
                 "hint", "GET /api/alerts/recent 로 권장조치 확인 (전파에 약간의 지연)"));
     }
