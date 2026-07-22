@@ -12,7 +12,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * ClickHouse FORMAT JSON 응답에서 data 배열만 뽑아내는 순수 파싱 검증.
  */
-class ChResponseTest {
+class ClickHouseResponseTest {
 
     private final ObjectMapper mapper = new ObjectMapper();
 
@@ -23,7 +23,7 @@ class ChResponseTest {
                  "data":[{"host":"h1","type":"process"},{"host":"h2","type":"network"}],
                  "rows":2}
                 """;
-        List<Map<String, Object>> rows = ChResponse.data(json, mapper);
+        List<Map<String, Object>> rows = ClickHouseResponse.data(json, mapper);
         assertEquals(2, rows.size());
         assertEquals("h1", rows.get(0).get("host"));
         assertEquals("network", rows.get(1).get("type"));
@@ -34,6 +34,6 @@ class ChResponseTest {
         String json = """
                 {"meta":[],"data":[],"rows":0}
                 """;
-        assertTrue(ChResponse.data(json, mapper).isEmpty());
+        assertTrue(ClickHouseResponse.data(json, mapper).isEmpty());
     }
 }

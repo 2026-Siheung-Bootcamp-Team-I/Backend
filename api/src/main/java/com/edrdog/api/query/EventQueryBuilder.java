@@ -27,23 +27,23 @@ public class EventQueryBuilder {
     }
 
     /** host/type/from/to 필터(옵션)로 최신순 events 조회. limit 은 1..MAX 로 클램프. */
-    public ChQuery events(String host, String type, Long from, Long to, Integer limit) {
+    public ClickHouseQuery events(String host, String type, Long from, Long to, Integer limit) {
         Map<String, String> params = new LinkedHashMap<>();
         String where = where(host, type, from, to, params);
         String sql = "SELECT " + COLUMNS + " FROM " + table
                 + where
                 + " ORDER BY ts DESC LIMIT " + clampLimit(limit);
-        return new ChQuery(sql, params);
+        return new ClickHouseQuery(sql, params);
     }
 
     /** type 별 건수 집계. 시간범위 필터(옵션) 지원. */
-    public ChQuery summaryByType(Long from, Long to) {
+    public ClickHouseQuery summaryByType(Long from, Long to) {
         Map<String, String> params = new LinkedHashMap<>();
         String where = where(null, null, from, to, params);
         String sql = "SELECT type, count() AS cnt FROM " + table
                 + where
                 + " GROUP BY type ORDER BY cnt DESC";
-        return new ChQuery(sql, params);
+        return new ClickHouseQuery(sql, params);
     }
 
     private static String where(String host, String type, Long from, Long to, Map<String, String> params) {

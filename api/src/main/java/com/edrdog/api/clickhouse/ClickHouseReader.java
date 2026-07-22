@@ -1,6 +1,6 @@
 package com.edrdog.api.clickhouse;
 
-import com.edrdog.api.query.ChQuery;
+import com.edrdog.api.query.ClickHouseQuery;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
@@ -35,8 +35,8 @@ public class ClickHouseReader {
                 .build();
     }
 
-    /** ChQuery(sql + 바인딩 파라미터)를 실행해 결과 행 목록을 돌려준다. */
-    public List<Map<String, Object>> query(ChQuery q) {
+    /** ClickHouseQuery(sql + 바인딩 파라미터)를 실행해 결과 행 목록을 돌려준다. */
+    public List<Map<String, Object>> query(ClickHouseQuery q) {
         String body = q.sql() + " FORMAT JSON";
         String response = client.post()
                 .uri(uriBuilder -> {
@@ -48,6 +48,6 @@ public class ClickHouseReader {
                 .body(body)
                 .retrieve()
                 .body(String.class);
-        return ChResponse.data(response, mapper);
+        return ClickHouseResponse.data(response, mapper);
     }
 }

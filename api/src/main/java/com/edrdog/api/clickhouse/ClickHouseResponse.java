@@ -11,9 +11,9 @@ import java.util.Map;
  * ClickHouse FORMAT JSON 응답 파싱(순수). 응답은 {"meta":[...],"data":[...],"rows":N} 형태이며
  * 여기서는 data 배열만 행(Map) 리스트로 뽑는다.
  */
-public final class ChResponse {
+public final class ClickHouseResponse {
 
-    private ChResponse() {
+    private ClickHouseResponse() {
     }
 
     public static List<Map<String, Object>> data(String json, ObjectMapper mapper) {
