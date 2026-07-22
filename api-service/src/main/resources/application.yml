@@ -9,11 +9,23 @@ spring:
     hibernate:
       ddl-auto: update
     open-in-view: false
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:9092}
+    consumer:
+      group-id: api-alerts
+      auto-offset-reset: latest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.value.default.type: com.edrdog.apiservice.alert.dto.Alert
+        spring.json.trusted.packages: com.edrdog.apiservice.alert.dto
 
 server:
   port: 8084
 
 edrdog:
+  kafka:
+    alerts-topic: alerts                 # detector 가 발행한 판정 결과 (소비 → MySQL 적재)
   api:
     key: ${EDRDOG_API_KEY:dev-api-key}   # 프론트가 X-API-Key 헤더로 보낼 값 (운영은 환경변수로 주입)
   internal:
