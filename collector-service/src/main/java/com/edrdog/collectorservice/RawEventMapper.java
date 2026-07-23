@@ -17,9 +17,10 @@ import java.util.Optional;
  * <ul>
  *   <li>host   = 래핑 {@code hostIdentifier} (구버전 {@code hostname} 폴백)</li>
  *   <li>ts     = 래핑 {@code unixTime}(초) × 1000 (없으면 columns.time 폴백)</li>
- *   <li>type   = 쿼리명({@code name})이 socket/network 계열이면 network, 그 외 process</li>
- *   <li>process= columns.path 의 basename (구분자 {@code /}, {@code \} 모두 처리)</li>
+ *   <li>type   = 쿼리명({@code name}) 매칭: socket/network→network, file→file, script→script, 그 외 process</li>
+ *   <li>process= columns.path(file 은 target_path) 의 basename (구분자 {@code /}, {@code \} 모두 처리)</li>
  *   <li>parent = columns.parent (osquery.conf 쿼리에서 processes 조인으로 이름을 넣어 둠)</li>
+ *   <li>cmdline= columns.cmdline. file 이벤트는 판정용 전체 경로(target_path)를 담는다.</li>
  *   <li>destIp/destPort = columns.remote_address / remote_port</li>
  * </ul>
  *
@@ -51,32 +52,49 @@ public final class RawEventMapper {
 
         String host = firstNonBlank(text(root, "hostIdentifier"), text(root, "hostname"));
         long ts = toMillis(firstNonBlank(text(root, "unixTime"), text(columns, "time")));
-        String type = isNetwork(text(root, "name")) ? Event.TYPE_NETWORK : Event.TYPE_PROCESS;
-        String process = basename(text(columns, "path"));
+        String type = classify(text(root, "name"));
         String tenantId = text(root, "tenantId");   // 수집 API 가 node_key→tenant 로 풀어 루트에 태깅
 
         if (Event.TYPE_NETWORK.equals(type)) {
             return Optional.of(new Event(
-                    host, type, ts, process, null,
+                    host, type, ts, basename(text(columns, "path")), null,
                     text(columns, "cmdline"),
                     text(columns, "remote_address"),
                     toInt(text(columns, "remote_port")),
                     tenantId));
         }
+        if (Event.TYPE_FILE.equals(type)) {
+            // FIM: target_path 전체를 판정용으로 cmdline 에 싣고, basename 을 파일명으로.
+            String path = firstNonBlank(text(columns, "target_path"), text(columns, "path"));
+            return Optional.of(new Event(
+                    host, type, ts, basename(path), null,
+                    path, null, 0, tenantId));
+        }
+        // process / script: 동일한 프로세스 컬럼 구조. script 는 cmdline 에 스크립트 경로가 포함됨.
         return Optional.of(new Event(
-                host, type, ts, process,
+                host, type, ts, basename(text(columns, "path")),
                 text(columns, "parent"),
                 text(columns, "cmdline"),
                 null, 0,
                 tenantId));
     }
 
-    private static boolean isNetwork(String name) {
+    /** 쿼리명으로 이벤트 타입 판정. socket/network→network, file→file, script→script, 그 외 process. */
+    private static String classify(String name) {
         if (name == null) {
-            return false;
+            return Event.TYPE_PROCESS;
         }
         String n = name.toLowerCase();
-        return n.contains("socket") || n.contains("network");
+        if (n.contains("socket") || n.contains("network")) {
+            return Event.TYPE_NETWORK;
+        }
+        if (n.contains("file")) {
+            return Event.TYPE_FILE;
+        }
+        if (n.contains("script")) {
+            return Event.TYPE_SCRIPT;
+        }
+        return Event.TYPE_PROCESS;
     }
 
     /** 경로에서 파일명만 추출. {@code /} 와 {@code \} 를 모두 구분자로 본다. */

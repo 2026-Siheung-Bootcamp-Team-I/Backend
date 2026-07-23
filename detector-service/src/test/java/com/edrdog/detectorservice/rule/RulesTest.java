@@ -24,6 +24,14 @@ class RulesTest {
         return new Event(HOST, Event.TYPE_NETWORK, ts, null, null, null, destIp, destPort, TENANT);
     }
 
+    private Event script(String proc, String fullCmdline, long ts) {
+        return new Event(HOST, Event.TYPE_SCRIPT, ts, proc, "explorer.exe", fullCmdline, null, 0, TENANT);
+    }
+
+    private Event file(String name, String fullPath, long ts) {
+        return new Event(HOST, Event.TYPE_FILE, ts, name, null, fullPath, null, 0, TENANT);
+    }
+
     @Test
     @DisplayName("R1: office앱 exec 후 그 자식으로 shell 실행 → SUSPICIOUS_PROCESS_CHAIN(T1059, HIGH, kill)")
     void r1_officeThenShell_alerts() {
@@ -96,6 +104,61 @@ class RulesTest {
         Event current = process("onedrive.exe", "explorer.exe", 2000);
 
         assertThat(Rules.evaluate(buffer, current)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("R3: 임시/다운로드 경로에서 스크립트 실행 → SCRIPT_FROM_TEMP_PATH(T1059, MEDIUM, notify)")
+    void r3_scriptFromTempPath_alerts() {
+        Event current = script("powershell.exe",
+                "powershell -File C:\\Users\\victim\\Downloads\\setup.ps1", 3000);
+
+        Optional<Alert> alert = Rules.evaluate(List.of(), current);
+
+        assertThat(alert).isPresent();
+        Alert a = alert.get();
+        assertThat(a.ruleId()).isEqualTo("SCRIPT_FROM_TEMP_PATH");
+        assertThat(a.mitre()).isEqualTo("T1059");
+        assertThat(a.severity()).isEqualTo(Alert.SEV_MEDIUM);
+        assertThat(a.action()).isEqualTo(Alert.ACTION_NOTIFY);
+        assertThat(a.ts()).isEqualTo(3000);
+        assertThat(a.matched()).hasSize(1);
+        assertThat(a.tenantId()).isEqualTo(TENANT);
+    }
+
+    @Test
+    @DisplayName("R3 음성: 스크립트지만 정상 경로면 미판정")
+    void r3_scriptFromNormalPath_noAlert() {
+        Event current = script("powershell.exe",
+                "powershell -File C:\\Program Files\\App\\run.ps1", 3000);
+
+        assertThat(Rules.evaluate(List.of(), current)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("R4: 자동실행(시작프로그램) 경로에 파일 생성 → FILE_IN_AUTORUN_PATH(T1547, MEDIUM, notify)")
+    void r4_fileInAutorunPath_alerts() {
+        Event current = file("evil.lnk",
+                "C:\\Users\\victim\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\evil.lnk",
+                4000);
+
+        Optional<Alert> alert = Rules.evaluate(List.of(), current);
+
+        assertThat(alert).isPresent();
+        Alert a = alert.get();
+        assertThat(a.ruleId()).isEqualTo("FILE_IN_AUTORUN_PATH");
+        assertThat(a.mitre()).isEqualTo("T1547");
+        assertThat(a.severity()).isEqualTo(Alert.SEV_MEDIUM);
+        assertThat(a.action()).isEqualTo(Alert.ACTION_NOTIFY);
+        assertThat(a.ts()).isEqualTo(4000);
+        assertThat(a.matched()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("R4 음성: 파일이지만 일반 경로면 미판정")
+    void r4_fileInNormalPath_noAlert() {
+        Event current = file("report.docx", "C:\\Users\\victim\\Documents\\report.docx", 4000);
+
+        assertThat(Rules.evaluate(List.of(), current)).isEmpty();
     }
 
     @Test

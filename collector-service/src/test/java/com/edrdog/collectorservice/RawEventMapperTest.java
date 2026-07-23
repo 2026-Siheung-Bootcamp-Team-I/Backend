@@ -102,6 +102,51 @@ class RawEventMapperTest {
     }
 
     @Test
+    void file_이벤트는_target_path_전체를_cmdline_에_담고_basename_을_process_로_뽑는다() {
+        String raw = """
+                {
+                  "name": "file_events",
+                  "hostIdentifier": "mac-001",
+                  "unixTime": "1700000010",
+                  "action": "added",
+                  "columns": {
+                    "target_path": "/Users/victim/Library/LaunchAgents/com.evil.plist"
+                  }
+                }
+                """;
+
+        Event e = map(raw).orElseThrow();
+
+        assertEquals(Event.TYPE_FILE, e.type());
+        assertEquals("com.evil.plist", e.process());   // basename
+        assertEquals("/Users/victim/Library/LaunchAgents/com.evil.plist", e.cmdline());  // 판정용 전체 경로
+    }
+
+    @Test
+    void script_이벤트는_인터프리터_basename_과_전체_cmdline_을_담는다() {
+        String raw = """
+                {
+                  "name": "script_events",
+                  "hostIdentifier": "win-001",
+                  "unixTime": "1700000020",
+                  "action": "added",
+                  "columns": {
+                    "path": "C:\\\\Windows\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe",
+                    "cmdline": "powershell -File C:\\\\Users\\\\victim\\\\Downloads\\\\a.ps1",
+                    "parent": "explorer.exe"
+                  }
+                }
+                """;
+
+        Event e = map(raw).orElseThrow();
+
+        assertEquals(Event.TYPE_SCRIPT, e.type());
+        assertEquals("powershell.exe", e.process());
+        assertEquals("explorer.exe", e.parent());
+        assertEquals("powershell -File C:\\Users\\victim\\Downloads\\a.ps1", e.cmdline());
+    }
+
+    @Test
     void 루트_tenantId_를_Event_로_전파한다() {
         String raw = """
                 {

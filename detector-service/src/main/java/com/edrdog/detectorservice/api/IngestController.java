@@ -42,7 +42,8 @@ public class IngestController {
     }
 
     @Operation(summary = "공격 시나리오 발행",
-            description = "룰을 확실히 트리거하는 2-이벤트 시퀀스를 발행한다. name: process-chain(T1059/HIGH) 또는 download-exec(T1105/CRITICAL). "
+            description = "룰을 확실히 트리거하는 이벤트를 발행한다. name: process-chain(T1059/HIGH), download-exec(T1105/CRITICAL), "
+                    + "script-exec(T1059/MEDIUM), file-autorun(T1547/MEDIUM). "
                     + "tenantId 는 로그인 tenant 의 PK(GET /api/auth/me 의 tenantId, 예: 1)여야 해당 tenant 로 alert 조회/Slack 이 도달한다.")
     @PostMapping("/events/scenario/{name}")
     public ResponseEntity<Map<String, Object>> publishScenario(
@@ -52,7 +53,8 @@ public class IngestController {
         if (!Scenarios.isSupported(name)) {
             return ResponseEntity.badRequest().body(Map.of(
                     "error", "미지원 시나리오: " + name,
-                    "supported", List.of(Scenarios.PROCESS_CHAIN, Scenarios.DOWNLOAD_EXEC)));
+                    "supported", List.of(Scenarios.PROCESS_CHAIN, Scenarios.DOWNLOAD_EXEC,
+                            Scenarios.SCRIPT_EXEC, Scenarios.FILE_AUTORUN)));
         }
         if (!TenantIds.isValidPk(tenantId)) {
             return ResponseEntity.badRequest().body(Map.of(

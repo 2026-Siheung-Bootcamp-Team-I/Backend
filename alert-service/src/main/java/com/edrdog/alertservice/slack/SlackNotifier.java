@@ -61,6 +61,7 @@ public class SlackNotifier {
         return switch (severity == null ? "" : severity) {
             case Alert.SEV_CRITICAL -> "🔴";
             case Alert.SEV_HIGH -> "🟠";
+            case Alert.SEV_MEDIUM -> "🟡";
             default -> "⚪";
         };
     }

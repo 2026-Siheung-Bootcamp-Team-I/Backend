@@ -11,7 +11,7 @@ import java.util.List;
  * @param host     엔드포인트 식별자
  * @param ruleId   매칭된 룰 식별자 (예: SUSPICIOUS_PROCESS_CHAIN)
  * @param mitre    MITRE ATT&CK 기법 태그 (예: T1059)
- * @param severity 심각도: HIGH | CRITICAL
+ * @param severity 심각도: MEDIUM | HIGH | CRITICAL
  * @param action   권고 대응: notify | kill | isolate
  * @param ts       판정을 완성시킨 트리거 이벤트 시각 (epoch millis)
  * @param matched  판정 근거가 된 이벤트 요약들
@@ -26,6 +26,7 @@ public record Alert(
         long ts,
         List<String> matched
 ) {
+    public static final String SEV_MEDIUM = "MEDIUM";
     public static final String SEV_HIGH = "HIGH";
     public static final String SEV_CRITICAL = "CRITICAL";
 

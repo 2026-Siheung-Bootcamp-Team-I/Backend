@@ -43,10 +43,11 @@ class SlackNotifierTest {
     }
 
     @Test
-    @DisplayName("CRITICAL 은 🔴, HIGH 는 🟠 아이콘으로 구분된다")
+    @DisplayName("CRITICAL 은 🔴, HIGH 는 🟠, MEDIUM 은 🟡 아이콘으로 구분된다")
     void format_severityIcon() {
         assertThat(SlackNotifier.format(alert(Alert.SEV_CRITICAL, Alert.ACTION_ISOLATE))).startsWith("🔴");
         assertThat(SlackNotifier.format(alert(Alert.SEV_HIGH, Alert.ACTION_KILL))).startsWith("🟠");
+        assertThat(SlackNotifier.format(alert(Alert.SEV_MEDIUM, Alert.ACTION_NOTIFY))).startsWith("🟡");
     }
 
     // --- 라우팅 ---

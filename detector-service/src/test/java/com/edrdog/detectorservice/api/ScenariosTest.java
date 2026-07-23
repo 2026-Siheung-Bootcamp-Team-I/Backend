@@ -54,6 +54,32 @@ class ScenariosTest {
     }
 
     @Test
+    void script_exec_시나리오는_T1059_MEDIUM_을_트리거한다() {
+        List<Event> events = Scenarios.build(Scenarios.SCRIPT_EXEC, HOST, 1_000_000L, TENANT);
+
+        Optional<Alert> alert = detect(events);
+
+        assertThat(alert).isPresent();
+        assertThat(alert.get().ruleId()).isEqualTo("SCRIPT_FROM_TEMP_PATH");
+        assertThat(alert.get().mitre()).isEqualTo("T1059");
+        assertThat(alert.get().severity()).isEqualTo(Alert.SEV_MEDIUM);
+        assertThat(alert.get().action()).isEqualTo(Alert.ACTION_NOTIFY);
+    }
+
+    @Test
+    void file_autorun_시나리오는_T1547_MEDIUM_을_트리거한다() {
+        List<Event> events = Scenarios.build(Scenarios.FILE_AUTORUN, HOST, 1_000_000L, TENANT);
+
+        Optional<Alert> alert = detect(events);
+
+        assertThat(alert).isPresent();
+        assertThat(alert.get().ruleId()).isEqualTo("FILE_IN_AUTORUN_PATH");
+        assertThat(alert.get().mitre()).isEqualTo("T1547");
+        assertThat(alert.get().severity()).isEqualTo(Alert.SEV_MEDIUM);
+        assertThat(alert.get().action()).isEqualTo(Alert.ACTION_NOTIFY);
+    }
+
+    @Test
     void 두_이벤트는_같은_host_와_윈도우_안_순서를_가진다() {
         List<Event> events = Scenarios.build(Scenarios.PROCESS_CHAIN, HOST, 1_000_000L, TENANT);
 
