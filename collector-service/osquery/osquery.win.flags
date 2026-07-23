@@ -1,0 +1,29 @@
+# EDRdog osquery 엔드포인트 플래그 (Windows). api-service 수집 TLS API 로 붙는다.
+# 수집 쿼리(schedule)는 서버가 /api/osquery/config 로 내려주므로 여기엔 config 파일이 없다.
+#
+# 실행(관리자 PowerShell):
+#   osqueryd.exe --flagfile=C:\ProgramData\osquery\osquery.win.flags
+# enroll secret 발급: 프론트 로그인 후 POST /api/tenant/enroll-secret → 값을 enroll_secret_path 파일에 저장.
+
+# --- TLS remote 플러그인 ---
+--enroll_secret_path=C:\ProgramData\osquery\enroll.secret
+--tls_hostname=localhost:8443
+--tls_server_certs=C:\ProgramData\osquery\osquery-server.pem   # gen-dev-keystore.sh 산출 PEM 을 핀(dev)
+
+--config_plugin=tls
+--config_tls_endpoint=/api/osquery/config
+--config_refresh=60
+
+--enroll_tls_endpoint=/api/osquery/enroll
+
+--logger_plugin=tls
+--logger_tls_endpoint=/api/osquery/log
+--logger_tls_period=10
+--disable_carver=true
+
+# --- evented 테이블 + ETW(process_etw_events) 로 프로세스 생성 감시 ---
+# network 이벤트는 core osquery 에 실시간 소켓 테이블이 없어 Zeek 가 담당한다.
+--disable_events=false
+
+--host_identifier=hostname
+--disable_watchdog=true
