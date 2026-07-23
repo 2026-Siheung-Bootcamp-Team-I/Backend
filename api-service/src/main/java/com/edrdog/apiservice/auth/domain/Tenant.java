@@ -29,6 +29,9 @@ public class Tenant {
     @Column
     private String slackWebhookUrl;
 
+    @Column(unique = true)
+    private String enrollSecret;   // osquery 엔드포인트가 enroll 시 제출하는 테넌트 배포 시크릿
+
     protected Tenant() {
     }
 
@@ -60,5 +63,14 @@ public class Tenant {
     /** Slack webhook URL 을 갱신한다. */
     public void updateWebhook(String url) {
         this.slackWebhookUrl = url;
+    }
+
+    public String getEnrollSecret() {
+        return enrollSecret;
+    }
+
+    /** enroll secret 을 발급/회전한다. */
+    public void updateEnrollSecret(String secret) {
+        this.enrollSecret = secret;
     }
 }

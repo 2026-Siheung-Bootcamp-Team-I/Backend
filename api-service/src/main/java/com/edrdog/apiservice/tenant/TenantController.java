@@ -8,6 +8,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -52,6 +53,24 @@ public class TenantController {
         Principal principal = auth.resolve(bearerToken(authorization));
         String url = tenants.getWebhook(principal.tenantId()).orElse(null);
         return new WebhookResponse(principal.tenantId(), url);
+    }
+
+    @Operation(summary = "enroll secret 발급/회전", description = "로그인 유저(Bearer)의 tenant 에 osquery enroll secret 을 새로 발급한다. 엔드포인트 osquery.conf 의 enroll_secret 에 넣는다.")
+    @PostMapping("/api/tenant/enroll-secret")
+    public EnrollSecretResponse rotateEnrollSecret(
+            @RequestHeader(name = "Authorization", required = false) String authorization) {
+        Principal principal = auth.resolve(bearerToken(authorization));
+        String secret = tenants.rotateEnrollSecret(principal.tenantId());
+        return new EnrollSecretResponse(principal.tenantId(), secret);
+    }
+
+    @Operation(summary = "내 enroll secret 조회", description = "로그인 유저(Bearer)의 tenant 에 발급된 enroll secret 을 조회한다. 미발급이면 null.")
+    @GetMapping("/api/tenant/enroll-secret")
+    public EnrollSecretResponse getEnrollSecret(
+            @RequestHeader(name = "Authorization", required = false) String authorization) {
+        Principal principal = auth.resolve(bearerToken(authorization));
+        String secret = tenants.getEnrollSecret(principal.tenantId()).orElse(null);
+        return new EnrollSecretResponse(principal.tenantId(), secret);
     }
 
     @Operation(summary = "내부 webhook 조회", description = "서비스 간 조회용(X-Internal-Key). 지정 tenant 의 webhook URL 을 조회한다.")

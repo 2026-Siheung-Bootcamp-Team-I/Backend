@@ -53,19 +53,22 @@ public final class RawEventMapper {
         long ts = toMillis(firstNonBlank(text(root, "unixTime"), text(columns, "time")));
         String type = isNetwork(text(root, "name")) ? Event.TYPE_NETWORK : Event.TYPE_PROCESS;
         String process = basename(text(columns, "path"));
+        String tenantId = text(root, "tenantId");   // 수집 API 가 node_key→tenant 로 풀어 루트에 태깅
 
         if (Event.TYPE_NETWORK.equals(type)) {
             return Optional.of(new Event(
                     host, type, ts, process, null,
                     text(columns, "cmdline"),
                     text(columns, "remote_address"),
-                    toInt(text(columns, "remote_port"))));
+                    toInt(text(columns, "remote_port")),
+                    tenantId));
         }
         return Optional.of(new Event(
                 host, type, ts, process,
                 text(columns, "parent"),
                 text(columns, "cmdline"),
-                null, 0));
+                null, 0,
+                tenantId));
     }
 
     private static boolean isNetwork(String name) {
