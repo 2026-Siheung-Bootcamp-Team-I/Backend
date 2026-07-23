@@ -75,17 +75,25 @@ class AlertApiIntegrationTest {
         return id;
     }
 
+    private void seedAlert(String tenantId, String host, String ruleId, String severity, long ts) {
+        String id = AlertId.of(tenantId, host, ruleId, ts);
+        alerts.save(AlertRecord.open(id, tenantId, host, ruleId, "T1059",
+                severity, "notify", ts, List.of("m1"), Instant.now()));
+    }
+
     @Test
     void 목록은_자기_tenant_것만_보인다() throws Exception {
         String[] a = signup("a-list@edrdog.com");
         String[] b = signup("b-list@edrdog.com");
-        seedAlert(a[1], "hostA", 100L);
+        seedAlert(a[1], "hostA", "DOWNLOAD_AND_EXECUTE", "HIGH", 100L);
         seedAlert(b[1], "hostB", 200L);
 
         mvc.perform(get("/api/alerts").header("Authorization", "Bearer " + a[0]))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1))
-                .andExpect(jsonPath("$[0].host").value("hostA"));
+                .andExpect(jsonPath("$[0].host").value("hostA"))
+                .andExpect(jsonPath("$[0].ruleId").value("DOWNLOAD_AND_EXECUTE"))
+                .andExpect(jsonPath("$[0].threatName").value("다운로드 후 실행"));
     }
 
     @Test
@@ -185,5 +193,71 @@ class AlertApiIntegrationTest {
     @Test
     void lineage_도_토큰_없으면_401() throws Exception {
         mvc.perform(get("/api/alerts/anything/lineage")).andExpect(status().isUnauthorized());
+    }
+
+    // --- summary ---
+
+    @Test
+    void summary_는_자기_tenant_것만_집계하고_severity_분포와_topThreats_를_돌려준다() throws Exception {
+        String[] a = signup("a-alertsummary@edrdog.com");
+        String[] b = signup("b-alertsummary@edrdog.com");
+        // A: 악성코드 2건(DOWNLOAD_AND_EXECUTE CRITICAL/HIGH), 권한상승 1건(SUSPICIOUS_PROCESS_CHAIN HIGH)
+        seedAlert(a[1], "hostA", "DOWNLOAD_AND_EXECUTE", "CRITICAL", 100L);
+        seedAlert(a[1], "hostA", "DOWNLOAD_AND_EXECUTE", "HIGH", 110L);
+        seedAlert(a[1], "hostA", "SUSPICIOUS_PROCESS_CHAIN", "HIGH", 120L);
+        // B: 섞이면 안 되는 다른 tenant 데이터
+        seedAlert(b[1], "hostB", "DOWNLOAD_AND_EXECUTE", "CRITICAL", 130L);
+
+        mvc.perform(get("/api/alerts/summary").header("Authorization", "Bearer " + a[0]))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(3))
+                .andExpect(jsonPath("$.severity.critical").value(1))
+                .andExpect(jsonPath("$.severity.high").value(2))
+                .andExpect(jsonPath("$.severity.medium").value(0))
+                .andExpect(jsonPath("$.topThreats.length()").value(2))
+                .andExpect(jsonPath("$.topThreats[0].category").value("악성코드"))
+                .andExpect(jsonPath("$.topThreats[0].count").value(2))
+                .andExpect(jsonPath("$.topThreats[1].category").value("권한상승"))
+                .andExpect(jsonPath("$.topThreats[1].count").value(1));
+    }
+
+    @Test
+    void summary_는_기간_필터를_적용한다() throws Exception {
+        String[] a = signup("a-summaryperiod@edrdog.com");
+        seedAlert(a[1], "hostA", "DOWNLOAD_AND_EXECUTE", "CRITICAL", 100L);
+        seedAlert(a[1], "hostA", "DOWNLOAD_AND_EXECUTE", "HIGH", 300L);
+
+        mvc.perform(get("/api/alerts/summary")
+                        .param("from", "200")
+                        .header("Authorization", "Bearer " + a[0]))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.severity.critical").value(0))
+                .andExpect(jsonPath("$.severity.high").value(1));
+    }
+
+    @Test
+    void summary_total_은_미매핑_severity_도_포함하고_동점_카테고리는_이름순() throws Exception {
+        String[] a = signup("a-alertsummarytotal@edrdog.com");
+        // 악성코드 1건(CRITICAL) + 기타 1건(미등록 ruleId, severity=null) → 동점(각 1)
+        seedAlert(a[1], "hostA", "DOWNLOAD_AND_EXECUTE", "CRITICAL", 100L);
+        seedAlert(a[1], "hostA", "UNKNOWN_RULE", null, 110L);
+
+        mvc.perform(get("/api/alerts/summary").header("Authorization", "Bearer " + a[0]))
+                .andExpect(status().isOk())
+                // null severity 는 어느 버킷에도 안 들어가지만 total 에는 포함(2)
+                .andExpect(jsonPath("$.total").value(2))
+                .andExpect(jsonPath("$.severity.critical").value(1))
+                .andExpect(jsonPath("$.severity.high").value(0))
+                .andExpect(jsonPath("$.severity.medium").value(0))
+                // 동점(각 1)은 category 오름차순으로 결정적: "기타"(ㄱ) < "악성코드"(ㅇ)
+                .andExpect(jsonPath("$.topThreats.length()").value(2))
+                .andExpect(jsonPath("$.topThreats[0].category").value("기타"))
+                .andExpect(jsonPath("$.topThreats[1].category").value("악성코드"));
+    }
+
+    @Test
+    void summary_토큰_없으면_401() throws Exception {
+        mvc.perform(get("/api/alerts/summary")).andExpect(status().isUnauthorized());
     }
 }

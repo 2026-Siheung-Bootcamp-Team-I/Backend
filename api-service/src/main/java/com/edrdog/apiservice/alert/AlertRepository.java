@@ -39,4 +39,28 @@ public interface AlertRepository extends JpaRepository<AlertRecord, String> {
             + "GROUP BY a.host")
     List<HostAlertCount> openAlertCountsByHost(@Param("tenantId") String tenantId,
                                                @Param("status") String status);
+
+    /**
+     * 기간 내 severity 별 카운트(대시보드 분포용). tenant 격리 필수, from/to 는 null 이면 무시한다.
+     */
+    @Query("SELECT a.severity AS severity, COUNT(a) AS cnt "
+            + "FROM AlertRecord a WHERE a.tenantId = :tenantId "
+            + "AND (:from is null or a.ts >= :from) "
+            + "AND (:to is null or a.ts <= :to) "
+            + "GROUP BY a.severity")
+    List<SeverityCount> countBySeverity(@Param("tenantId") String tenantId,
+                                        @Param("from") Long from,
+                                        @Param("to") Long to);
+
+    /**
+     * 기간 내 ruleId 별 카운트(대시보드 카테고리 접기용). tenant 격리 필수, from/to 는 null 이면 무시한다.
+     */
+    @Query("SELECT a.ruleId AS ruleId, COUNT(a) AS cnt "
+            + "FROM AlertRecord a WHERE a.tenantId = :tenantId "
+            + "AND (:from is null or a.ts >= :from) "
+            + "AND (:to is null or a.ts <= :to) "
+            + "GROUP BY a.ruleId")
+    List<RuleIdCount> countByRuleId(@Param("tenantId") String tenantId,
+                                    @Param("from") Long from,
+                                    @Param("to") Long to);
 }
