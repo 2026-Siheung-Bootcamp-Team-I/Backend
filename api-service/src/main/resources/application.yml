@@ -19,6 +19,9 @@ spring:
       properties:
         spring.json.value.default.type: com.edrdog.apiservice.alert.dto.Alert
         spring.json.trusted.packages: com.edrdog.apiservice.alert.dto
+    producer:                            # osquery 수집 원시 로그를 events-raw 로 발행(문자열)
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
 
 server:
   port: 8084
@@ -26,6 +29,15 @@ server:
 edrdog:
   kafka:
     alerts-topic: alerts                 # detector 가 발행한 판정 결과 (소비 → MySQL 적재)
+    events-raw-topic: events-raw         # osquery 수집 원시 result-log (발행 → collector 정규화)
+  osquery:
+    tls:                                 # osquery 전용 HTTPS 커넥터 (프론트 HTTP 8084 와 별도 포트)
+      enabled: ${OSQUERY_TLS_ENABLED:false}          # 켜면 keystore 필수 (scripts/gen-dev-keystore.sh)
+      port: ${OSQUERY_TLS_PORT:8443}
+      keystore: ${OSQUERY_TLS_KEYSTORE:}             # PKCS12 경로 또는 classpath:...
+      keystore-password: ${OSQUERY_TLS_KEYSTORE_PASSWORD:changeit}
+      keystore-type: PKCS12
+      key-alias: ${OSQUERY_TLS_KEY_ALIAS:osquery}
   api:
     key: ${EDRDOG_API_KEY:dev-api-key}   # 프론트가 X-API-Key 헤더로 보낼 값 (운영은 환경변수로 주입)
   internal:
