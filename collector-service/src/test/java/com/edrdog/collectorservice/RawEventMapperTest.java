@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -98,6 +99,39 @@ class RawEventMapperTest {
         assertEquals("curl", e.process());
         assertEquals("203.0.113.9", e.destIp());
         assertEquals(443, e.destPort());
+    }
+
+    @Test
+    void 루트_tenantId_를_Event_로_전파한다() {
+        String raw = """
+                {
+                  "name": "process_events",
+                  "hostIdentifier": "mac-001",
+                  "unixTime": "1700000000",
+                  "action": "added",
+                  "tenantId": "7",
+                  "columns": { "path": "/bin/bash", "parent": "zsh" }
+                }
+                """;
+
+        Event e = map(raw).orElseThrow();
+
+        assertEquals("7", e.tenantId());   // 수집 API 가 node_key 로 풀어 루트에 태깅한 값
+    }
+
+    @Test
+    void tenantId_가_없으면_null_로_흐른다() {
+        String raw = """
+                {
+                  "name": "socket_events",
+                  "hostIdentifier": "mac-001",
+                  "unixTime": "1700000005",
+                  "action": "added",
+                  "columns": { "path": "/usr/bin/curl", "remote_address": "203.0.113.9", "remote_port": "443" }
+                }
+                """;
+
+        assertNull(map(raw).orElseThrow().tenantId());
     }
 
     @Test

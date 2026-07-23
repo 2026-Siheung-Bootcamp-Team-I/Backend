@@ -3,6 +3,7 @@ package com.edrdog.apiservice.tenant;
 import com.edrdog.apiservice.auth.domain.Tenant;
 import com.edrdog.apiservice.auth.exception.AuthException;
 import com.edrdog.apiservice.auth.repository.TenantRepository;
+import com.edrdog.apiservice.osquery.OsqueryTokens;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -39,5 +40,24 @@ public class TenantService {
         Tenant tenant = tenants.findById(tenantId)
                 .orElseThrow(() -> AuthException.notFound("tenant 를 찾을 수 없습니다"));
         return Optional.ofNullable(tenant.getSlackWebhookUrl());
+    }
+
+    /** enroll secret 발급/회전. 새 랜덤 토큰을 저장하고 반환한다. tenant 없음 404. */
+    @Transactional
+    public String rotateEnrollSecret(Long tenantId) {
+        Tenant tenant = tenants.findById(tenantId)
+                .orElseThrow(() -> AuthException.notFound("tenant 를 찾을 수 없습니다"));
+        String secret = OsqueryTokens.newToken();
+        tenant.updateEnrollSecret(secret);
+        tenants.save(tenant);
+        return secret;
+    }
+
+    /** 현재 enroll secret 조회. tenant 없음 404, 미발급이면 빈 Optional. */
+    @Transactional(readOnly = true)
+    public Optional<String> getEnrollSecret(Long tenantId) {
+        Tenant tenant = tenants.findById(tenantId)
+                .orElseThrow(() -> AuthException.notFound("tenant 를 찾을 수 없습니다"));
+        return Optional.ofNullable(tenant.getEnrollSecret());
     }
 }
