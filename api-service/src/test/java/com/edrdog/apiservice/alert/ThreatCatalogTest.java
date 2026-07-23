@@ -16,6 +16,12 @@ class ThreatCatalogTest {
 
         assertEquals("다운로드 후 실행", ThreatCatalog.threatName("DOWNLOAD_AND_EXECUTE"));
         assertEquals("악성코드", ThreatCatalog.category("DOWNLOAD_AND_EXECUTE"));
+
+        assertEquals("임시·다운로드 경로 스크립트 실행", ThreatCatalog.threatName("SCRIPT_FROM_TEMP_PATH"));
+        assertEquals("실행", ThreatCatalog.category("SCRIPT_FROM_TEMP_PATH"));
+
+        assertEquals("자동실행 경로 파일 생성", ThreatCatalog.threatName("FILE_IN_AUTORUN_PATH"));
+        assertEquals("지속성", ThreatCatalog.category("FILE_IN_AUTORUN_PATH"));
     }
 
     @Test

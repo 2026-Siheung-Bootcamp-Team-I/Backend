@@ -4,9 +4,10 @@ package com.edrdog.apiservice.osquery;
  * 엔드포인트에 내려줄 osquery 수집 설정(osquery.conf 의 schedule). config 엔드포인트가 그대로 응답한다.
  *
  * <p>스케줄 쿼리 이름이 result-log 의 {@code name} 으로 찍히므로, collector 의 정규화 규칙과 맞춘다:
- * {@code socket_events}(이름에 socket 포함)는 network 로, {@code process_events}/{@code process_etw_events}는
- * process 로 매핑된다. 각 쿼리 컬럼(path/cmdline/parent, remote_address/remote_port)도 RawEventMapper 가
- * 읽는 이름과 맞춘다.
+ * 이름에 socket→network, file→file, script→script, 그 외→process 로 매핑된다.
+ * ({@code process_events}/{@code process_etw_events}는 process, {@code script_events}/{@code script_etw_events}는 script,
+ * {@code file_events}는 file.) 각 쿼리 컬럼(path/cmdline/parent, remote_address/remote_port, target_path)도
+ * RawEventMapper 가 읽는 이름과 맞춘다. file/script 이벤트의 경로는 detector 가 MEDIUM 룰(T1059/T1547) 판정에 쓴다.
  *
  * <p>플랫폼별로 감시 테이블이 다르므로 enroll 시 받은 platform 으로 스케줄을 갈라 내려준다.
  * <ul>
@@ -29,6 +30,13 @@ public final class OsqueryConfig {
                 "disable_events": false,
                 "events_expiry": 3600
               },
+              "file_paths": {
+                "autorun": [
+                  "/Users/%/Library/LaunchAgents/%%",
+                  "/Library/LaunchAgents/%%",
+                  "/Library/LaunchDaemons/%%"
+                ]
+              },
               "schedule": {
                 "process_events": {
                   "query": "SELECT e.path AS path, e.cmdline AS cmdline, p.name AS parent, e.pid AS pid, e.time AS time FROM es_process_events e LEFT JOIN processes p ON e.parent = p.pid WHERE e.event_type = 'exec'",
@@ -39,6 +47,16 @@ public final class OsqueryConfig {
                   "query": "SELECT path, remote_address, remote_port, pid, time FROM socket_events WHERE action = 'connect' AND remote_address != '' AND remote_address NOT IN ('127.0.0.1', '::1', '0.0.0.0')",
                   "interval": 10,
                   "description": "아웃바운드 소켓 연결 이벤트"
+                },
+                "script_events": {
+                  "query": "SELECT e.path AS path, e.cmdline AS cmdline, p.name AS parent, e.pid AS pid, e.time AS time FROM es_process_events e LEFT JOIN processes p ON e.parent = p.pid WHERE e.event_type = 'exec' AND (e.path LIKE '%/bash' OR e.path LIKE '%/sh' OR e.path LIKE '%/zsh' OR e.path LIKE '%/python%' OR e.path LIKE '%/osascript')",
+                  "interval": 10,
+                  "description": "스크립트 인터프리터 실행. cmdline 의 스크립트 경로로 임시/다운로드 실행을 detector 가 MEDIUM(T1059) 판정"
+                },
+                "file_events": {
+                  "query": "SELECT target_path, action, time FROM file_events WHERE action IN ('CREATED', 'UPDATED', 'MOVED_TO')",
+                  "interval": 10,
+                  "description": "자동실행(LaunchAgents/Daemons) 경로 FIM. target_path 로 지속성 확보를 detector 가 MEDIUM(T1547) 판정. file_paths.autorun 참조"
                 }
               }
             }
@@ -56,11 +74,27 @@ public final class OsqueryConfig {
                 "disable_events": false,
                 "events_expiry": 3600
               },
+              "file_paths": {
+                "autorun": [
+                  "C:\\\\Users\\\\%\\\\AppData\\\\Roaming\\\\Microsoft\\\\Windows\\\\Start Menu\\\\Programs\\\\Startup\\\\%%",
+                  "C:\\\\ProgramData\\\\Microsoft\\\\Windows\\\\Start Menu\\\\Programs\\\\StartUp\\\\%%"
+                ]
+              },
               "schedule": {
                 "process_etw_events": {
                   "query": "SELECT e.path AS path, e.cmdline AS cmdline, p.name AS parent, e.pid AS pid, e.time AS time FROM process_etw_events e LEFT JOIN processes p ON e.ppid = p.pid WHERE e.type = 'ProcessStart'",
                   "interval": 10,
                   "description": "프로세스 생성 이벤트(ETW)"
+                },
+                "script_etw_events": {
+                  "query": "SELECT e.path AS path, e.cmdline AS cmdline, p.name AS parent, e.pid AS pid, e.time AS time FROM process_etw_events e LEFT JOIN processes p ON e.ppid = p.pid WHERE e.type = 'ProcessStart' AND (e.path LIKE '%\\\\powershell.exe' OR e.path LIKE '%\\\\cmd.exe' OR e.path LIKE '%\\\\wscript.exe' OR e.path LIKE '%\\\\cscript.exe' OR e.path LIKE '%\\\\mshta.exe')",
+                  "interval": 10,
+                  "description": "스크립트 인터프리터 실행. cmdline 의 스크립트 경로로 임시/다운로드 실행을 detector 가 MEDIUM(T1059) 판정"
+                },
+                "file_events": {
+                  "query": "SELECT target_path, action, time FROM file_events WHERE action IN ('CREATED', 'UPDATED', 'MOVED_TO')",
+                  "interval": 10,
+                  "description": "시작프로그램(Startup) 경로 FIM. target_path 로 지속성 확보를 detector 가 MEDIUM(T1547) 판정. file_paths.autorun 참조"
                 }
               }
             }

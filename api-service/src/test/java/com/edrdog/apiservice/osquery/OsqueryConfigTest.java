@@ -30,6 +30,20 @@ class OsqueryConfigTest {
         assertTrue(procQuery.contains("es_process_events"), "EndpointSecurity 테이블을 써야 한다");
         assertTrue(procQuery.contains("processes"), "parent 이름을 위해 processes 조인이 있어야 한다");
         assertTrue(procQuery.contains("AS parent"), "parent 컬럼을 이름으로 별칭해야 RawEventMapper 가 읽는다");
+
+        assertTrue(s.has("script_events"), "mac 스크립트 스케줄 키는 script_events (mapper=script)");
+        assertTrue(s.has("file_events"), "mac 파일 스케줄 키는 file_events (mapper=file)");
+        assertTrue(s.get("file_events").get("query").asText().contains("target_path"),
+                "file_events 는 판정용 target_path 를 내려야 한다");
+    }
+
+    @Test
+    void macOS_는_자동실행_FIM_감시_경로를_내려준다() throws Exception {
+        JsonNode root = mapper.readTree(OsqueryConfig.forPlatform("darwin"));
+
+        JsonNode autorun = root.get("file_paths").get("autorun");
+        assertTrue(autorun.isArray() && autorun.size() > 0, "file_events FIM 대상 경로가 있어야 한다");
+        assertTrue(autorun.toString().contains("LaunchAgents"), "LaunchAgents 자동실행 경로를 감시해야 한다");
     }
 
     @Test
@@ -43,6 +57,9 @@ class OsqueryConfigTest {
         assertTrue(procQuery.contains("process_etw_events"), "ETW 테이블을 써야 한다");
         assertTrue(procQuery.contains("processes"), "parent 이름을 위해 processes 조인(ppid)이 있어야 한다");
         assertTrue(procQuery.contains("AS parent"), "parent 를 이름으로 별칭해야 한다");
+
+        assertTrue(s.has("script_etw_events"), "win 스크립트 스케줄 키는 script_etw_events (mapper=script)");
+        assertTrue(s.has("file_events"), "win 파일 스케줄 키는 file_events (mapper=file)");
     }
 
     @Test

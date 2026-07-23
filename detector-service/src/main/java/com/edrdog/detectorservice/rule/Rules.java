@@ -31,6 +31,14 @@ public final class Rules {
     private static final Set<String> BASELINE_SAFE = Set.of(
             "onedrive.exe", "teams.exe", "gupdate.exe", "msedgeupdate.exe", "update.exe");
 
+    /** 임시/다운로드 경로 표식 — 여기서 스크립트가 실행되면 저심각 의심(R3). 소문자 기준. */
+    private static final Set<String> SCRIPT_TEMP_MARKERS = Set.of(
+            "\\temp\\", "/tmp/", "\\downloads\\", "/downloads/", "appdata\\local\\temp");
+
+    /** 자동실행/시작 경로 표식 — 여기에 파일이 생기면 지속성 확보 의심(R4). 소문자 기준. */
+    private static final Set<String> FILE_AUTORUN_MARKERS = Set.of(
+            "\\startup\\", "/launchagents/", "\\currentversion\\run");
+
     /**
      * 현재 이벤트가 선행 버퍼와 상관되어 룰을 완성하면 Alert 반환. 여러 룰 매칭 시 가장 심각한 것 채택.
      */
@@ -43,7 +51,16 @@ public final class Rules {
         if (r2.isPresent()) {
             return r2;
         }
-        return suspiciousProcessChain(prior, current);
+        Optional<Alert> r1 = suspiciousProcessChain(prior, current);
+        if (r1.isPresent()) {
+            return r1;
+        }
+        // 저심각 단일-이벤트(point) 룰 — 시퀀스 상관 없이 현재 이벤트만으로 판정
+        Optional<Alert> r3 = scriptFromTempPath(current);
+        if (r3.isPresent()) {
+            return r3;
+        }
+        return fileInAutorunPath(current);
     }
 
     /** R1 T1059: 버퍼의 office앱 exec → 그 office앱을 부모로 shell 실행. */
@@ -98,12 +115,58 @@ public final class Rules {
                 current.tenantId()));
     }
 
+    /** R3 T1059: 임시/다운로드 경로에서 실행된 스크립트 (저심각 point 룰). */
+    private static Optional<Alert> scriptFromTempPath(Event current) {
+        if (!isScript(current) || !pathHasMarker(current.cmdline(), SCRIPT_TEMP_MARKERS)) {
+            return Optional.empty();
+        }
+        return Optional.of(new Alert(
+                current.host(),
+                "SCRIPT_FROM_TEMP_PATH",
+                "T1059",
+                Alert.SEV_MEDIUM,
+                Alert.actionFor(Alert.SEV_MEDIUM),
+                current.ts(),
+                List.of(summary(current)),
+                current.tenantId()));
+    }
+
+    /** R4 T1547: 자동실행/시작 경로에 생성된 파일 (지속성 확보, 저심각 point 룰). */
+    private static Optional<Alert> fileInAutorunPath(Event current) {
+        if (!isFile(current) || !pathHasMarker(current.cmdline(), FILE_AUTORUN_MARKERS)) {
+            return Optional.empty();
+        }
+        return Optional.of(new Alert(
+                current.host(),
+                "FILE_IN_AUTORUN_PATH",
+                "T1547",
+                Alert.SEV_MEDIUM,
+                Alert.actionFor(Alert.SEV_MEDIUM),
+                current.ts(),
+                List.of(summary(current)),
+                current.tenantId()));
+    }
+
     private static boolean isProcess(Event e) {
         return Event.TYPE_PROCESS.equals(e.type());
     }
 
     private static boolean isNetwork(Event e) {
         return Event.TYPE_NETWORK.equals(e.type());
+    }
+
+    private static boolean isScript(Event e) {
+        return Event.TYPE_SCRIPT.equals(e.type());
+    }
+
+    private static boolean isFile(Event e) {
+        return Event.TYPE_FILE.equals(e.type());
+    }
+
+    /** 경로(소문자화)에 표식 중 하나라도 포함되면 true. */
+    private static boolean pathHasMarker(String path, Set<String> markers) {
+        String p = lower(path);
+        return p != null && markers.stream().anyMatch(p::contains);
     }
 
     /** null 안전한 집합 포함 검사 (immutable Set 은 contains(null) 시 NPE). */
@@ -123,6 +186,12 @@ public final class Rules {
     private static String summary(Event e) {
         if (isNetwork(e)) {
             return "network " + e.destIp() + ":" + e.destPort();
+        }
+        if (isScript(e)) {
+            return "script " + e.process() + " (" + e.cmdline() + ")";
+        }
+        if (isFile(e)) {
+            return "file " + e.cmdline();
         }
         return "process " + e.process() + " (parent " + e.parent() + ")";
     }
