@@ -34,6 +34,13 @@ class ApiKeyPolicyTest {
     }
 
     @Test
+    void alerts_hosts_조회도_세션_Bearer_예외() {
+        assertTrue(policy.isExempt("/api/alerts"));
+        assertTrue(policy.isExempt("/api/hosts"));
+        assertTrue(policy.isExempt("/api/hosts/summary"));
+    }
+
+    @Test
     void auth_접두어만_같은_경로는_예외가_아님() {
         assertFalse(policy.isExempt("/api/authz"));
         assertFalse(policy.isExempt("/api/auth-logs"));

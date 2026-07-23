@@ -81,4 +81,51 @@ class AlertRepositoryTest {
         assertEquals(2, limited.size());
         assertEquals(300L, limited.get(0).getTs());
     }
+
+    // --- host 별 열린 alert 집계 ---
+
+    private static HostAlertCount find(List<HostAlertCount> counts, String host) {
+        return counts.stream().filter(c -> c.getHost().equals(host)).findFirst().orElseThrow();
+    }
+
+    @Test
+    void 열린_alert만_host별로_집계하고_severity를_센다() {
+        seed("A", "h1", "CRITICAL", AlertStatus.OPEN, 100L);
+        seed("A", "h1", "HIGH", AlertStatus.OPEN, 110L);
+        seed("A", "h2", "HIGH", AlertStatus.OPEN, 200L);
+
+        List<HostAlertCount> counts = alerts.openAlertCountsByHost("A", AlertStatus.OPEN);
+        assertEquals(2, counts.size());
+
+        HostAlertCount h1 = find(counts, "h1");
+        assertEquals(2L, h1.getOpenTotal());
+        assertEquals(1L, h1.getOpenCritical());
+        assertEquals(1L, h1.getOpenHigh());
+
+        HostAlertCount h2 = find(counts, "h2");
+        assertEquals(1L, h2.getOpenTotal());
+        assertEquals(0L, h2.getOpenCritical());
+        assertEquals(1L, h2.getOpenHigh());
+    }
+
+    @Test
+    void 트리아지된_alert는_집계에서_빠진다() {
+        seed("A", "h1", "CRITICAL", AlertStatus.CONFIRMED, 100L);
+        seed("A", "h1", "HIGH", AlertStatus.OPEN, 110L);
+
+        HostAlertCount h1 = find(alerts.openAlertCountsByHost("A", AlertStatus.OPEN), "h1");
+        assertEquals(1L, h1.getOpenTotal());
+        assertEquals(0L, h1.getOpenCritical());
+        assertEquals(1L, h1.getOpenHigh());
+    }
+
+    @Test
+    void 집계도_tenant_격리() {
+        seed("A", "h1", "HIGH", AlertStatus.OPEN, 100L);
+        seed("B", "h1", "CRITICAL", AlertStatus.OPEN, 200L);
+
+        List<HostAlertCount> a = alerts.openAlertCountsByHost("A", AlertStatus.OPEN);
+        assertEquals(1, a.size());
+        assertEquals(0L, find(a, "h1").getOpenCritical());
+    }
 }
