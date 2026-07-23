@@ -27,4 +27,16 @@ public interface AlertRepository extends JpaRepository<AlertRecord, String> {
                              @Param("from") Long from,
                              @Param("to") Long to,
                              Pageable pageable);
+
+    /**
+     * host 별 열린 alert 집계(엔드포인트 목록 status/위협수용). tenant 격리는 필수.
+     * severity 리터럴은 detector 발행값(Alert.SEV_CRITICAL/SEV_HIGH)과 일치한다.
+     */
+    @Query("SELECT a.host AS host, COUNT(a) AS openTotal, "
+            + "SUM(CASE WHEN a.severity = 'CRITICAL' THEN 1 ELSE 0 END) AS openCritical, "
+            + "SUM(CASE WHEN a.severity = 'HIGH' THEN 1 ELSE 0 END) AS openHigh "
+            + "FROM AlertRecord a WHERE a.tenantId = :tenantId AND a.status = :status "
+            + "GROUP BY a.host")
+    List<HostAlertCount> openAlertCountsByHost(@Param("tenantId") String tenantId,
+                                               @Param("status") String status);
 }

@@ -40,6 +40,19 @@ public class EventQueryBuilder {
     }
 
     /**
+     * tenant 격리 하에 관측된 host 목록과 각 host 의 last_seen(최신 ts)을 뽑는다. tenantId 는 필수.
+     * 호스트 대장(registry) 없이 events 집계로만 관측 호스트를 얻는다(엔드포인트 목록의 데이터원).
+     */
+    public ClickHouseQuery hostsLastSeen(String tenantId) {
+        Map<String, String> params = new LinkedHashMap<>();
+        String where = where(tenantId, null, null, null, null, params);
+        String sql = "SELECT host, max(ts) AS last_seen FROM " + table
+                + where
+                + " GROUP BY host ORDER BY last_seen DESC";
+        return new ClickHouseQuery(sql, params);
+    }
+
+    /**
      * lineage 재구성용: tenant+host 격리 하에 시간 윈도우[from,to] events 를 시간순으로 조회.
      * 그래프 빌드에 필요한 컬럼만 뽑고, ts 오름차순(부모->자식 체인 순)으로 정렬한다.
      * 상한(MAX_LIMIT)으로 클램프해 폭주를 막는다. tenantId 는 필수.

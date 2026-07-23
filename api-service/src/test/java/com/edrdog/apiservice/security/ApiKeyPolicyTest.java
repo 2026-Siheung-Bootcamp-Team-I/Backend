@@ -34,6 +34,13 @@ class ApiKeyPolicyTest {
     }
 
     @Test
+    void alerts_hosts_조회도_세션_Bearer_예외() {
+        assertTrue(policy.isExempt("/api/alerts"));
+        assertTrue(policy.isExempt("/api/hosts"));
+        assertTrue(policy.isExempt("/api/hosts/summary"));
+    }
+
+    @Test
     void osquery_수집은_자체_인증이므로_API키_예외() {
         assertTrue(policy.isExempt("/api/osquery/enroll"));
         assertTrue(policy.isExempt("/api/osquery/config"));

@@ -181,4 +181,26 @@ class EventQueryBuilderTest {
         assertEquals("1000", q.params().get("from"));
         assertEquals("2000", q.params().get("to"));
     }
+
+    // --- 호스트 목록 ---
+
+    @Test
+    void 호스트목록은_tenant로_필터하며_host별_last_seen을_집계한다() {
+        ClickHouseQuery q = builder.hostsLastSeen(TENANT);
+        assertTrue(q.sql().contains("tenant_id = {tenant:String}"), q.sql());
+        assertEquals(TENANT, q.params().get("tenant"));
+        assertTrue(q.sql().contains("max(ts) AS last_seen"), q.sql());
+        assertTrue(q.sql().contains("GROUP BY host"), q.sql());
+    }
+
+    @Test
+    void 호스트목록은_last_seen_최신순() {
+        assertTrue(builder.hostsLastSeen(TENANT).sql().contains("ORDER BY last_seen DESC"));
+    }
+
+    @Test
+    void 호스트목록도_tenant_필수() {
+        assertThrows(IllegalArgumentException.class, () -> builder.hostsLastSeen(null));
+        assertThrows(IllegalArgumentException.class, () -> builder.hostsLastSeen("  "));
+    }
 }
