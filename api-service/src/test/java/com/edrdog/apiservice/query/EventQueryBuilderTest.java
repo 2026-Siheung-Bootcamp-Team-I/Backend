@@ -126,6 +126,43 @@ class EventQueryBuilderTest {
         assertTrue(builder.events(TENANT, null, null, null, null, 100).sql().contains("ORDER BY ts DESC"));
     }
 
+    // --- lineage ---
+
+    @Test
+    void lineage는_tenant_host_시간윈도우를_모두_바인딩한다() {
+        ClickHouseQuery q = builder.lineageEvents(TENANT, "host-01", 1000L, 2000L);
+        assertTrue(q.sql().contains("tenant_id = {tenant:String}"), q.sql());
+        assertTrue(q.sql().contains("host = {host:String}"), q.sql());
+        assertTrue(q.sql().contains("ts >= {from:UInt64}"), q.sql());
+        assertTrue(q.sql().contains("ts <= {to:UInt64}"), q.sql());
+        assertEquals(TENANT, q.params().get("tenant"));
+        assertEquals("host-01", q.params().get("host"));
+        assertEquals("1000", q.params().get("from"));
+        assertEquals("2000", q.params().get("to"));
+    }
+
+    @Test
+    void lineage는_그래프_빌드에_필요한_컬럼만_시간순으로_뽑는다() {
+        ClickHouseQuery q = builder.lineageEvents(TENANT, "host-01", 1000L, 2000L);
+        assertTrue(q.sql().contains("process"), q.sql());
+        assertTrue(q.sql().contains("parent"), q.sql());
+        assertTrue(q.sql().contains("dest_ip"), q.sql());
+        assertTrue(q.sql().contains("dest_port"), q.sql());
+        assertTrue(q.sql().contains("ORDER BY ts ASC"), q.sql());
+    }
+
+    @Test
+    void lineage도_상한으로_클램프해_폭주를_막는다() {
+        ClickHouseQuery q = builder.lineageEvents(TENANT, "host-01", 1000L, 2000L);
+        assertTrue(q.sql().contains("LIMIT 1000"), q.sql());
+    }
+
+    @Test
+    void lineage도_tenant_가_null_이면_예외() {
+        assertThrows(IllegalArgumentException.class,
+                () -> builder.lineageEvents(null, "host-01", 1000L, 2000L));
+    }
+
     // --- 요약 ---
 
     @Test

@@ -1,6 +1,7 @@
 package com.edrdog.apiservice.alert;
 
 import com.edrdog.apiservice.alert.dto.Alert;
+import com.edrdog.apiservice.query.EventQueryBuilder;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
@@ -20,8 +21,9 @@ class AlertIngestTest {
     @Autowired
     private AlertRepository alerts;
 
+    // 적재/트리아지만 검증하므로 lineage 의존성(reader)은 쓰지 않는다.
     private AlertService service() {
-        return new AlertService(alerts);
+        return new AlertService(alerts, null, new EventQueryBuilder("edrdog.events"), new LineageGraphBuilder());
     }
 
     private static Alert alert(String tenantId, long ts) {

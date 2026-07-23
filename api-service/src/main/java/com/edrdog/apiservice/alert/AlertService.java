@@ -2,7 +2,10 @@ package com.edrdog.apiservice.alert;
 
 import com.edrdog.apiservice.alert.dto.Alert;
 import com.edrdog.apiservice.alert.web.AlertResponse;
+import com.edrdog.apiservice.alert.web.LineageResponse;
 import com.edrdog.apiservice.auth.exception.AuthException;
+import com.edrdog.apiservice.clickhouse.ClickHouseReader;
+import com.edrdog.apiservice.query.EventQueryBuilder;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -10,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 /**
  * alert 적재/조회/트리아지 로직. 리스너·컨트롤러는 얇게 두고 여기서 tenant 격리와 멱등 적재를 담당한다.
@@ -20,10 +24,20 @@ public class AlertService {
     static final int DEFAULT_LIMIT = 100;
     static final int MAX_LIMIT = 1000;
 
-    private final AlertRepository alerts;
+    /** lineage 재구성 윈도우: alert.ts 기준 앞뒤 5분. */
+    static final long LINEAGE_WINDOW_MS = 5 * 60 * 1000L;
 
-    public AlertService(AlertRepository alerts) {
+    private final AlertRepository alerts;
+    private final ClickHouseReader reader;
+    private final EventQueryBuilder events;
+    private final LineageGraphBuilder lineage;
+
+    public AlertService(AlertRepository alerts, ClickHouseReader reader,
+                        EventQueryBuilder events, LineageGraphBuilder lineage) {
         this.alerts = alerts;
+        this.reader = reader;
+        this.events = events;
+        this.lineage = lineage;
     }
 
     /**
@@ -75,6 +89,20 @@ public class AlertService {
         AlertRecord record = owned(tenantId, id);
         record.triage(status, Instant.now());
         return AlertResponse.from(record);
+    }
+
+    /**
+     * alert 의 공격 경로 그래프. 소유 확인 후, 같은 tenant+host 의 alert.ts ±5분 윈도우 events 를
+     * 시간순으로 긁어와 이름 기반 process/network 체인으로 재구성한다. 없거나 남의 tenant 것이면 404.
+     */
+    @Transactional(readOnly = true)
+    public LineageResponse lineage(String tenantId, String id) {
+        AlertRecord alert = owned(tenantId, id);
+        long from = Math.max(0, alert.getTs() - LINEAGE_WINDOW_MS);
+        long to = alert.getTs() + LINEAGE_WINDOW_MS;
+        List<Map<String, Object>> rows = reader.query(
+                events.lineageEvents(tenantId, alert.getHost(), from, to));
+        return lineage.build(rows);
     }
 
     /** id 로 찾되 tenant 소유가 아니면 404 로 숨긴다(없는 것과 구분 불가). */
