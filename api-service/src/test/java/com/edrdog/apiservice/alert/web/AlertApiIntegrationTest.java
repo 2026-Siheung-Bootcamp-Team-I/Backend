@@ -4,6 +4,8 @@ import com.edrdog.apiservice.alert.AlertId;
 import com.edrdog.apiservice.alert.AlertRecord;
 import com.edrdog.apiservice.alert.AlertRepository;
 import com.edrdog.apiservice.alert.AlertStatus;
+import com.edrdog.apiservice.clickhouse.ClickHouseReader;
+import com.edrdog.apiservice.query.ClickHouseQuery;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -12,12 +14,16 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -42,6 +48,10 @@ class AlertApiIntegrationTest {
 
     @Autowired
     private AlertRepository alerts;
+
+    // lineage 는 ClickHouse 를 읽는다. 실 브로커에 붙지 않도록 reader 를 대체해 지정한 events 행을 돌려준다.
+    @MockitoBean
+    private ClickHouseReader reader;
 
     private static String signupBody(String email) {
         return "{\"email\":\"" + email + "\",\"password\":\"password1\"}";
@@ -120,5 +130,60 @@ class AlertApiIntegrationTest {
     @Test
     void 토큰_없으면_401() throws Exception {
         mvc.perform(get("/api/alerts")).andExpect(status().isUnauthorized());
+    }
+
+    // --- lineage ---
+
+    private static Map<String, Object> procRow(String process, String parent) {
+        return Map.of("type", "process", "ts", 100L, "process", process, "parent", parent,
+                "dest_ip", "", "dest_port", 0);
+    }
+
+    private static Map<String, Object> netRow(String process, String ip, int port) {
+        return Map.of("type", "network", "ts", 100L, "process", process, "parent", "",
+                "dest_ip", ip, "dest_port", port);
+    }
+
+    @Test
+    void 자기_alert_lineage_는_이름체인_그래프를_돌려준다() throws Exception {
+        String[] a = signup("a-lineage@edrdog.com");
+        String id = seedAlert(a[1], "hostA", 100L);
+        when(reader.query(any(ClickHouseQuery.class))).thenReturn(List.of(
+                procRow("child.exe", "root.exe"),
+                netRow("child.exe", "10.0.0.9", 4444)));
+
+        mvc.perform(get("/api/alerts/" + id + "/lineage").header("Authorization", "Bearer " + a[0]))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nodes.length()").value(3))
+                .andExpect(jsonPath("$.edges.length()").value(2))
+                .andExpect(jsonPath("$.edges[?(@.rel=='spawned')].from").value("proc:root.exe"))
+                .andExpect(jsonPath("$.edges[?(@.rel=='connected')].to").value("net:10.0.0.9:4444"));
+    }
+
+    @Test
+    void 이벤트가_없으면_lineage_는_빈_그래프_200() throws Exception {
+        String[] a = signup("a-emptylineage@edrdog.com");
+        String id = seedAlert(a[1], "hostA", 100L);
+        when(reader.query(any(ClickHouseQuery.class))).thenReturn(List.of());
+
+        mvc.perform(get("/api/alerts/" + id + "/lineage").header("Authorization", "Bearer " + a[0]))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nodes.length()").value(0))
+                .andExpect(jsonPath("$.edges.length()").value(0));
+    }
+
+    @Test
+    void 남의_alert_lineage_는_404() throws Exception {
+        String[] a = signup("a-plineage@edrdog.com");
+        String[] b = signup("b-plineage@edrdog.com");
+        String bId = seedAlert(b[1], "hostB", 200L);
+
+        mvc.perform(get("/api/alerts/" + bId + "/lineage").header("Authorization", "Bearer " + a[0]))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void lineage_도_토큰_없으면_401() throws Exception {
+        mvc.perform(get("/api/alerts/anything/lineage")).andExpect(status().isUnauthorized());
     }
 }

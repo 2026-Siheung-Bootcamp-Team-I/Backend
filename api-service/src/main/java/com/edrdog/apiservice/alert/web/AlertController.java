@@ -58,6 +58,17 @@ public class AlertController {
         return alerts.get(tenantId, id);
     }
 
+    @Operation(summary = "알림 공격 경로(lineage)",
+            description = "알림 하나의 process lineage 그래프(nodes/edges). 같은 host+tenant 의 알림 시각 ±5분 events 를 "
+                    + "이름 기반 process/network 체인으로 재구성한다. 남의 tenant 것이면 404.")
+    @GetMapping("/{id}/lineage")
+    public LineageResponse lineage(
+            @RequestHeader(name = "Authorization", required = false) String authorization,
+            @PathVariable String id) {
+        String tenantId = currentTenantId(authorization);
+        return alerts.lineage(tenantId, id);
+    }
+
     @Operation(summary = "알림 트리아지", description = "status 를 confirmed/false_positive 로 갱신. 잘못된 값 400, 남의 tenant 것 404.")
     @PatchMapping("/{id}")
     public AlertResponse triage(

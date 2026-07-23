@@ -39,6 +39,20 @@ public class EventQueryBuilder {
         return new ClickHouseQuery(sql, params);
     }
 
+    /**
+     * lineage 재구성용: tenant+host 격리 하에 시간 윈도우[from,to] events 를 시간순으로 조회.
+     * 그래프 빌드에 필요한 컬럼만 뽑고, ts 오름차순(부모->자식 체인 순)으로 정렬한다.
+     * 상한(MAX_LIMIT)으로 클램프해 폭주를 막는다. tenantId 는 필수.
+     */
+    public ClickHouseQuery lineageEvents(String tenantId, String host, Long from, Long to) {
+        Map<String, String> params = new LinkedHashMap<>();
+        String where = where(tenantId, host, null, from, to, params);
+        String sql = "SELECT type, ts, process, parent, dest_ip, dest_port FROM " + table
+                + where
+                + " ORDER BY ts ASC LIMIT " + MAX_LIMIT;
+        return new ClickHouseQuery(sql, params);
+    }
+
     /** tenant 격리 하에 type 별 건수 집계. 시간범위 필터(옵션) 지원. tenantId 는 필수. */
     public ClickHouseQuery summaryByType(String tenantId, Long from, Long to) {
         Map<String, String> params = new LinkedHashMap<>();
