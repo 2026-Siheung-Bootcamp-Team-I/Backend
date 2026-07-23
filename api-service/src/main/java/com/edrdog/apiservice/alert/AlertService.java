@@ -3,6 +3,7 @@ package com.edrdog.apiservice.alert;
 import com.edrdog.apiservice.alert.dto.Alert;
 import com.edrdog.apiservice.alert.web.AlertResponse;
 import com.edrdog.apiservice.alert.web.LineageResponse;
+import com.edrdog.apiservice.alert.web.SummaryResponse;
 import com.edrdog.apiservice.auth.exception.AuthException;
 import com.edrdog.apiservice.clickhouse.ClickHouseReader;
 import com.edrdog.apiservice.query.EventQueryBuilder;
@@ -12,6 +13,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -103,6 +106,50 @@ public class AlertService {
         List<Map<String, Object>> rows = reader.query(
                 events.lineageEvents(tenantId, alert.getHost(), from, to));
         return lineage.build(rows);
+    }
+
+    /** 상수 정렬을 명확히 하려는 severity 리터럴(detector 발행값과 일치). */
+    private static final String SEV_CRITICAL = "CRITICAL";
+    private static final String SEV_HIGH = "HIGH";
+    private static final String SEV_MEDIUM = "MEDIUM";
+
+    /** 카테고리 topThreats 상위 개수. */
+    static final int TOP_THREATS = 5;
+
+    /**
+     * 대시보드 집계. tenant 격리 + 기간(from/to null 이면 무시) 하에 severity 분포와
+     * 카테고리별 상위 위협을 조립한다. total 은 모든 severity 버킷 합이라 매핑 안 되는
+     * severity(null/미래값)도 포함돼 topThreats(모든 row 집계) 합과 정합이 맞는다(추가 쿼리 없음).
+     */
+    @Transactional(readOnly = true)
+    public SummaryResponse summary(String tenantId, Long from, Long to) {
+        long critical = 0;
+        long high = 0;
+        long medium = 0;
+        long total = 0;
+        for (SeverityCount c : alerts.countBySeverity(tenantId, from, to)) {
+            total += c.getCnt();
+            if (SEV_CRITICAL.equals(c.getSeverity())) {
+                critical = c.getCnt();
+            } else if (SEV_HIGH.equals(c.getSeverity())) {
+                high = c.getCnt();
+            } else if (SEV_MEDIUM.equals(c.getSeverity())) {
+                medium = c.getCnt();
+            }
+        }
+
+        Map<String, Long> byCategory = new LinkedHashMap<>();
+        for (RuleIdCount c : alerts.countByRuleId(tenantId, from, to)) {
+            byCategory.merge(ThreatCatalog.category(c.getRuleId()), c.getCnt(), Long::sum);
+        }
+        List<SummaryResponse.ThreatCount> topThreats = byCategory.entrySet().stream()
+                .map(e -> new SummaryResponse.ThreatCount(e.getKey(), e.getValue()))
+                .sorted(Comparator.comparingLong(SummaryResponse.ThreatCount::count).reversed()
+                        .thenComparing(SummaryResponse.ThreatCount::category))
+                .limit(TOP_THREATS)
+                .toList();
+
+        return new SummaryResponse(total, new SummaryResponse.Severity(critical, high, medium), topThreats);
     }
 
     /** id 로 찾되 tenant 소유가 아니면 404 로 숨긴다(없는 것과 구분 불가). */

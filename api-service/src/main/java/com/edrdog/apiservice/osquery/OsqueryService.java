@@ -52,10 +52,10 @@ public class OsqueryService {
         return Optional.of(node.getNodeKey());
     }
 
-    /** node_key 가 유효하면 수집 설정을 응답. 유효하지 않으면 빈 Optional(=node_invalid). */
+    /** node_key 가 유효하면 플랫폼별 수집 설정을 응답. 유효하지 않으면 빈 Optional(=node_invalid). */
     @Transactional
     public Optional<String> config(String nodeKey) {
-        return resolve(nodeKey).map(node -> OsqueryConfig.SCHEDULE_JSON);
+        return resolve(nodeKey).map(node -> OsqueryConfig.forPlatform(node.getPlatform()));
     }
 
     /**

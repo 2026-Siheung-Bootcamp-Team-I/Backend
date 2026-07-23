@@ -38,4 +38,5 @@ echo "  OSQUERY_TLS_KEYSTORE=$OUT/osquery-keystore.p12 \\"
 echo "  OSQUERY_TLS_KEYSTORE_PASSWORD=$PASS \\"
 echo "  ./gradlew :api-service:bootRun"
 echo
-echo "osquery 는 scripts/osquery.flags.example 참고 (--tls_server_certs=$OUT/osquery-server.pem)"
+echo "osquery 엔드포인트 플래그: collector-service/osquery/osquery.mac.flags · osquery.win.flags"
+echo "  (--tls_server_certs 를 $OUT/osquery-server.pem 로 지정)"

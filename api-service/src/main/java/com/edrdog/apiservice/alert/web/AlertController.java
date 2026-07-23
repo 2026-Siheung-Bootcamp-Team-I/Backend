@@ -49,6 +49,17 @@ public class AlertController {
         return alerts.query(tenantId, host, severity, status, from, to, limit);
     }
 
+    @Operation(summary = "알림 대시보드 집계",
+            description = "로그인 유저의 tenant 것만 기간(from/to 옵션)으로 total·severity 분포·카테고리별 상위 위협을 집계한다.")
+    @GetMapping("/summary")
+    public SummaryResponse summary(
+            @RequestHeader(name = "Authorization", required = false) String authorization,
+            @RequestParam(required = false) Long from,
+            @RequestParam(required = false) Long to) {
+        String tenantId = currentTenantId(authorization);
+        return alerts.summary(tenantId, from, to);
+    }
+
     @Operation(summary = "알림 상세", description = "단건 상세(matched 포함). 남의 tenant 것이면 404.")
     @GetMapping("/{id}")
     public AlertResponse detail(
