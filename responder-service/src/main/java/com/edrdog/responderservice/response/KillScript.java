@@ -5,11 +5,16 @@ package com.edrdog.responderservice.response;
  *
  * 안전 설계:
  * - 조치 시점 호스트에서 pid 를 실시간 해석 → 탐지 시점 PID 재사용 문제 회피.
- * - comm(basename) 정확 일치(==)로만 매칭 → 부분일치/정규식 오탐 차단.
+ * - 프로세스 basename 정확 일치(==)로만 매칭 → 부분일치/정규식 오탐 차단.
  * - 타깃을 작은따옴표로 감싸고 내부 작은따옴표를 이스케이프 → 셸 인젝션 차단.
  *
+ * 크로스플랫폼 매칭: ps 의 comm 은 macOS 에서 전체경로 + 16자 절단이라 basename 매칭이 깨진다.
+ * 그래서 args(argv0, 절단 없음)를 host 에서 basename 으로 정규화해 비교한다(Linux/macOS 공통 동작).
+ *
  * 한계(실제 osquery 수집 붙으면 정밀화): basename 매칭이라 같은 이름 프로세스가 여럿이면 모두 kill.
- * 전체 경로/PID+start_time 검증은 이벤트 스키마에 pid 가 실려오는 시점에 추가한다.
+ * argv0 경로에 공백이 있으면(예: macOS 앱번들 "…/Slack Helper.app/…/Slack Helper") ps args 의 첫
+ * 토큰이 공백에서 끊겨, 그 prefix 의 basename 으로 비교되어 형제 프로세스까지 과다매칭될 수 있다.
+ * 정밀 매칭(공백 경로/PID+start_time)은 osquery processes 테이블을 조회하는 시점에 추가한다.
  */
 public final class KillScript {
 
@@ -35,9 +40,10 @@ public final class KillScript {
         String name = shSingleQuote(basename(target));
         return """
                 #!/bin/sh
-                # EDRdog responder: 대상 프로세스명과 정확히 일치하는 실행 프로세스를 kill (trigger=response)
+                # EDRdog responder: 대상 프로세스명(basename)과 일치하는 실행 프로세스를 kill (trigger=response)
+                # args(argv0)를 basename 으로 정규화해 매칭한다(comm 은 macOS 에서 전체경로+절단이라 못 씀).
                 name=%s
-                pids=$(ps -Ao pid=,comm= | awk -v n="$name" '$2==n {print $1}')
+                pids=$(ps -Ao pid=,args= | awk -v n="$name" '{p=$2; sub(/.*\\//,"",p); if (p==n) print $1}')
                 if [ -z "$pids" ]; then
                   echo "EDRDOG_RESULT=NO_MATCH name=$name"
                   exit 0
