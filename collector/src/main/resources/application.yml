@@ -2,7 +2,7 @@ spring:
   application:
     name: collector
   kafka:
-    bootstrap-servers: localhost:9092
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     consumer:
       group-id: collector
       auto-offset-reset: earliest       # 원시 이벤트는 유실 없이 처음부터 정규화
