@@ -128,4 +128,39 @@ class AlertRepositoryTest {
         assertEquals(1, a.size());
         assertEquals(0L, find(a, "h1").getOpenCritical());
     }
+
+    // --- timeseries(버킷×severity 집계) ---
+
+    private static final long HOUR = 3_600_000L;
+
+    private static TimeBucketSeverityCount find(List<TimeBucketSeverityCount> rows, long bucketStart, String severity) {
+        return rows.stream()
+                .filter(r -> r.getBucketStart() == bucketStart && severity.equals(r.getSeverity()))
+                .findFirst().orElseThrow();
+    }
+
+    @Test
+    void timeseries_는_버킷과_severity로_묶어_카운트한다() {
+        seed("A", "h1", "CRITICAL", AlertStatus.OPEN, 100L);
+        seed("A", "h1", "HIGH", AlertStatus.OPEN, 200L);
+        seed("A", "h1", "HIGH", AlertStatus.OPEN, HOUR + 50L);
+
+        List<TimeBucketSeverityCount> rows = alerts.timeseries("A", 0L, 2 * HOUR, HOUR);
+
+        assertEquals(1L, find(rows, 0L, "CRITICAL").getCnt());
+        assertEquals(1L, find(rows, 0L, "HIGH").getCnt());
+        assertEquals(1L, find(rows, HOUR, "HIGH").getCnt());
+    }
+
+    @Test
+    void timeseries_도_tenant_격리와_시간범위_필터를_지킨다() {
+        seed("A", "h1", "HIGH", AlertStatus.OPEN, 100L);
+        seed("B", "h1", "CRITICAL", AlertStatus.OPEN, 100L);
+        seed("A", "h1", "CRITICAL", AlertStatus.OPEN, 3 * HOUR);
+
+        List<TimeBucketSeverityCount> rows = alerts.timeseries("A", 0L, 2 * HOUR, HOUR);
+
+        assertEquals(1, rows.size());
+        assertEquals(1L, find(rows, 0L, "HIGH").getCnt());
+    }
 }
