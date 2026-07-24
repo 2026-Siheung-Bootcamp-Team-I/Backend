@@ -26,7 +26,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 })
 class DemoAccountSeederTest {
 
-    private static final String LOGIN_BODY = "{\"email\":\"test\",\"password\":\"1234\"}";
+    private static final String LOGIN_BODY = "{\"email\":\"test@edrdog.local\",\"password\":\"1234\"}";
 
     @Autowired
     private MockMvc mvc;
@@ -41,7 +41,7 @@ class DemoAccountSeederTest {
                         .content(LOGIN_BODY))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.token").isNotEmpty())
-                .andExpect(jsonPath("$.email").value("test"))
+                .andExpect(jsonPath("$.email").value("test@edrdog.local"))
                 .andExpect(jsonPath("$.tenantId").value((int) DemoAccountSeeder.TENANT_ID));
     }
 
@@ -60,7 +60,7 @@ class DemoAccountSeederTest {
     void 잘못된_비밀번호는_그대로_거부된다() throws Exception {
         mvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"test\",\"password\":\"wrong\"}"))
+                        .content("{\"email\":\"test@edrdog.local\",\"password\":\"wrong\"}"))
                 .andExpect(status().isUnauthorized());
     }
 }
