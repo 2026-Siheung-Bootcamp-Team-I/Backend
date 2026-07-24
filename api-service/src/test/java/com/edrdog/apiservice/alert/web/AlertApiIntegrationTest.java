@@ -4,6 +4,8 @@ import com.edrdog.apiservice.alert.AlertId;
 import com.edrdog.apiservice.alert.AlertStatus;
 import com.edrdog.apiservice.clickhouse.ClickHouseReader;
 import com.edrdog.apiservice.query.ClickHouseQuery;
+import com.edrdog.apiservice.responder.KillResult;
+import com.edrdog.apiservice.responder.ResponderClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -22,6 +24,9 @@ import java.util.List;
 import java.util.Map;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -50,6 +55,9 @@ class AlertApiIntegrationTest {
 
     @MockitoBean
     private ClickHouseReader reader;
+
+    @MockitoBean
+    private ResponderClient responder;
 
     /** 목 ClickHouse 의 판정기록(alerts 테이블) 시드. tenant/id 필터는 목이 쿼리 파라미터로 반영한다. */
     private final List<Map<String, Object>> alertRows = new ArrayList<>();
@@ -160,6 +168,64 @@ class AlertApiIntegrationTest {
     @Test
     void 토큰_없으면_401() throws Exception {
         mvc.perform(get("/api/alerts")).andExpect(status().isUnauthorized());
+    }
+
+    // --- respond (kill 프록시) ---
+
+    @Test
+    void 자기_alert_respond_는_알림host로_responder에_위임한다() throws Exception {
+        String[] a = signup("a-respond@edrdog.com");
+        String id = seedAlert(a[1], "hostA", 100L);
+        when(responder.kill(eq("hostA"), eq("evil.exe")))
+                .thenReturn(new KillResult("hostA", "evil.exe", "KILLED", "exec-1"));
+
+        mvc.perform(post("/api/alerts/" + id + "/respond").header("Authorization", "Bearer " + a[0])
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"target\":\"evil.exe\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.host").value("hostA"))
+                .andExpect(jsonPath("$.status").value("KILLED"))
+                .andExpect(jsonPath("$.executionId").value("exec-1"));
+
+        // host 는 알림에서 오고 클라이언트 입력이 아님을 확인
+        verify(responder).kill("hostA", "evil.exe");
+    }
+
+    @Test
+    void 남의_alert_respond_는_404이고_responder를_호출하지_않는다() throws Exception {
+        String[] a = signup("a-presp@edrdog.com");
+        String[] b = signup("b-presp@edrdog.com");
+        String bId = seedAlert(b[1], "hostB", 200L);
+
+        mvc.perform(post("/api/alerts/" + bId + "/respond").header("Authorization", "Bearer " + a[0])
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"target\":\"evil.exe\"}"))
+                .andExpect(status().isNotFound());
+
+        verify(responder, never()).kill(any(), any());
+    }
+
+    @Test
+    void respond_target_없으면_400() throws Exception {
+        String[] a = signup("a-respnotarget@edrdog.com");
+        String id = seedAlert(a[1], "hostA", 100L);
+
+        mvc.perform(post("/api/alerts/" + id + "/respond").header("Authorization", "Bearer " + a[0])
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"target\":\"  \"}"))
+                .andExpect(status().isBadRequest());
+
+        verify(responder, never()).kill(any(), any());
+    }
+
+    @Test
+    void respond_토큰_없으면_401() throws Exception {
+        mvc.perform(post("/api/alerts/anything/respond")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"target\":\"evil.exe\"}"))
+                .andExpect(status().isUnauthorized());
+
+        verify(responder, never()).kill(any(), any());
     }
 
     // --- lineage ---
