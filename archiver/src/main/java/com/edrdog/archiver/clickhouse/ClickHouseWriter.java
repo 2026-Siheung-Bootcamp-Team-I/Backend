@@ -1,5 +1,6 @@
 package com.edrdog.archiver.clickhouse;
 
+import com.edrdog.archiver.dto.Alert;
 import com.edrdog.archiver.dto.Event;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
@@ -11,7 +12,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
 /**
- * ClickHouse HTTP(8123) 로 events 를 적재하고, 부팅 시 테이블 스키마를 보장한다.
+ * ClickHouse HTTP(8123) 로 events/detections 를 적재하고, 부팅 시 테이블 스키마를 보장한다.
  * 쿼리는 POST 본문 첫 줄에, 데이터(JSONEachRow)는 그 다음 줄부터 실어 URL 인코딩을 피한다.
  */
 @Component
@@ -22,6 +23,7 @@ public class ClickHouseWriter {
     private final RestClient client;
     private final ObjectMapper mapper;
     private final String table;
+    private final String detectionsTable;
 
     public ClickHouseWriter(
             @Value("${edrdog.clickhouse.url}") String url,
@@ -29,8 +31,10 @@ public class ClickHouseWriter {
             @Value("${edrdog.clickhouse.user}") String user,
             @Value("${edrdog.clickhouse.password}") String password,
             @Value("${edrdog.clickhouse.table}") String table,
+            @Value("${edrdog.clickhouse.detections-table:edrdog.detections}") String detectionsTable,
             ObjectMapper mapper) {
         this.table = table;
+        this.detectionsTable = detectionsTable;
         this.mapper = mapper;
         this.client = RestClient.builder()
                 .baseUrl(url)
@@ -40,7 +44,7 @@ public class ClickHouseWriter {
                 .build();
     }
 
-    /** 부팅 시 events 테이블 생성 (개발용: 매 기동마다 IF NOT EXISTS). */
+    /** 부팅 시 events/detections 테이블 생성 (개발용: 매 기동마다 IF NOT EXISTS). */
     @PostConstruct
     void ensureSchema() {
         execute("""
@@ -58,12 +62,35 @@ public class ClickHouseWriter {
                 ORDER BY (host, ts)
                 """.formatted(table));
         log.info("ClickHouse 스키마 준비 완료: {}", table);
+
+        execute("""
+                CREATE TABLE IF NOT EXISTS %s (
+                    host String,
+                    rule_id String,
+                    mitre String,
+                    severity LowCardinality(String),
+                    action String,
+                    ts UInt64,
+                    dest_ip String,
+                    dest_port UInt16,
+                    ingested_at DateTime64(3) DEFAULT now64(3)
+                ) ENGINE = MergeTree
+                ORDER BY (ts, host)
+                """.formatted(detectionsTable));
+        log.info("ClickHouse 스키마 준비 완료: {}", detectionsTable);
     }
 
     /** 이벤트 한 건을 events 테이블에 적재. */
     public void insert(Event event) {
         String body = "INSERT INTO " + table + " FORMAT JSONEachRow\n"
                 + EventRow.toJson(event, mapper);
+        execute(body);
+    }
+
+    /** 판정 결과 한 건을 detections 테이블에 적재. */
+    public void insert(Alert alert) {
+        String body = "INSERT INTO " + detectionsTable + " FORMAT JSONEachRow\n"
+                + DetectionRow.toJson(alert, mapper);
         execute(body);
     }
 

@@ -19,6 +19,10 @@ class RulesTest {
         return new Event(HOST, Event.TYPE_PROCESS, ts, proc, parent, proc + " args", null, 0);
     }
 
+    private Event process(String proc, String parent, String cmdline, long ts) {
+        return new Event(HOST, Event.TYPE_PROCESS, ts, proc, parent, cmdline, null, 0);
+    }
+
     private Event network(String destIp, int destPort, long ts) {
         return new Event(HOST, Event.TYPE_NETWORK, ts, null, null, null, destIp, destPort);
     }
@@ -43,10 +47,10 @@ class RulesTest {
     }
 
     @Test
-    @DisplayName("R1 음성: shell 이지만 부모가 office앱이 아니면 미판정")
+    @DisplayName("R1 음성: shell 이지만 부모가 office앱(또는 시스템 프로세스)이 아니면 미판정")
     void r1_shellWithNonOfficeParent_noAlert() {
-        List<Event> buffer = List.of(process("explorer.exe", "userinit.exe", 1000));
-        Event current = process("powershell.exe", "explorer.exe", 2000);
+        List<Event> buffer = List.of(process("userinit.exe", "winlogon.exe", 1000));
+        Event current = process("powershell.exe", "userinit.exe", 2000);
 
         assertThat(Rules.evaluate(buffer, current)).isEmpty();
     }
@@ -76,6 +80,8 @@ class RulesTest {
         assertThat(a.action()).isEqualTo(Alert.ACTION_ISOLATE);
         assertThat(a.ts()).isEqualTo(2000);
         assertThat(a.matched()).hasSize(2);
+        assertThat(a.destIp()).isEqualTo("203.0.113.9");
+        assertThat(a.destPort()).isEqualTo(443);
     }
 
     @Test
@@ -110,5 +116,151 @@ class RulesTest {
         assertThat(alert).isPresent();
         assertThat(alert.get().severity()).isEqualTo(Alert.SEV_CRITICAL);
         assertThat(alert.get().ruleId()).isEqualTo("DOWNLOAD_AND_EXECUTE");
+    }
+
+    // --- ENCODED_POWERSHELL (T1059.001, HIGH) ---
+
+    @Test
+    @DisplayName("ENCODED_POWERSHELL: powershell -enc 인코딩 명령 → T1059.001, HIGH, kill")
+    void encodedPowershell_encFlag_alerts() {
+        Event current = process("powershell.exe", "cmd.exe",
+                "powershell.exe -nop -w hidden -enc SQBFAFgA", 2000);
+
+        Optional<Alert> alert = Rules.evaluate(List.of(), current);
+
+        assertThat(alert).isPresent();
+        Alert a = alert.get();
+        assertThat(a.ruleId()).isEqualTo("ENCODED_POWERSHELL");
+        assertThat(a.mitre()).isEqualTo("T1059.001");
+        assertThat(a.severity()).isEqualTo(Alert.SEV_HIGH);
+        assertThat(a.action()).isEqualTo(Alert.ACTION_KILL);
+        assertThat(a.destIp()).isEmpty();
+        assertThat(a.destPort()).isZero();
+    }
+
+    @Test
+    @DisplayName("ENCODED_POWERSHELL 음성: 인코딩 플래그/blob 없는 평범한 powershell 명령은 미판정")
+    void encodedPowershell_plainCommand_noAlert() {
+        Event current = process("powershell.exe", "cmd.exe", "powershell.exe Get-Process", 2000);
+
+        assertThat(Rules.evaluate(List.of(), current)).isEmpty();
+    }
+
+    // --- LSASS_ACCESS (T1003.001, CRITICAL) ---
+
+    @Test
+    @DisplayName("LSASS_ACCESS: comsvcs 로 lsass 덤프 → T1003.001, CRITICAL, isolate")
+    void lsassAccess_comsvcsDump_alerts() {
+        Event current = process("rundll32.exe", "cmd.exe",
+                "rundll32.exe comsvcs.dll, MiniDump 624 lsass.dmp full", 2000);
+
+        Optional<Alert> alert = Rules.evaluate(List.of(), current);
+
+        assertThat(alert).isPresent();
+        Alert a = alert.get();
+        assertThat(a.ruleId()).isEqualTo("LSASS_ACCESS");
+        assertThat(a.mitre()).isEqualTo("T1003.001");
+        assertThat(a.severity()).isEqualTo(Alert.SEV_CRITICAL);
+        assertThat(a.action()).isEqualTo(Alert.ACTION_ISOLATE);
+        assertThat(a.destIp()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("LSASS_ACCESS 음성: lsass 언급만 있고 덤프 도구 없으면 미판정")
+    void lsassAccess_mentionOnly_noAlert() {
+        Event current = process("cmd.exe", "userinit.exe", "cmd.exe /c echo lsass is running", 2000);
+
+        assertThat(Rules.evaluate(List.of(), current)).isEmpty();
+    }
+
+    // --- C2_BEACONING (T1071, HIGH) ---
+
+    @Test
+    @DisplayName("C2_BEACONING: 같은 목적지로 3회째 연결 → T1071, HIGH, destIp 채움")
+    void c2Beaconing_thirdConnection_alerts() {
+        List<Event> buffer = List.of(
+                network("198.51.100.7", 443, 1000),
+                network("198.51.100.7", 443, 1500)
+        );
+        Event current = network("198.51.100.7", 443, 2000);
+
+        Optional<Alert> alert = Rules.evaluate(buffer, current);
+
+        assertThat(alert).isPresent();
+        Alert a = alert.get();
+        assertThat(a.ruleId()).isEqualTo("C2_BEACONING");
+        assertThat(a.mitre()).isEqualTo("T1071");
+        assertThat(a.severity()).isEqualTo(Alert.SEV_HIGH);
+        assertThat(a.destIp()).isEqualTo("198.51.100.7");
+        assertThat(a.destPort()).isEqualTo(443);
+    }
+
+    @Test
+    @DisplayName("C2_BEACONING 음성: 같은 목적지 연결이 2회뿐이면(임계치 미달) 미판정")
+    void c2Beaconing_onlyTwo_noAlert() {
+        List<Event> buffer = List.of(network("198.51.100.7", 443, 1000));
+        Event current = network("198.51.100.7", 443, 2000);
+
+        assertThat(Rules.evaluate(buffer, current)).isEmpty();
+    }
+
+    // --- SUSPICIOUS_PARENT_CHILD (T1055, HIGH) ---
+
+    @Test
+    @DisplayName("SUSPICIOUS_PARENT_CHILD: services.exe 가 cmd.exe 를 자식으로 실행 → T1055, HIGH")
+    void suspiciousParentChild_servicesSpawnsShell_alerts() {
+        Event current = process("cmd.exe", "services.exe", 2000);
+
+        Optional<Alert> alert = Rules.evaluate(List.of(), current);
+
+        assertThat(alert).isPresent();
+        Alert a = alert.get();
+        assertThat(a.ruleId()).isEqualTo("SUSPICIOUS_PARENT_CHILD");
+        assertThat(a.mitre()).isEqualTo("T1055");
+        assertThat(a.severity()).isEqualTo(Alert.SEV_HIGH);
+        assertThat(a.action()).isEqualTo(Alert.ACTION_KILL);
+        assertThat(a.destIp()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("SUSPICIOUS_PARENT_CHILD 음성: 부모가 시스템 프로세스 집합이 아니면 미판정")
+    void suspiciousParentChild_normalParent_noAlert() {
+        Event current = process("cmd.exe", "userinit.exe", 2000);
+
+        assertThat(Rules.evaluate(List.of(), current)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("SUSPICIOUS_PARENT_CHILD 음성: explorer.exe → cmd.exe 는 사용자 정상 동작이라 미판정")
+    void suspiciousParentChild_explorerSpawnsShell_noAlert() {
+        Event current = process("cmd.exe", "explorer.exe", 2000);
+
+        assertThat(Rules.evaluate(List.of(), current)).isEmpty();
+    }
+
+    // --- DEFENSE_EVASION (T1562, CRITICAL) ---
+
+    @Test
+    @DisplayName("DEFENSE_EVASION: Windows Defender 서비스 중지 → T1562, CRITICAL, isolate")
+    void defenseEvasion_stopsDefender_alerts() {
+        Event current = process("cmd.exe", "explorer.exe", "cmd.exe /c sc stop WinDefend", 2000);
+
+        Optional<Alert> alert = Rules.evaluate(List.of(), current);
+
+        assertThat(alert).isPresent();
+        Alert a = alert.get();
+        assertThat(a.ruleId()).isEqualTo("DEFENSE_EVASION");
+        assertThat(a.mitre()).isEqualTo("T1562");
+        assertThat(a.severity()).isEqualTo(Alert.SEV_CRITICAL);
+        assertThat(a.action()).isEqualTo(Alert.ACTION_ISOLATE);
+        assertThat(a.destIp()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("DEFENSE_EVASION 음성: 방화벽 조회 등 무력화가 아닌 명령은 미판정")
+    void defenseEvasion_benignFirewallQuery_noAlert() {
+        Event current = process("cmd.exe", "userinit.exe", "cmd.exe /c netsh advfirewall show allprofiles", 2000);
+
+        assertThat(Rules.evaluate(List.of(), current)).isEmpty();
     }
 }

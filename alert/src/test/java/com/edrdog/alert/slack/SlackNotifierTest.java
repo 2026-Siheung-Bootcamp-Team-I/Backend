@@ -12,7 +12,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class SlackNotifierTest {
 
     private Alert alert(String severity, String action) {
-        return new Alert("host-1", "SUSPICIOUS_PROCESS_CHAIN", "T1059", severity, action, 1_000, List.of("evidence"));
+        return new Alert("host-1", "SUSPICIOUS_PROCESS_CHAIN", "T1059", severity, action, 1_000, List.of("evidence"), "", 0);
     }
 
     @Test

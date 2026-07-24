@@ -12,6 +12,8 @@ import java.util.List;
  * @param action   권고 대응: notify | kill | isolate (severity 매핑)
  * @param ts       판정을 완성시킨 트리거 이벤트 시각 (epoch millis)
  * @param matched  판정 근거가 된 이벤트 요약들
+ * @param destIp   연관된 목적지 IP — network 근거가 있는 룰만 채움, 없으면 빈 문자열
+ * @param destPort 연관된 목적지 포트 — network 근거가 있는 룰만 채움, 없으면 0
  */
 public record Alert(
         String host,
@@ -20,7 +22,9 @@ public record Alert(
         String severity,
         String action,
         long ts,
-        List<String> matched
+        List<String> matched,
+        String destIp,
+        int destPort
 ) {
     public static final String SEV_HIGH = "HIGH";
     public static final String SEV_CRITICAL = "CRITICAL";

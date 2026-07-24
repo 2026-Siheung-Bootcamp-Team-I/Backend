@@ -2,7 +2,7 @@ spring:
   application:
     name: archiver
   kafka:
-    bootstrap-servers: localhost:9092
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     consumer:
       group-id: archiver
       auto-offset-reset: earliest       # 적재는 유실 없이 처음부터 (detector 와 독립 그룹)
@@ -18,12 +18,14 @@ server:
 edrdog:
   kafka:
     events-topic: events              # 원시 이벤트 (소비 입력)
+    alerts-topic: alerts              # 판정 결과 (소비 입력)
   clickhouse:
-    url: http://localhost:8123        # k8s NodePort HTTP
-    database: edrdog
-    user: edrdog
-    password: edrdog
+    url: ${CLICKHOUSE_URL:http://localhost:8123}   # k8s NodePort HTTP
+    database: ${CLICKHOUSE_DATABASE:edrdog}
+    user: ${CLICKHOUSE_USER:edrdog}
+    password: ${CLICKHOUSE_PASSWORD:edrdog}        # 운영은 시크릿(Infisical)으로 주입
     table: edrdog.events              # 적재 대상 테이블
+    detections-table: edrdog.detections  # 판정 결과 적재 대상 테이블
 
 management:
   endpoints:

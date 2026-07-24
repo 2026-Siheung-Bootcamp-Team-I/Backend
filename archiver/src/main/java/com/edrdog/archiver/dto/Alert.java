@@ -1,9 +1,9 @@
-package com.edrdog.alert.dto;
+package com.edrdog.archiver.dto;
 
 import java.util.List;
 
 /**
- * detector 가 alerts 토픽에 발행하는 판정 결과 (alert 모듈 소비용 사본).
+ * detector 가 alerts 토픽에 발행하는 판정 결과 (archiver 소비용 사본).
  * 소비자는 자기 관점의 스키마 사본을 갖는다. 여분 필드는 JsonDeserializer 가 무시한다.
  *
  * @param host     엔드포인트 식별자
@@ -27,10 +27,4 @@ public record Alert(
         String destIp,
         int destPort
 ) {
-    public static final String SEV_HIGH = "HIGH";
-    public static final String SEV_CRITICAL = "CRITICAL";
-
-    public static final String ACTION_NOTIFY = "notify";
-    public static final String ACTION_KILL = "kill";
-    public static final String ACTION_ISOLATE = "isolate";
 }
