@@ -9,11 +9,14 @@ edrdog:
   api:
     key: ${EDRDOG_API_KEY:dev-api-key}   # 프론트가 X-API-Key 헤더로 보낼 값 (운영은 환경변수로 주입)
   clickhouse:
-    url: http://localhost:8123           # k8s NodePort HTTP (archiver 와 동일 DB, 읽기)
-    database: edrdog
-    user: edrdog
-    password: edrdog
+    url: ${CLICKHOUSE_URL:http://localhost:8123}   # k8s NodePort HTTP (archiver 와 동일 DB, 읽기)
+    database: ${CLICKHOUSE_DATABASE:edrdog}
+    user: ${CLICKHOUSE_USER:edrdog}
+    password: ${CLICKHOUSE_PASSWORD:edrdog}        # 운영은 시크릿(Infisical)으로 주입
     table: edrdog.events                 # 조회 대상 테이블 (archiver 가 적재)
+    detections-table: edrdog.detections  # 탐지(알림) 테이블 (archiver 가 적재, timeseries/geo 조회 대상)
+  geoip:
+    db-path: ${GEOIP_DB_PATH:}           # GeoLite2-Country.mmdb 경로. 비어있으면 geo 조회 비활성(200 빈 배열)
 
 management:
   endpoints:
