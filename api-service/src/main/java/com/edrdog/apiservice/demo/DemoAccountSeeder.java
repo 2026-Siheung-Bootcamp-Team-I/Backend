@@ -21,7 +21,8 @@ import java.util.Optional;
  *
  * <p>가입 API(signup)로는 만들 수 없다. AuthValidation 이 이메일 형식과 8자 이상 비밀번호를 요구하기 때문이다.
  * 실제 가입 규칙을 느슨하게 푸는 대신 여기서 저장소에 직접 넣는다. 로그인(login)은 형식 검증 없이
- * 이메일로 조회만 하므로 {@code test} / {@code 1234} 로 그대로 로그인된다.
+ * 이메일로 조회만 하므로 {@code test@edrdog.local} / {@code 1234} 로 그대로 로그인된다.
+ * 이메일 형식으로 두는 이유는 프론트 로그인 폼이 {@code type="email"} 이라 형식이 아니면 브라우저가 막기 때문이다.
  *
  * <p>tenant PK 를 {@link #TENANT_ID} 로 고정하는 이유는 시나리오 발행 API 가 tenantId 를 직접 받기 때문이다.
  * 값이 고정이라야 발표 중에 {@code /api/auth/me} 로 PK 를 확인하는 단계를 건너뛸 수 있다.
@@ -37,7 +38,10 @@ public class DemoAccountSeeder {
      */
     public static final long TENANT_ID = 99L;
 
-    static final String EMAIL = "test";
+    static final String EMAIL = "test@edrdog.local";
+
+    /** 이메일 형식이 아니던 옛 데모 계정. 남아 있으면 정리한다. */
+    static final String LEGACY_EMAIL = "test";
     static final String PASSWORD = "1234";
     static final String TENANT_NAME = "데모 조직";
     static final String ROLE = "admin";
@@ -98,6 +102,10 @@ public class DemoAccountSeeder {
 
     /** 데모 계정을 보장한다. 이미 있으면 비밀번호를 덮지 않는다. */
     private void ensureUser() {
+        users.findByEmail(LEGACY_EMAIL).ifPresent(legacy -> {
+            users.delete(legacy);
+            log.info("이메일 형식이 아니던 옛 데모 계정 정리: {}", LEGACY_EMAIL);
+        });
         if (users.existsByEmail(EMAIL)) {
             log.info("데모 계정이 이미 있어 건너뜁니다: {}", EMAIL);
             return;
