@@ -50,6 +50,8 @@ edrdog:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
   internal:
     key: ${INTERNAL_API_KEY:dev-internal-key}   # 서비스 간 내부 조회 전용 키 (프론트 X-API-Key 와 분리, X-Internal-Key 헤더)
+  responder:
+    url: ${RESPONDER_URL:http://responder-service}   # 내부 responder-service(kill 프록시 대상, ClusterIP). 로컬은 http://localhost:8082
   clickhouse:
     url: ${EDRDOG_CLICKHOUSE_URL:http://localhost:8123}   # 배포 시 clickhouse:8123 주입, 로컬은 host NodePort
     database: edrdog

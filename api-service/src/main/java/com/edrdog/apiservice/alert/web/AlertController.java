@@ -1,15 +1,19 @@
 package com.edrdog.apiservice.alert.web;
 
 import com.edrdog.apiservice.alert.AlertService;
+import com.edrdog.apiservice.auth.exception.AuthException;
 import com.edrdog.apiservice.auth.service.AuthService;
 import com.edrdog.apiservice.auth.service.Principal;
 import com.edrdog.apiservice.query.TimeBucket;
+import com.edrdog.apiservice.responder.KillResult;
+import com.edrdog.apiservice.responder.ResponderClient;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -35,10 +39,12 @@ public class AlertController {
 
     private final AlertService alerts;
     private final AuthService auth;
+    private final ResponderClient responder;
 
-    public AlertController(AlertService alerts, AuthService auth) {
+    public AlertController(AlertService alerts, AuthService auth, ResponderClient responder) {
         this.alerts = alerts;
         this.auth = auth;
+        this.responder = responder;
     }
 
     @Operation(summary = "알림 목록", description = "로그인 유저의 tenant 것만 host/severity/status/from/to 필터로 최신순 조회. limit 기본 100, 상한 1000.")
@@ -115,6 +121,23 @@ public class AlertController {
         return alerts.triage(tenantId, id, request.status());
     }
 
+    @Operation(summary = "알림 실제 조치(kill)",
+            description = "대시보드 실행 버튼용 반자동 조치. 로그인 유저의 tenant 가 소유한 알림일 때만(타 tenant 404) "
+                    + "그 알림의 host 를 대상으로 target 프로세스 kill 을 responder 에 위임한다. host 는 알림에서 가져오므로 "
+                    + "클라이언트가 지정할 수 없다. 실제 kill 실행 여부는 responder 실행 스위치(RESPONDER_EXECUTE_ENABLED)에 달려 있다.")
+    @PostMapping("/{id}/respond")
+    public KillResult respond(
+            @RequestHeader(name = "Authorization", required = false) String authorization,
+            @PathVariable String id,
+            @RequestBody RespondRequest request) {
+        String tenantId = currentTenantId(authorization);
+        if (request == null || request.target() == null || request.target().isBlank()) {
+            throw AuthException.invalidInput("target 프로세스가 필요합니다");
+        }
+        AlertResponse alert = alerts.get(tenantId, id);   // 타 tenant 면 404, 통과하면 권위 있는 host 확보
+        return responder.kill(alert.host(), request.target());
+    }
+
     /** Bearer 토큰을 검증해 현재 유저의 tenant 를 문자열로 반환. 토큰이 없거나 만료면 AuthService 가 401. */
     private String currentTenantId(String authorization) {
         Principal principal = auth.resolve(bearerToken(authorization));
@@ -131,5 +154,9 @@ public class AlertController {
 
     /** PATCH 본문: 바꿀 status. */
     public record TriageRequest(String status) {
+    }
+
+    /** kill 요청 본문: 종료할 대상 프로세스명/경로. host 는 알림에서 가져오므로 클라이언트가 지정하지 않는다. */
+    public record RespondRequest(String target) {
     }
 }
