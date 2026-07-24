@@ -76,6 +76,22 @@ public class EventQueryBuilder {
         return new ClickHouseQuery(sql, params);
     }
 
+    /**
+     * tenant 격리 하에 시간 윈도우[from,to) 안의 목적지 IP 별 건수를 집계한다(world map 용).
+     * 네트워크 이벤트가 아닌 행은 dest_ip 가 ""(빈 문자열)이므로 제외한다. tenantId 는 필수.
+     */
+    public ClickHouseQuery geo(String tenant, long from, long to) {
+        Map<String, String> params = new LinkedHashMap<>();
+        String where = where(tenant, null, null, null, null, params);
+        params.put("from", String.valueOf(from));
+        params.put("to", String.valueOf(to));
+        String sql = "SELECT dest_ip, count() AS cnt FROM " + table
+                + where
+                + " AND ts >= {from:UInt64} AND ts < {to:UInt64} AND dest_ip != ''"
+                + " GROUP BY dest_ip";
+        return new ClickHouseQuery(sql, params);
+    }
+
     private static String where(String tenantId, String host, String type, Long from, Long to,
                                 Map<String, String> params) {
         if (!hasText(tenantId)) {

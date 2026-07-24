@@ -56,6 +56,8 @@ edrdog:
     user: edrdog
     password: edrdog
     table: edrdog.events                 # 조회 대상 테이블 (archiver 가 적재)
+  geoip:
+    db-path: ${GEOIP_DB_PATH:}           # GeoLite2-Country.mmdb 외부 경로. 비면 클래스패스 번들 사용, 둘 다 없으면 geo API 빈 배열
 
 management:
   endpoints:
