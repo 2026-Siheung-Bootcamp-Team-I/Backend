@@ -19,7 +19,12 @@ edrdog:
   kafka:
     alerts-topic: alerts        # detector 가 발행한 판정 결과 (소비 입력)
   responder:
-    cooldown-ms: 60000          # 같은 host+action 중복 표시 억제 창
+    cooldown-ms: 60000          # 같은 host+action 중복 표시 / 재조치 억제 창
+    execute:
+      enabled: ${RESPONDER_EXECUTE_ENABLED:false}  # 실제 조치 실행 스위치 (기본 OFF = dry-run 유지)
+  fleet:
+    base-url: ${FLEET_BASE_URL:http://localhost:8080}  # Fleet 서버
+    token: ${FLEET_TOKEN:}                             # Fleet API 토큰 (Bearer)
 
 management:
   endpoints:

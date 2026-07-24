@@ -89,7 +89,8 @@ public final class Rules {
                 Alert.actionFor(Alert.SEV_HIGH),
                 current.ts(),
                 List.of(summary(officeExec.get()), summary(current)),
-                current.tenantId()));
+                current.tenantId(),
+                actTarget(current)));
     }
 
     /** R2 T1105+T1204: 버퍼의 network 다운로드 → 이후 process 실행. */
@@ -112,7 +113,8 @@ public final class Rules {
                 Alert.actionFor(Alert.SEV_CRITICAL),
                 current.ts(),
                 List.of(summary(download.get()), summary(current)),
-                current.tenantId()));
+                current.tenantId(),
+                actTarget(current)));
     }
 
     /** R3 T1059: 임시/다운로드 경로에서 실행된 스크립트 (저심각 point 룰). */
@@ -128,7 +130,8 @@ public final class Rules {
                 Alert.actionFor(Alert.SEV_MEDIUM),
                 current.ts(),
                 List.of(summary(current)),
-                current.tenantId()));
+                current.tenantId(),
+                actTarget(current)));
     }
 
     /** R4 T1547: 자동실행/시작 경로에 생성된 파일 (지속성 확보, 저심각 point 룰). */
@@ -144,7 +147,8 @@ public final class Rules {
                 Alert.actionFor(Alert.SEV_MEDIUM),
                 current.ts(),
                 List.of(summary(current)),
-                current.tenantId()));
+                current.tenantId(),
+                actTarget(current)));
     }
 
     private static boolean isProcess(Event e) {
@@ -180,6 +184,12 @@ public final class Rules {
 
     private static String lower(String s) {
         return s == null ? null : s.toLowerCase();
+    }
+
+    /** 조치 대상 프로세스 식별자 — 전체 경로(cmdline)가 있으면 우선, 없으면 프로세스명. responder 가 kill 에 사용. */
+    private static String actTarget(Event e) {
+        String cmd = e.cmdline();
+        return (cmd != null && !cmd.isBlank()) ? cmd : e.process();
     }
 
     /** 근거 이벤트를 사람이 읽을 요약으로. */

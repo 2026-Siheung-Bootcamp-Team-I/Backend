@@ -13,6 +13,7 @@ import java.util.List;
  * @param ts       판정을 완성시킨 트리거 이벤트 시각 (epoch millis)
  * @param matched  판정 근거가 된 이벤트 요약들
  * @param tenantId 조직(tenant) 식별자 — 트리거 이벤트에서 물려받은 격리 태그
+ * @param target   조치 대상 프로세스명/경로 — responder 의 kill 실행에 사용 (kill 대상 없으면 null)
  */
 public record Alert(
         String host,
@@ -22,7 +23,8 @@ public record Alert(
         String action,
         long ts,
         List<String> matched,
-        String tenantId
+        String tenantId,
+        String target
 ) {
     public static final String SEV_MEDIUM = "MEDIUM";
     public static final String SEV_HIGH = "HIGH";

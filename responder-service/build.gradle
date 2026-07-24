@@ -1,6 +1,6 @@
-// Responder — alerts 를 소비해 권장 조치를 dry-run(표시만)으로 로그 출력 (group: responder)
+// Responder — alerts 소비 → 권장 조치 dry-run 표시 + 반자동 실제 조치(Fleet run-script) (group: responder)
 dependencies {
-    implementation 'org.springframework.boot:spring-boot-starter'
+    implementation 'org.springframework.boot:spring-boot-starter-web'  // 실행 트리거 API + RestClient(Fleet 호출)
     implementation 'org.springframework.kafka:spring-kafka'
     implementation 'com.fasterxml.jackson.core:jackson-databind'   // alerts JSON 역직렬화
 }

@@ -13,6 +13,7 @@ import java.util.List;
  * @param action   권고 대응: notify | kill | isolate
  * @param ts       판정을 완성시킨 트리거 이벤트 시각 (epoch millis)
  * @param matched  판정 근거가 된 이벤트 요약들
+ * @param target   조치 대상 프로세스명/경로 (kill 실행에 사용, 없으면 null)
  */
 public record Alert(
         String host,
@@ -21,7 +22,8 @@ public record Alert(
         String severity,
         String action,
         long ts,
-        List<String> matched
+        List<String> matched,
+        String target
 ) {
     public static final String ACTION_NOTIFY = "notify";
     public static final String ACTION_KILL = "kill";
