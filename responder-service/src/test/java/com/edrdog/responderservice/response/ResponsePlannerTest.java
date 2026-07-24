@@ -12,7 +12,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ResponsePlannerTest {
 
     private Alert alert(String host, String ruleId, String action, long ts) {
-        return new Alert(host, ruleId, "T1059", "HIGH", action, ts, List.of("evidence"));
+        return new Alert(host, ruleId, "T1059", "HIGH", action, ts, List.of("evidence"), "powershell.exe");
     }
 
     @Test
