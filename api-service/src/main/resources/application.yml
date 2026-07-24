@@ -51,7 +51,7 @@ edrdog:
   internal:
     key: ${INTERNAL_API_KEY:dev-internal-key}   # 서비스 간 내부 조회 전용 키 (프론트 X-API-Key 와 분리, X-Internal-Key 헤더)
   clickhouse:
-    url: http://localhost:8123           # k8s NodePort HTTP (archiver 와 동일 DB, 읽기)
+    url: ${EDRDOG_CLICKHOUSE_URL:http://localhost:8123}   # 배포 시 clickhouse:8123 주입, 로컬은 host NodePort
     database: edrdog
     user: edrdog
     password: ${CLICKHOUSE_PASSWORD:edrdog}   # 시크릿은 Infisical 주입, 기본값은 로컬 kind ClickHouse 와 일치

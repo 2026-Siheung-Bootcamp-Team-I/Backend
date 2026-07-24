@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alert-service
+  namespace: edrdog
+  labels:
+    app: alert-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: alert-service
+  template:
+    metadata:
+      labels:
+        app: alert-service
+    spec:
+      containers:
+        - name: alert-service
+          # 배포 시 CI 가 kubectl set image 로 실제 태그(:<sha>) 주입
+          image: ghcr.io/2026-siheung-bootcamp-team-i/backend/alert-service:latest
+          ports:
+            - containerPort: 8083
+          env:
+            - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
+              value: "kafka:9094"
+            # tenant Slack webhook 조회용 api-service 내부 엔드포인트 (Service port 80)
+            - name: EDRDOG_API_BASE_URL
+              value: "http://api-service"
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8083
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8083
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alert-service
+  namespace: edrdog
+  labels:
+    app: alert-service
+spec:
+  selector:
+    app: alert-service
+  ports:
+    - port: 80
+      targetPort: 8083
