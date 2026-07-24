@@ -40,6 +40,10 @@ edrdog:
       key-alias: ${OSQUERY_TLS_KEY_ALIAS:osquery}
   api:
     key: ${EDRDOG_API_KEY:dev-api-key}   # 프론트가 X-API-Key 헤더로 보낼 값 (운영은 환경변수로 주입)
+  demo:
+    # 발표용 시드. 켜면 부팅 시 데모 계정(test/1234, tenantId=1)과 최근 7일치 과거 데이터를 만든다.
+    # 운영에 test/1234 가 새면 안 되므로 기본은 off. 발표 환경에서만 DEMO_SEED=true 로 켠다.
+    seed: ${DEMO_SEED:false}
   cors:
     # 브라우저에서 API 를 호출할 프론트 출처 (쉼표 구분). 기본값은 Vite dev 서버.
     # 배포 시엔 실제 프론트 도메인을 환경변수로 주입한다.
