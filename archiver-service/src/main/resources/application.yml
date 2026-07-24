@@ -22,7 +22,7 @@ edrdog:
     url: http://localhost:8123        # k8s NodePort HTTP
     database: edrdog
     user: edrdog
-    password: edrdog
+    password: ${CLICKHOUSE_PASSWORD:edrdog}   # 시크릿은 Infisical 주입, 기본값은 로컬 kind ClickHouse 와 일치
     table: edrdog.events              # 적재 대상 테이블
 
 management:
