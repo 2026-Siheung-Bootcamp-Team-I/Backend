@@ -26,16 +26,16 @@ public final class HostAggregator {
      */
     public static List<HostResponse> hosts(List<Map<String, Object>> eventRows, List<HostAlertCount> alertCounts) {
         Map<String, HostAlertCount> byHost = alertCounts.stream()
-                .collect(Collectors.toMap(HostAlertCount::getHost, Function.identity()));
+                .collect(Collectors.toMap(HostAlertCount::host, Function.identity()));
 
         List<HostResponse> out = new ArrayList<>();
         for (Map<String, Object> row : eventRows) {
             String host = String.valueOf(row.get("host"));
             long lastSeen = Long.parseLong(String.valueOf(row.get("last_seen")));
             HostAlertCount c = byHost.get(host);
-            long critical = c == null ? 0 : c.getOpenCritical();
-            long high = c == null ? 0 : c.getOpenHigh();
-            long threats = c == null ? 0 : c.getOpenTotal();
+            long critical = c == null ? 0 : c.openCritical();
+            long high = c == null ? 0 : c.openHigh();
+            long threats = c == null ? 0 : c.openTotal();
             out.add(new HostResponse(host, lastSeen, HostStatus.classify(critical, high), threats));
         }
         return out;

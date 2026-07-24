@@ -21,25 +21,9 @@ class HostAggregatorTest {
         return Map.of("host", host, "last_seen", lastSeen);
     }
 
-    /** HostAlertCount projection 테스트용 구현. */
+    /** host 별 열린 alert 집계 값. */
     private static HostAlertCount count(String host, long total, long critical, long high) {
-        return new HostAlertCount() {
-            public String getHost() {
-                return host;
-            }
-
-            public long getOpenTotal() {
-                return total;
-            }
-
-            public long getOpenCritical() {
-                return critical;
-            }
-
-            public long getOpenHigh() {
-                return high;
-            }
-        };
+        return new HostAlertCount(host, total, critical, high);
     }
 
     @Test
