@@ -63,4 +63,18 @@ public interface AlertRepository extends JpaRepository<AlertRecord, String> {
     List<RuleIdCount> countByRuleId(@Param("tenantId") String tenantId,
                                     @Param("from") Long from,
                                     @Param("to") Long to);
+
+    /**
+     * 기간 내 버킷(bucketMs 간격)×severity 별 카운트(대시보드 timeseries 용). tenant 격리 필수.
+     * bucketStart = floor(ts / bucketMs) * bucketMs (UTC 정렬, TimeseriesFill.alignStart 와 동일 규칙).
+     * JPQL 의 FLOOR 는 DB 방言 차이가 있어 native query 로 alerts 테이블에 직접 낸다(H2/MySQL 모두 지원).
+     */
+    @Query(value = "SELECT FLOOR(a.ts / :bucketMs) * :bucketMs AS bucketStart, a.severity AS severity, COUNT(*) AS cnt "
+            + "FROM alerts a WHERE a.tenant_id = :tenantId AND a.ts >= :from AND a.ts < :to "
+            + "GROUP BY FLOOR(a.ts / :bucketMs) * :bucketMs, a.severity",
+            nativeQuery = true)
+    List<TimeBucketSeverityCount> timeseries(@Param("tenantId") String tenantId,
+                                             @Param("from") long from,
+                                             @Param("to") long to,
+                                             @Param("bucketMs") long bucketMs);
 }

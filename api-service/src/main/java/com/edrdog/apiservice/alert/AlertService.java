@@ -7,6 +7,8 @@ import com.edrdog.apiservice.alert.web.SummaryResponse;
 import com.edrdog.apiservice.auth.exception.AuthException;
 import com.edrdog.apiservice.clickhouse.ClickHouseReader;
 import com.edrdog.apiservice.query.EventQueryBuilder;
+import com.edrdog.apiservice.query.TimeBucket;
+import com.edrdog.apiservice.query.TimeseriesFill;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -14,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -150,6 +153,31 @@ public class AlertService {
                 .toList();
 
         return new SummaryResponse(total, new SummaryResponse.Severity(critical, high, medium), topThreats);
+    }
+
+    /**
+     * 시간대별 탐지 추이(대시보드 스택 차트용). tenant 격리 하에 bucket("hour"|"day") 간격으로
+     * severity 별 카운트를 집계한 뒤, 데이터 없는 버킷은 0으로 채워 from~to 전 구간을 반환한다.
+     */
+    @Transactional(readOnly = true)
+    public List<TimeBucket> timeseries(String tenantId, long from, long to, String bucket) {
+        long step = TimeseriesFill.stepFor(bucket);
+        Map<Long, long[]> byBucket = new HashMap<>(); // [critical, high, medium, total]
+        for (TimeBucketSeverityCount row : alerts.timeseries(tenantId, from, to, step)) {
+            long[] acc = byBucket.computeIfAbsent(row.getBucketStart(), k -> new long[4]);
+            acc[3] += row.getCnt();
+            if (SEV_CRITICAL.equals(row.getSeverity())) {
+                acc[0] += row.getCnt();
+            } else if (SEV_HIGH.equals(row.getSeverity())) {
+                acc[1] += row.getCnt();
+            } else if (SEV_MEDIUM.equals(row.getSeverity())) {
+                acc[2] += row.getCnt();
+            }
+        }
+        List<TimeBucket> populated = byBucket.entrySet().stream()
+                .map(e -> new TimeBucket(e.getKey(), e.getValue()[0], e.getValue()[1], e.getValue()[2], e.getValue()[3]))
+                .toList();
+        return TimeseriesFill.fill(populated, from, to, step);
     }
 
     /** id 로 찾되 tenant 소유가 아니면 404 로 숨긴다(없는 것과 구분 불가). */

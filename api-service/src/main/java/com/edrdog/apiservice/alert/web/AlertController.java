@@ -3,8 +3,10 @@ package com.edrdog.apiservice.alert.web;
 import com.edrdog.apiservice.alert.AlertService;
 import com.edrdog.apiservice.auth.service.AuthService;
 import com.edrdog.apiservice.auth.service.Principal;
+import com.edrdog.apiservice.query.TimeBucket;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -13,8 +15,10 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * alert 조회·트리아지 REST. 모든 요청은 세션 Bearer 토큰으로 인증하고 그 tenant 로만 격리한다
@@ -26,6 +30,8 @@ import java.util.List;
 public class AlertController {
 
     private static final String BEARER_PREFIX = "Bearer ";
+    private static final Set<String> VALID_BUCKETS = Set.of("hour", "day");
+    private static final long DEFAULT_WINDOW_MS = 24 * 60 * 60 * 1000L;
 
     private final AlertService alerts;
     private final AuthService auth;
@@ -58,6 +64,25 @@ public class AlertController {
             @RequestParam(required = false) Long to) {
         String tenantId = currentTenantId(authorization);
         return alerts.summary(tenantId, from, to);
+    }
+
+    @Operation(summary = "알림 시간대별 추이",
+            description = "로그인 유저의 tenant 것만 bucket(hour|day) 간격으로 severity 별 탐지 추이를 집계한다. "
+                    + "from/to 미지정 시 최근 24시간, 빈 버킷은 0으로 채운다.")
+    @GetMapping("/timeseries")
+    public List<TimeBucket> timeseries(
+            @RequestHeader(name = "Authorization", required = false) String authorization,
+            @RequestParam(required = false) Long from,
+            @RequestParam(required = false) Long to,
+            @RequestParam(required = false, defaultValue = "hour") String bucket) {
+        if (!VALID_BUCKETS.contains(bucket)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "허용되지 않는 bucket 입니다: " + bucket);
+        }
+        long now = System.currentTimeMillis();
+        long resolvedTo = to != null ? to : now;
+        long resolvedFrom = from != null ? from : resolvedTo - DEFAULT_WINDOW_MS;
+        String tenantId = currentTenantId(authorization);
+        return alerts.timeseries(tenantId, resolvedFrom, resolvedTo, bucket);
     }
 
     @Operation(summary = "알림 상세", description = "단건 상세(matched 포함). 남의 tenant 것이면 404.")
