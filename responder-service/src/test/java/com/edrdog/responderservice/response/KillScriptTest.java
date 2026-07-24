@@ -31,15 +31,26 @@ class KillScriptTest {
     }
 
     @Test
-    @DisplayName("스크립트는 정확 일치(comm==name)로만 pid 를 찾고 결과 마커를 출력한다")
+    @DisplayName("스크립트는 args(argv0) basename 정확 일치로만 pid 를 찾고 결과 마커를 출력한다")
     void script_exactMatchAndMarkers() {
         String script = KillScript.build("/usr/bin/powershell.exe");
 
         assertThat(script).startsWith("#!/bin/sh");
         assertThat(script).contains("name='powershell.exe'");
-        assertThat(script).contains("$2==n");          // awk 정확 일치
+        assertThat(script).contains("ps -Ao pid=,args=");       // comm 아닌 args 사용(macOS 절단 회피)
+        assertThat(script).contains("sub(/.*\\//,\"\",p)");      // argv0 → basename 정규화
+        assertThat(script).contains("if (p==n)");               // basename 정확 일치
         assertThat(script).contains("kill $pids");
         assertThat(script).contains("EDRDOG_RESULT=NO_MATCH");
         assertThat(script).contains("EDRDOG_RESULT=KILLED");
+    }
+
+    @Test
+    @DisplayName("comm 은 macOS 에서 전체경로+절단이라 쓰지 않는다(회귀 방지)")
+    void script_doesNotUseComm() {
+        String script = KillScript.build("/usr/bin/curl");
+
+        assertThat(script).doesNotContain("comm=");
+        assertThat(script).doesNotContain("$2==n");
     }
 }
