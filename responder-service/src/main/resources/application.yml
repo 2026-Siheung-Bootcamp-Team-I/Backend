@@ -23,8 +23,14 @@ edrdog:
     execute:
       enabled: ${RESPONDER_EXECUTE_ENABLED:false}  # 실제 조치 실행 스위치 (기본 OFF = dry-run 유지)
   fleet:
-    base-url: ${FLEET_BASE_URL:http://localhost:8080}  # Fleet 서버
+    base-url: ${FLEET_BASE_URL:http://localhost:8080}  # Fleet 서버 (실행 스위치 ON 시 https 필수)
     token: ${FLEET_TOKEN:}                             # Fleet API 토큰 (Bearer)
+    tls:
+      # Fleet 서버 인증서 검증용 truststore. 비우면 시스템 신뢰저장소(공인 CA)로 검증한다.
+      # Fleet 이 자가서명 인증서면 그 인증서를 담은 PKCS12 를 지정한다(파일 경로 또는 classpath:).
+      truststore: ${FLEET_TLS_TRUSTSTORE:}
+      truststore-password: ${FLEET_TLS_TRUSTSTORE_PASSWORD:}
+      truststore-type: ${FLEET_TLS_TRUSTSTORE_TYPE:PKCS12}
 
 management:
   endpoints:

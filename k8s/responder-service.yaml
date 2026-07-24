@@ -24,6 +24,17 @@ spec:
           env:
             - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
               value: "kafka:9094"
+            # 실제 조치(kill) 실행은 기본 OFF(dry-run). 신뢰가 쌓인 뒤 아래를 채워 켠다.
+            # 켤 때 FLEET_BASE_URL 은 https 여야 하며(FleetTls), 자가서명 인증서면 FLEET_TLS_TRUSTSTORE 를 지정한다.
+            # - name: RESPONDER_EXECUTE_ENABLED
+            #   value: "true"
+            # - name: FLEET_BASE_URL
+            #   value: "https://fleet.내부주소"
+            # - name: FLEET_TOKEN
+            #   valueFrom:
+            #     secretKeyRef: { name: fleet, key: token }
+            # - name: FLEET_TLS_TRUSTSTORE
+            #   value: "/etc/fleet/truststore.p12"
           readinessProbe:
             httpGet:
               path: /actuator/health
