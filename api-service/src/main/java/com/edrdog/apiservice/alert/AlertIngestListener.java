@@ -5,8 +5,8 @@ import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
 /**
- * alerts 토픽을 소비해 api-service 자기 MySQL 에 적재하는 리스너(얇게).
- * 실제 격리·멱등 처리는 AlertService.ingest 가 담당한다.
+ * alerts 토픽을 소비해 판정기록을 ClickHouse 에 적재하는 리스너(얇게).
+ * 실제 격리·멱등 처리는 AlertService.ingest 가 담당한다(status 오버레이는 MySQL).
  */
 @Component
 public class AlertIngestListener {

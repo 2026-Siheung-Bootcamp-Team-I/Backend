@@ -1,10 +1,9 @@
 package com.edrdog.apiservice.host.web;
 
-import com.edrdog.apiservice.alert.AlertId;
-import com.edrdog.apiservice.alert.AlertRecord;
-import com.edrdog.apiservice.alert.AlertRepository;
 import com.edrdog.apiservice.clickhouse.ClickHouseReader;
+import com.edrdog.apiservice.query.ClickHouseQuery;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
@@ -16,7 +15,6 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -28,8 +26,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * 전체 컨텍스트로 hosts API 배선(라우팅, Bearer tenant 격리, events+alerts 병합)을 검증한다.
- * ClickHouse(events)는 실제 붙지 않도록 ClickHouseReader 를 목으로 대체하고, alert 는 H2 로 실적재한다.
+ * 전체 컨텍스트로 hosts API 배선(라우팅, Bearer tenant 격리, events+alert집계 병합)을 검증한다.
+ * ClickHouse 는 실제로 붙지 않으므로 ClickHouseReader 를 목으로 대체하고, events 조회에는 관측 호스트를,
+ * alerts 조회에는 host 별 열린 집계를 각각 돌려준다(집계 SQL 의 tenant 격리는 AlertQueryBuilderTest 로 검증).
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -43,13 +42,27 @@ class HostApiIntegrationTest {
     @Autowired
     private ObjectMapper om;
 
-    @Autowired
-    private AlertRepository alerts;
-
     @MockitoBean
     private ClickHouseReader reader;
 
-    /** 회원가입으로 토큰과 tenantId 를 받는다. */
+    /** host 별 열린 alert 집계(alerts 테이블 조회 응답). 테스트마다 세팅한다. */
+    private List<Map<String, Object>> countRows = List.of();
+
+    @BeforeEach
+    void routeReader() {
+        countRows = List.of();
+        // events 조회는 관측 호스트 h1, h2 로 고정, alerts 조회는 countRows 로 돌려준다.
+        when(reader.query(any())).thenAnswer(inv -> {
+            ClickHouseQuery q = inv.getArgument(0);
+            if (q.sql().contains("edrdog.alerts")) {
+                return countRows;
+            }
+            return List.of(
+                    Map.of("host", "h1", "last_seen", "2000"),
+                    Map.of("host", "h2", "last_seen", "1000"));
+        });
+    }
+
     private String[] signup(String email) throws Exception {
         MvcResult res = mvc.perform(post("/api/auth/signup")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -60,26 +73,15 @@ class HostApiIntegrationTest {
         return new String[]{node.get("token").asText(), node.get("tenantId").asText()};
     }
 
-    private void seedOpenAlert(String tenantId, String host, String severity, long ts) {
-        String id = AlertId.of(tenantId, host, "RULE_" + ts, ts);
-        alerts.save(AlertRecord.open(id, tenantId, host, "RULE_" + ts, "T1059",
-                severity, "notify", ts, List.of("m1"), Instant.now()));
-    }
-
-    /** events 관측 호스트는 목으로 고정: h1, h2. */
-    private void stubHosts() {
-        when(reader.query(any())).thenReturn(List.of(
-                Map.of("host", "h1", "last_seen", "2000"),
-                Map.of("host", "h2", "last_seen", "1000")));
+    private static Map<String, Object> count(String host, long total, long critical, long high) {
+        return Map.of("host", host, "openTotal", String.valueOf(total),
+                "openCritical", String.valueOf(critical), "openHigh", String.valueOf(high));
     }
 
     @Test
-    void 목록은_events호스트에_자기_tenant_alert만_붙인다() throws Exception {
-        stubHosts();
+    void 목록은_events호스트에_열린_alert집계를_붙인다() throws Exception {
         String[] a = signup("a-hosts@edrdog.com");
-        String[] b = signup("b-hosts@edrdog.com");
-        seedOpenAlert(a[1], "h1", "CRITICAL", 100L);   // A 의 h1 은 위험
-        seedOpenAlert(b[1], "h2", "CRITICAL", 200L);   // B 의 h2 (A 에는 안 보여야 함)
+        countRows = List.of(count("h1", 1, 1, 0));   // h1 은 위험(CRITICAL), h2 는 집계 없음
 
         mvc.perform(get("/api/hosts").header("Authorization", "Bearer " + a[0]))
                 .andExpect(status().isOk())
@@ -89,15 +91,14 @@ class HostApiIntegrationTest {
                 .andExpect(jsonPath("$[0].threats").value(1))
                 .andExpect(jsonPath("$[0].lastSeen").value(2000))
                 .andExpect(jsonPath("$[1].host").value("h2"))
-                .andExpect(jsonPath("$[1].status").value("healthy"))  // B 의 alert 는 격리
+                .andExpect(jsonPath("$[1].status").value("healthy"))
                 .andExpect(jsonPath("$[1].threats").value(0));
     }
 
     @Test
     void 요약은_status별_수와_총수를_준다() throws Exception {
-        stubHosts();
         String[] a = signup("a-summary@edrdog.com");
-        seedOpenAlert(a[1], "h1", "HIGH", 100L);   // h1 주의, h2 정상
+        countRows = List.of(count("h1", 1, 0, 1));   // h1 주의(HIGH), h2 정상
 
         mvc.perform(get("/api/hosts/summary").header("Authorization", "Bearer " + a[0]))
                 .andExpect(status().isOk())

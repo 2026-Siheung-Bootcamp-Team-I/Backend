@@ -26,7 +26,7 @@ import java.util.Set;
  */
 @RestController
 @RequestMapping("/api/alerts")
-@Tag(name = "alerts", description = "알림 조회 및 트리아지 (MySQL, tenant 격리)")
+@Tag(name = "alerts", description = "알림 조회 및 트리아지 (ClickHouse 판정기록 + MySQL status 오버레이, tenant 격리)")
 public class AlertController {
 
     private static final String BEARER_PREFIX = "Bearer ";

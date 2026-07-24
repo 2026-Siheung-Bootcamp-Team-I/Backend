@@ -56,6 +56,7 @@ edrdog:
     user: edrdog
     password: ${CLICKHOUSE_PASSWORD:edrdog}   # 시크릿은 Infisical 주입, 기본값은 로컬 kind ClickHouse 와 일치
     table: edrdog.events                 # 조회 대상 테이블 (archiver 가 적재)
+    alerts-table: edrdog.alerts          # 판정기록(불변) 저장 테이블 (api-service 가 적재)
   geoip:
     db-path: ${GEOIP_DB_PATH:}           # GeoLite2-Country.mmdb 외부 경로. 비면 클래스패스 번들 사용, 둘 다 없으면 geo API 빈 배열
 
