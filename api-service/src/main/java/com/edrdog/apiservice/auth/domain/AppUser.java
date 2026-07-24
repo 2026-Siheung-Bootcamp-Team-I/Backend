@@ -35,6 +35,9 @@ public class AppUser {
     @Column(nullable = false)
     private Instant createdAt;
 
+    @Column
+    private String slackWebhookUrl;   // 유저 개인 알림 목적지 (자기 소유 host 탐지 알림 수신)
+
     protected AppUser() {
     }
 
@@ -72,5 +75,14 @@ public class AppUser {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public String getSlackWebhookUrl() {
+        return slackWebhookUrl;
+    }
+
+    /** 개인 Slack webhook URL 을 갱신한다. */
+    public void updateWebhook(String url) {
+        this.slackWebhookUrl = url;
     }
 }

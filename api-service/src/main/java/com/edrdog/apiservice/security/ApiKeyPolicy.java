@@ -15,6 +15,7 @@ public class ApiKeyPolicy {
             "/api/events",  // 조회는 세션 Bearer 로 인증하고 tenant 를 뽑는다(EventQueryController)
             "/api/alerts",  // 알림 조회·트리아지도 세션 Bearer 로 인증(AlertController)
             "/api/hosts",   // 호스트 목록·요약도 세션 Bearer 로 인증(HostController)
+            "/api/me",      // 유저 개인 알림 설정도 세션 Bearer 로 인증(UserNotifyController)
             "/api/internal/",  // 서비스 간 조회는 별도 X-Internal-Key 로 인증(TenantController), 프론트 키와 분리
             "/api/osquery/"  // 엔드포인트 수집은 자체 enroll_secret/node_key 로 인증(OsqueryController), 프론트 키와 분리
     );
