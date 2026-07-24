@@ -1,7 +1,6 @@
 package com.edrdog.alertservice.slack;
 
 import com.edrdog.alertservice.dto.Alert;
-import com.edrdog.alertservice.webhook.TenantWebhookClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
@@ -9,12 +8,11 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
 import java.util.Map;
-import java.util.Optional;
 
 /**
- * alert 를 tenant 별 Slack Incoming Webhook 으로 전송한다.
- * tenantId 로 {@link TenantWebhookClient} 를 통해 webhook 을 조회하고,
- * 미등록(empty) 이면 발송을 건너뛴다. 메시지 포맷(format)은 순수 로직으로 분리해 단위 테스트한다.
+ * alert 를 지정된 Slack Incoming Webhook 으로 전송한다.
+ * 목적지(webhook) 결정은 {@link com.edrdog.alertservice.webhook.AlertRouter} 가 담당하고,
+ * 여기서는 받은 URL 로 POST 만 한다. 메시지 포맷(format)은 순수 로직으로 분리해 단위 테스트한다.
  */
 @Component
 public class SlackNotifier {
@@ -22,24 +20,16 @@ public class SlackNotifier {
     private static final Logger log = LoggerFactory.getLogger(SlackNotifier.class);
 
     private final RestClient client;
-    private final TenantWebhookClient webhooks;
 
-    public SlackNotifier(RestClient.Builder builder, TenantWebhookClient webhooks) {
+    public SlackNotifier(RestClient.Builder builder) {
         this.client = builder.build();
-        this.webhooks = webhooks;
     }
 
-    /** alert 를 tenant webhook 으로 전송. 미등록 시 경고 로그 후 skip. */
-    public void send(Alert alert) {
-        Optional<String> webhookUrl = webhooks.resolve(alert.tenantId());
-        if (webhookUrl.isEmpty()) {
-            log.warn("tenant webhook 미등록 → 발송 skip (tenant={}, host={}, rule={})",
-                    alert.tenantId(), alert.host(), alert.ruleId());
-            return;
-        }
+    /** alert 를 주어진 webhook URL 로 전송. 실패는 경고 로그만 남기고 삼킨다. */
+    public void send(Alert alert, String webhookUrl) {
         try {
             client.post()
-                    .uri(webhookUrl.get())
+                    .uri(webhookUrl)
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(Map.of("text", format(alert)))
                     .retrieve()

@@ -1,27 +1,21 @@
 package com.edrdog.alertservice.slack;
 
 import com.edrdog.alertservice.dto.Alert;
-import com.edrdog.alertservice.webhook.TenantWebhookClient;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
 import java.util.List;
-import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 import static org.springframework.http.HttpMethod.POST;
-import static org.springframework.test.web.client.ExpectedCount.never;
 import static org.springframework.test.web.client.ExpectedCount.once;
-import static org.springframework.test.web.client.match.MockRestRequestMatchers.anything;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
-/** SlackNotifier: 메시지 포맷(순수) + tenant webhook 라우팅 검증. */
+/** SlackNotifier: 메시지 포맷(순수) + 주어진 webhook 으로 POST 검증. */
 class SlackNotifierTest {
 
     private Alert alert(String severity, String action) {
@@ -50,37 +44,20 @@ class SlackNotifierTest {
         assertThat(SlackNotifier.format(alert(Alert.SEV_MEDIUM, Alert.ACTION_NOTIFY))).startsWith("🟡");
     }
 
-    // --- 라우팅 ---
+    // --- 발송 ---
 
     @Test
-    @DisplayName("tenant webhook 이 있으면 그 URL 로 POST 한다")
-    void send_postsToResolvedWebhook() {
+    @DisplayName("주어진 webhook URL 로 POST 한다")
+    void send_postsToGivenWebhook() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        TenantWebhookClient webhooks = mock(TenantWebhookClient.class);
-        when(webhooks.resolve("t1")).thenReturn(Optional.of("https://hooks/abc"));
-        SlackNotifier notifier = new SlackNotifier(builder, webhooks);
+        SlackNotifier notifier = new SlackNotifier(builder);
 
         server.expect(once(), requestTo("https://hooks/abc"))
                 .andExpect(method(POST))
                 .andRespond(withSuccess());
 
-        notifier.send(alert(Alert.SEV_HIGH, Alert.ACTION_KILL));
-        server.verify();
-    }
-
-    @Test
-    @DisplayName("tenant webhook 이 미등록이면 발송하지 않는다 (skip)")
-    void send_skipsWhenUnregistered() {
-        RestClient.Builder builder = RestClient.builder();
-        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        TenantWebhookClient webhooks = mock(TenantWebhookClient.class);
-        when(webhooks.resolve("t1")).thenReturn(Optional.empty());
-        SlackNotifier notifier = new SlackNotifier(builder, webhooks);
-
-        server.expect(never(), anything());
-
-        notifier.send(alert(Alert.SEV_HIGH, Alert.ACTION_KILL));
+        notifier.send(alert(Alert.SEV_HIGH, Alert.ACTION_KILL), "https://hooks/abc");
         server.verify();
     }
 }
