@@ -38,6 +38,9 @@ spec:
             # 발표 환경에서만 true (데모 계정 test/1234 + 과거 7일 시드)
             - name: DEMO_SEED
               value: "false"
+            # 메트릭/트레이스 OTLP 수집기 (k8s/otel-lgtm.yaml)
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-lgtm:4318"
           readinessProbe:
             httpGet:
               path: /actuator/health

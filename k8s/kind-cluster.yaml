@@ -22,3 +22,12 @@ nodes:
       - containerPort: 30306   # MySQL               -> host localhost:3306
         hostPort: 3306
         protocol: TCP
+      - containerPort: 30300   # Grafana (otel-lgtm) -> host localhost:3000
+        hostPort: 3000
+        protocol: TCP
+      - containerPort: 30317   # OTLP gRPC           -> host localhost:4317
+        hostPort: 4317
+        protocol: TCP
+      - containerPort: 30318   # OTLP HTTP           -> host localhost:4318
+        hostPort: 4318
+        protocol: TCP

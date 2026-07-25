@@ -25,6 +25,9 @@ spec:
             # 실제 Kafka 주소로 교체 (ConfigMap 으로 분리해도 됨)
             - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
               value: "kafka:9094"
+            # 메트릭/트레이스 OTLP 수집기 (k8s/otel-lgtm.yaml)
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-lgtm:4318"
           readinessProbe:
             httpGet:
               path: /actuator/health

@@ -11,6 +11,11 @@ spring:
     producer:                           # 정규화 결과(Event JSON 문자열)를 events 로 발행
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
+    # 발행/소비 스팬 생성 → Kafka 를 건너도 traceId 가 이어진다
+    template:
+      observation-enabled: true
+    listener:
+      observation-enabled: true
 
 server:
   port: 8082
@@ -25,3 +30,11 @@ management:
     web:
       exposure:
         include: health, info
+  # 관측 — 트레이스만 보낸다(메트릭 익스포터는 api/detector/archiver 에만).
+  tracing:
+    enabled: ${OTEL_ENABLED:true}
+    sampling:
+      probability: ${OTEL_TRACE_SAMPLING:1.0}
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/traces
