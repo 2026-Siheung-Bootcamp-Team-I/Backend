@@ -22,6 +22,13 @@ spec:
           ports:
             - containerPort: 8084
             - containerPort: 8443   # osquery 수집 전용 HTTPS 커넥터 (osquery-tls Secret 이 있을 때만 열린다)
+          # Infisical 이 동기화한 edrdog-secrets. EDRDOG_API_KEY(프론트 X-API-Key), INTERNAL_API_KEY
+          # (alert-service 내부 조회), CLICKHOUSE_PASSWORD 등이 여기서 온다. 이게 빠진 채로 apply 하면
+          # 프론트는 401, 알림은 전면 중단, 대시보드는 ClickHouse 인증 실패로 깨진다.
+          # 아래 env 에 같은 이름이 있으면 그쪽이 이긴다(그래서 DB_PASSWORD 는 아래 평문 값이 쓰인다).
+          envFrom:
+            - secretRef:
+                name: edrdog-secrets
           env:
             # --- osquery 수집 HTTPS 커넥터 ---
             # 엔드포인트의 osquery TLS logger 는 평문 HTTP 로 안 붙으므로 이 포트가 없으면 수집 자체가 불가능하다.
@@ -53,11 +60,13 @@ spec:
             - name: EDRDOG_CLICKHOUSE_URL
               value: "http://clickhouse:8123"
             # 프론트 도메인 (배포 시 실제 값으로 교체)
+            # 배포된 프론트(Vercel) + 로컬 dev 서버. 서버 실제 값과 같게 둔다.
             - name: CORS_ALLOWED_ORIGINS
-              value: "http://localhost:5173"
-            # 발표 환경에서만 true (데모 계정 test/1234 + 과거 7일 시드)
+              value: "https://frontend1-ten-gamma.vercel.app,http://localhost:5173"
+            # 발표 환경에서만 true (데모 계정 test/1234 + 과거 7일 시드).
+            # 현재 배포서버가 true 라 그대로 맞춘다. 해커톤이 끝나면 false 로 되돌린다.
             - name: DEMO_SEED
-              value: "false"
+              value: "true"
             # 메트릭/트레이스 OTLP 수집기 (k8s/otel-lgtm.yaml)
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: "http://otel-lgtm:4318"
