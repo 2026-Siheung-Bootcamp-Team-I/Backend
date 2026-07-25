@@ -8,6 +8,7 @@ import com.edrdog.apiservice.notify.repository.HostOwnerRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.web.client.ResourceAccessException;
 
 import java.time.Instant;
 import java.util.List;
@@ -17,25 +18,29 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * UserNotifyService: 리포지토리는 목킹, WebhookValidation 은 실제 사용.
+ * UserNotifyService: 리포지토리와 SlackWebhookClient 는 목킹, WebhookValidation 은 실제 사용.
  */
 class UserNotifyServiceTest {
 
     private UserRepository users;
     private HostOwnerRepository hostOwners;
+    private SlackWebhookClient slackWebhookClient;
     private UserNotifyService service;
 
     @BeforeEach
     void setUp() {
         users = mock(UserRepository.class);
         hostOwners = mock(HostOwnerRepository.class);
-        service = new UserNotifyService(users, hostOwners);
+        slackWebhookClient = mock(SlackWebhookClient.class);
+        service = new UserNotifyService(users, hostOwners, slackWebhookClient);
     }
 
     private static AppUser newUser(Long tenantId) {
@@ -77,6 +82,60 @@ class UserNotifyServiceTest {
     void getWebhook_unset_empty() {
         when(users.findById(10L)).thenReturn(Optional.of(newUser(1L)));
         assertThat(service.getWebhook(10L)).isEmpty();
+    }
+
+    // --- webhook 테스트 발송 ---
+
+    @Test
+    @DisplayName("sendTestWebhook: 등록된 webhook 없으면 404, Slack 호출 안 함")
+    void sendTestWebhook_noWebhook_404() {
+        when(users.findById(10L)).thenReturn(Optional.of(newUser(1L)));
+
+        AuthException e = assertThrows(AuthException.class, () -> service.sendTestWebhook(10L));
+
+        assertEquals(AuthException.Kind.NOT_FOUND, e.getKind());
+        verify(slackWebhookClient, never()).send(anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("sendTestWebhook: Slack 이 2xx 주면 그 상태코드를 반환")
+    void sendTestWebhook_ok_returnsStatus() {
+        AppUser u = newUser(1L);
+        u.updateWebhook("https://hooks.slack.com/services/x");
+        when(users.findById(10L)).thenReturn(Optional.of(u));
+        when(slackWebhookClient.send(eq("https://hooks.slack.com/services/x"), anyString())).thenReturn(200);
+
+        int status = service.sendTestWebhook(10L);
+
+        assertEquals(200, status);
+        verify(slackWebhookClient).send(eq("https://hooks.slack.com/services/x"), anyString());
+    }
+
+    @Test
+    @DisplayName("sendTestWebhook: Slack 이 4xx/5xx 주면 502")
+    void sendTestWebhook_slackError_502() {
+        AppUser u = newUser(1L);
+        u.updateWebhook("https://hooks.slack.com/services/x");
+        when(users.findById(10L)).thenReturn(Optional.of(u));
+        when(slackWebhookClient.send(anyString(), anyString())).thenReturn(404);
+
+        AuthException e = assertThrows(AuthException.class, () -> service.sendTestWebhook(10L));
+
+        assertEquals(AuthException.Kind.UPSTREAM_ERROR, e.getKind());
+    }
+
+    @Test
+    @DisplayName("sendTestWebhook: 연결 실패/타임아웃이면 502")
+    void sendTestWebhook_connectionFailure_502() {
+        AppUser u = newUser(1L);
+        u.updateWebhook("https://hooks.slack.com/services/x");
+        when(users.findById(10L)).thenReturn(Optional.of(u));
+        when(slackWebhookClient.send(anyString(), anyString()))
+                .thenThrow(new ResourceAccessException("timeout"));
+
+        AuthException e = assertThrows(AuthException.class, () -> service.sendTestWebhook(10L));
+
+        assertEquals(AuthException.Kind.UPSTREAM_ERROR, e.getKind());
     }
 
     // --- host 등록 ---

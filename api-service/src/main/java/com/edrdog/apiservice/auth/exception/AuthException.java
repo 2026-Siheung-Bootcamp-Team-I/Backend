@@ -9,7 +9,8 @@ public class AuthException extends RuntimeException {
         INVALID_INPUT,  // 400
         UNAUTHORIZED,   // 401
         NOT_FOUND,      // 404
-        DUPLICATE       // 409
+        DUPLICATE,      // 409
+        UPSTREAM_ERROR  // 502 (외부 연동 실패, 예: Slack webhook 테스트 발송)
     }
 
     private final Kind kind;
@@ -37,5 +38,9 @@ public class AuthException extends RuntimeException {
 
     public static AuthException duplicate(String message) {
         return new AuthException(Kind.DUPLICATE, message);
+    }
+
+    public static AuthException upstreamError(String message) {
+        return new AuthException(Kind.UPSTREAM_ERROR, message);
     }
 }
