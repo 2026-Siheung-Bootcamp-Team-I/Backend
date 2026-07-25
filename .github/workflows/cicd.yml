@@ -37,6 +37,7 @@ jobs:
             archiver-service/build/libs/*.jar
             api-service/build/libs/*.jar
             alert-service/build/libs/*.jar
+            collector-service/build/libs/*.jar
 
   # 이미지 빌드 + GHCR 푸시 (main 푸시에만, 모듈별 matrix)
   image:
