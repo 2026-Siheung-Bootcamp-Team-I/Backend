@@ -22,6 +22,7 @@ public class AuthExceptionHandler {
             case UNAUTHORIZED -> HttpStatus.UNAUTHORIZED;
             case NOT_FOUND -> HttpStatus.NOT_FOUND;
             case DUPLICATE -> HttpStatus.CONFLICT;
+            case UPSTREAM_ERROR -> HttpStatus.BAD_GATEWAY;
         };
         return ResponseEntity.status(status).body(Map.of("error", e.getMessage()));
     }

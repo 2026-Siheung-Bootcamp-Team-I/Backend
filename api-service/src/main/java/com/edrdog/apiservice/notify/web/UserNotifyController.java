@@ -20,6 +20,8 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.Map;
+
 /**
  * 유저 개인 알림 설정. host 소유 유저에게 개별로 탐지 알림을 보내기 위한 관리 API.
  * /api/me/** 은 로그인 유저(Bearer)가 자기 것만 다룬다.
@@ -58,6 +60,16 @@ public class UserNotifyController {
             @RequestHeader(name = "Authorization", required = false) String authorization) {
         Principal p = principal(authorization);
         return new UserWebhookResponse(p.userId(), notify.getWebhook(p.userId()).orElse(null));
+    }
+
+    @Operation(summary = "내 webhook 테스트 알림",
+            description = "저장된 개인 Slack webhook 으로 테스트 메시지를 보내 실제 도달 여부를 확인한다.")
+    @PostMapping("/api/me/webhook/test")
+    public ResponseEntity<Map<String, Object>> testWebhook(
+            @RequestHeader(name = "Authorization", required = false) String authorization) {
+        Principal p = principal(authorization);
+        int status = notify.sendTestWebhook(p.userId());
+        return ResponseEntity.ok(Map.of("ok", true, "status", status));
     }
 
     @Operation(summary = "내 host 등록", description = "로그인 유저가 소유한 host 를 등록한다. 그 host 탐지 알림이 내 webhook 으로 온다.")

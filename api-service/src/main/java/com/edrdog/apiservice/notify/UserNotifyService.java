@@ -9,6 +9,7 @@ import com.edrdog.apiservice.tenant.WebhookValidation;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestClientException;
 
 import java.time.Instant;
 import java.util.List;
@@ -17,17 +18,23 @@ import java.util.Optional;
 /**
  * 유저 개인 알림 설정: 개인 Slack webhook 등록/조회, 소유 host 등록/조회/해제,
  * 그리고 탐지 알림의 라우팅 대상(host 소유자의 목적지) 해결.
- * 검증 실패 400 / 없음 404 / 소유 충돌 409 는 AuthException 으로 던져 전역 핸들러가 매핑한다.
+ * 검증 실패 400 / 없음 404 / 소유 충돌 409 / 외부 연동 실패 502 는 AuthException 으로 던져 전역 핸들러가 매핑한다.
  */
 @Service
 public class UserNotifyService {
 
+    private static final String TEST_MESSAGE =
+            "EDRDOG 테스트 알림입니다. 이 메시지가 보이면 webhook 연동이 정상입니다.";
+
     private final UserRepository users;
     private final HostOwnerRepository hostOwners;
+    private final SlackWebhookClient slackWebhookClient;
 
-    public UserNotifyService(UserRepository users, HostOwnerRepository hostOwners) {
+    public UserNotifyService(UserRepository users, HostOwnerRepository hostOwners,
+                              SlackWebhookClient slackWebhookClient) {
         this.users = users;
         this.hostOwners = hostOwners;
+        this.slackWebhookClient = slackWebhookClient;
     }
 
     /** 개인 webhook 등록/갱신. URL 검증 실패 400, 유저 없음 404. */
@@ -45,6 +52,27 @@ public class UserNotifyService {
     @Transactional(readOnly = true)
     public Optional<String> getWebhook(Long userId) {
         return Optional.ofNullable(user(userId).getSlackWebhookUrl());
+    }
+
+    /**
+     * 저장된 개인 webhook 으로 테스트 메시지를 실제로 보내 도달 여부를 확인한다.
+     * webhook 미등록 404, Slack 이 4xx/5xx 를 주거나 연결 자체가 실패하면 502.
+     * 성공 시 Slack 이 준 HTTP 상태코드를 그대로 돌려준다.
+     */
+    @Transactional(readOnly = true)
+    public int sendTestWebhook(Long userId) {
+        String url = getWebhook(userId)
+                .orElseThrow(() -> AuthException.notFound("등록된 webhook 이 없습니다"));
+        int status;
+        try {
+            status = slackWebhookClient.send(url, TEST_MESSAGE);
+        } catch (RestClientException e) {
+            throw AuthException.upstreamError("Slack 연결에 실패했습니다: " + e.getMessage());
+        }
+        if (status < 200 || status >= 300) {
+            throw AuthException.upstreamError("Slack 이 오류를 반환했습니다 (status=" + status + ")");
+        }
+        return status;
     }
 
     /**
