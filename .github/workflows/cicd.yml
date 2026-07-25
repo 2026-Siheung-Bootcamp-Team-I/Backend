@@ -48,7 +48,7 @@ jobs:
       packages: write
     strategy:
       matrix:
-        module: [detector-service, responder-service, archiver-service, api-service, alert-service]
+        module: [detector-service, responder-service, archiver-service, api-service, alert-service, collector-service]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -100,7 +100,7 @@ jobs:
             -i ~/.ssh/deploy_key "$SSH_USER@$SSH_HOST" \
             "REPO='$REPO_LC' SHA='$SHA' NS=edrdog bash -s" <<'REMOTE'
           set -euo pipefail
-          MODULES="detector-service responder-service archiver-service api-service alert-service"
+          MODULES="detector-service responder-service archiver-service api-service alert-service collector-service"
 
           # 모니터링 스택과 Kafka UI 만 매니페스트로 apply 한다.
           # 서비스 5개 매니페스트는 손대지 않는다. apply 하면 image 가 :latest 로 되돌아갔다가
@@ -126,10 +126,22 @@ jobs:
           echo "~/Backend 클론이 없어 모니터링 매니페스트 apply 를 건너뛴다" >&2
           fi
 
+          # Deployment 가 아직 없는 모듈(새로 추가된 서비스)은 건너뛴다.
+          # set -e 라 없는 deployment 에 set image 를 하면 나머지 배포까지 통째로 죽는다.
+          # 새 서비스는 서버에서 k8s/<모듈>.yaml 을 한 번 apply 한 뒤부터 이 루프가 관리한다.
+          DEPLOYED=""
           for m in $MODULES; do
+          if sudo kubectl -n "$NS" get deploy "$m" >/dev/null 2>&1; then
+          DEPLOYED="$DEPLOYED $m"
+          else
+          echo "deployment/$m 없음 → 건너뜀. k8s/$m.yaml 을 서버에서 먼저 apply 할 것" >&2
+          fi
+          done
+
+          for m in $DEPLOYED; do
           sudo kubectl -n "$NS" set image "deployment/$m" "$m=ghcr.io/$REPO/$m:$SHA"
           done
-          for m in $MODULES; do
+          for m in $DEPLOYED; do
           sudo kubectl -n "$NS" rollout status "deployment/$m" --timeout=120s
           done
           REMOTE
