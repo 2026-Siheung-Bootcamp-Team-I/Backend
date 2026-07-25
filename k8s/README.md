@@ -23,6 +23,7 @@ kubectl -n edrdog get pods                            # Running 확인
 | Grafana | `http://localhost:3000` | admin / admin. 첫 화면이 EDRdog Overview |
 | OTLP HTTP | `http://localhost:4318` | 서비스가 메트릭·트레이스를 보내는 곳 |
 | OTLP gRPC | `localhost:4317` | 〃 |
+| osquery 수집 HTTPS | `localhost:8443` (NodePort 30443) | 엔드포인트 osquery 가 붙는 곳. 아래 시크릿을 만들어야 열린다 |
 
 클러스터 내부(파드 간) Kafka 주소: `kafka.edrdog.svc.cluster.local:9094`
 클러스터 내부 OTLP 주소: `http://otel-lgtm:4318` (각 서비스 Deployment 의 `OTEL_EXPORTER_OTLP_ENDPOINT`)
@@ -50,6 +51,46 @@ curl "http://localhost:3000/api/datasources/proxy/uid/loki/loki/api/v1/label/ser
 ```bash
 kind delete cluster --name edrdog    # 클러스터째 삭제 (데이터 emptyDir 라 함께 소멸)
 ```
+
+## osquery 수집 포트 (api-service 8443 / NodePort 30443)
+
+엔드포인트의 osquery TLS logger 는 평문 HTTP 로 붙지 않는다. 그래서 api-service 는 프론트용 8084 와 별도로
+osquery 전용 HTTPS 커넥터를 8443 에 연다. **이 커넥터는 `osquery-tls` Secret 이 있을 때만 켜진다**
+(Secret 이 없으면 값이 안 들어와 `OSQUERY_TLS_ENABLED` 가 기본 false 로 남고, api-service 는 그대로 정상 기동한다).
+
+```bash
+# 1) 서버 인증서 + 키스토어 생성. 인자는 엔드포인트가 실제로 붙을 주소(도메인 또는 공인 IP).
+#    osquery 가 이 인증서를 핀하므로 SAN 이 --tls_hostname 의 호스트와 같아야 한다.
+./scripts/gen-dev-keystore.sh ./dev-tls edrdog.example.com
+
+# 2) Secret 생성 (키스토어 + 스위치 + 비번을 한 Secret 에)
+kubectl -n edrdog create secret generic osquery-tls \
+  --from-file=keystore.p12=./dev-tls/osquery-keystore.p12 \
+  --from-literal=OSQUERY_TLS_ENABLED=true \
+  --from-literal=OSQUERY_TLS_KEYSTORE_PASSWORD=changeit
+
+kubectl -n edrdog rollout restart deploy/api-service
+
+# 3) 확인 (self-signed 라 -k)
+curl -sk https://localhost:8443/api/osquery/enroll -H 'Content-Type: application/json' \
+  -d '{"enroll_secret":"틀린값"}'      # -> {"node_invalid":true} 면 커넥터 정상
+```
+
+엔드포인트에는 `./dev-tls/osquery-server.pem` 을 배포하고 플래그를 맞춘다.
+
+```
+--tls_hostname=edrdog.example.com:30443
+--tls_server_certs=<osquery-server.pem 경로>
+```
+
+- **Caddy 로 프록시하면 안 된다.** osquery 가 서버 인증서를 핀하므로 중간에서 TLS 를 다시 종단하면
+  엔드포인트가 enroll 단계에서 조용히 실패한다. 노출하려면 NodePort 30443 을 보안그룹에서 직접 열거나
+  L4(TCP) 통과 프록시를 쓴다.
+- 인증서 SAN 이 `--tls_hostname` 의 호스트와 다르면 역시 enroll 단계에서 실패한다. 주소가 바뀌면 인증서를
+  다시 만들고 Secret 을 갱신한 뒤 엔드포인트의 PEM 까지 교체해야 한다.
+- kind 로컬에서는 `kind-cluster.yaml` 의 `30443 -> hostPort 8443` 매핑을 쓴다.
+  **`extraPortMappings` 는 클러스터 생성 시에만 반영**되므로 기존 클러스터라면 다시 만들거나
+  `kubectl -n edrdog port-forward svc/api-service-osquery 8443:8443` 로 우회한다.
 
 ## 시크릿 (Infisical)
 

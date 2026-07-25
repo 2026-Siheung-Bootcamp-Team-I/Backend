@@ -31,3 +31,6 @@ nodes:
       - containerPort: 30318   # OTLP HTTP           -> host localhost:4318
         hostPort: 4318
         protocol: TCP
+      - containerPort: 30443   # osquery 수집 HTTPS  -> host localhost:8443
+        hostPort: 8443
+        protocol: TCP
