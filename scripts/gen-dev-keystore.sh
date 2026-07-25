@@ -18,8 +18,16 @@ ALIAS="${OSQUERY_TLS_KEY_ALIAS:-osquery}"
 
 mkdir -p "$OUT"
 
+# osquery 는 --tls_hostname 의 호스트를 서버 인증서의 SAN 과 대조한다.
+# 배포 주소가 IP 면 dns: 로 넣어봐야 검증에 실패하므로 IPv4 는 ip: 로 넣는다.
+if [[ "$HOST" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  SAN="ip:$HOST,ip:127.0.0.1"
+else
+  SAN="dns:$HOST,ip:127.0.0.1"
+fi
+
 keytool -genkeypair -alias "$ALIAS" -keyalg RSA -keysize 2048 -validity 825 \
-  -dname "CN=$HOST" -ext "SAN=dns:$HOST,ip:127.0.0.1" \
+  -dname "CN=$HOST" -ext "SAN=$SAN" \
   -keystore "$OUT/osquery-keystore.p12" -storetype PKCS12 \
   -storepass "$PASS" -keypass "$PASS"
 
@@ -38,5 +46,12 @@ echo "  OSQUERY_TLS_KEYSTORE=$OUT/osquery-keystore.p12 \\"
 echo "  OSQUERY_TLS_KEYSTORE_PASSWORD=$PASS \\"
 echo "  ./gradlew :api-service:bootRun"
 echo
+echo "k8s(api-service) 에 태우려면 Secret 하나 만들면 끝(만들기 전엔 커넥터 OFF):"
+echo "  kubectl -n edrdog create secret generic osquery-tls \\"
+echo "    --from-file=keystore.p12=$OUT/osquery-keystore.p12 \\"
+echo "    --from-literal=OSQUERY_TLS_ENABLED=true \\"
+echo "    --from-literal=OSQUERY_TLS_KEYSTORE_PASSWORD=$PASS"
+echo "  kubectl -n edrdog rollout restart deploy/api-service"
+echo
 echo "osquery 엔드포인트 플래그: collector-service/osquery/osquery.mac.flags · osquery.win.flags"
-echo "  (--tls_server_certs 를 $OUT/osquery-server.pem 로 지정)"
+echo "  (--tls_server_certs 를 $OUT/osquery-server.pem 로 지정, --tls_hostname 은 $HOST:30443)"

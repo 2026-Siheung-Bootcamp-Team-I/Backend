@@ -47,4 +47,27 @@ class CooldownTest {
         assertThat(cooldown.allow("t1|host-1|RULE", 1_000)).isTrue();
         assertThat(cooldown.allow("t1|host-1|RULE", 30_000)).isFalse();
     }
+
+    @Test
+    @DisplayName("forget 하면 윈도우 안이어도 다시 통과한다 (발송 실패 롤백용)")
+    void forget_allowsAgainWithinWindow() {
+        Cooldown cooldown = new Cooldown(60_000);
+        assertThat(cooldown.allow("t1|host-1|RULE", 1_000)).isTrue();
+
+        cooldown.forget("t1|host-1|RULE");
+
+        assertThat(cooldown.allow("t1|host-1|RULE", 2_000)).isTrue();
+    }
+
+    @Test
+    @DisplayName("forget 은 다른 키에 영향을 주지 않는다")
+    void forget_otherKeysUntouched() {
+        Cooldown cooldown = new Cooldown(60_000);
+        cooldown.allow("t1|host-1|RULE", 1_000);
+        cooldown.allow("t1|host-2|RULE", 1_000);
+
+        cooldown.forget("t1|host-1|RULE");
+
+        assertThat(cooldown.allow("t1|host-2|RULE", 2_000)).isFalse();
+    }
 }

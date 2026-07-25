@@ -21,23 +21,36 @@ spec:
           image: ghcr.io/2026-siheung-bootcamp-team-i/backend/responder-service:latest
           ports:
             - containerPort: 8082
+          # Infisical 이 동기화한 edrdog-secrets. api/alert/detector 등 다른 서비스와 같은 패턴이다.
+          # 아래 env 에 같은 이름이 있으면 그쪽이 이긴다.
+          envFrom:
+            - secretRef:
+                name: edrdog-secrets
           env:
+            # --- 실제 조치(kill) 실행 ---
+            # 배포서버는 이미 켜져 있고, 이 매니페스트는 그 상태를 그대로 옮긴 것이다.
+            # 끄려면 이 값을 "false" 로 바꾸거나 env 를 지운다(지우면 edrdog-secrets 값이 쓰인다).
+            # 켠 상태에서 FLEET_BASE_URL 이 https 가 아니면 FleetTls 가 기동을 막는다.
+            # Bearer 토큰이 평문으로 나가는 걸 차단하는 의도된 동작이다.
+            - name: RESPONDER_EXECUTE_ENABLED
+              value: "true"
+            - name: FLEET_BASE_URL
+              value: "https://fleet.edrdog.svc.cluster.local:8080"
+            # Fleet 이 자가서명이라 그 인증서를 담은 truststore 로 검증한다(아래 volume).
+            - name: FLEET_TLS_TRUSTSTORE
+              value: "/fleet/fleet-truststore.p12"
+            - name: FLEET_TLS_TRUSTSTORE_PASSWORD
+              value: "changeit"
+            - name: FLEET_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: fleet-creds
+                  key: token
             - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
               value: "kafka:9094"
             # 트레이스 OTLP 수집기 (k8s/otel-lgtm.yaml)
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: "http://otel-lgtm:4318"
-            # 실제 조치(kill) 실행은 기본 OFF(dry-run). 신뢰가 쌓인 뒤 아래를 채워 켠다.
-            # 켤 때 FLEET_BASE_URL 은 https 여야 하며(FleetTls), 자가서명 인증서면 FLEET_TLS_TRUSTSTORE 를 지정한다.
-            # - name: RESPONDER_EXECUTE_ENABLED
-            #   value: "true"
-            # - name: FLEET_BASE_URL
-            #   value: "https://fleet.내부주소"
-            # - name: FLEET_TOKEN
-            #   valueFrom:
-            #     secretKeyRef: { name: fleet, key: token }
-            # - name: FLEET_TLS_TRUSTSTORE
-            #   value: "/etc/fleet/truststore.p12"
           readinessProbe:
             httpGet:
               path: /actuator/health
@@ -57,6 +70,15 @@ spec:
             limits:
               cpu: 500m
               memory: 512Mi
+          volumeMounts:
+            - name: fleet-ts
+              mountPath: /fleet
+              readOnly: true
+      volumes:
+        # Fleet 서버 인증서를 담은 truststore. FLEET_TLS_TRUSTSTORE 가 이 경로를 가리킨다.
+        - name: fleet-ts
+          secret:
+            secretName: fleet-truststore
 ---
 apiVersion: v1
 kind: Service

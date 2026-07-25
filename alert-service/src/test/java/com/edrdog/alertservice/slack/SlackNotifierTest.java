@@ -13,6 +13,7 @@ import static org.springframework.http.HttpMethod.POST;
 import static org.springframework.test.web.client.ExpectedCount.once;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 /** SlackNotifier: 메시지 포맷(순수) + 주어진 webhook 으로 POST 검증. */
@@ -57,7 +58,21 @@ class SlackNotifierTest {
                 .andExpect(method(POST))
                 .andRespond(withSuccess());
 
-        notifier.send(alert(Alert.SEV_HIGH, Alert.ACTION_KILL), "https://hooks/abc");
+        assertThat(notifier.send(alert(Alert.SEV_HIGH, Alert.ACTION_KILL), "https://hooks/abc")).isTrue();
+        server.verify();
+    }
+
+    @Test
+    @DisplayName("Slack 이 5xx 를 주면 false 를 돌려준다 (호출자가 쿨다운을 롤백할 수 있게)")
+    void send_returnsFalseOnFailure() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        SlackNotifier notifier = new SlackNotifier(builder);
+
+        server.expect(once(), requestTo("https://hooks/abc"))
+                .andRespond(withServerError());
+
+        assertThat(notifier.send(alert(Alert.SEV_HIGH, Alert.ACTION_KILL), "https://hooks/abc")).isFalse();
         server.verify();
     }
 }

@@ -25,8 +25,12 @@ public class SlackNotifier {
         this.client = builder.build();
     }
 
-    /** alert 를 주어진 webhook URL 로 전송. 실패는 경고 로그만 남기고 삼킨다. */
-    public void send(Alert alert, String webhookUrl) {
+    /**
+     * alert 를 주어진 webhook URL 로 전송하고 성공 여부를 돌려준다.
+     * 예외를 밖으로 던지지는 않는다(한 건 실패로 컨슈머를 멈추지 않는다). 대신 false 를 돌려줘
+     * 호출자가 쿨다운을 롤백할 수 있게 한다.
+     */
+    public boolean send(Alert alert, String webhookUrl) {
         try {
             client.post()
                     .uri(webhookUrl)
@@ -34,9 +38,11 @@ public class SlackNotifier {
                     .body(Map.of("text", format(alert)))
                     .retrieve()
                     .toBodilessEntity();
+            return true;
         } catch (Exception e) {
             log.warn("Slack 발송 실패 (tenant={}, host={}, rule={}): {}",
                     alert.tenantId(), alert.host(), alert.ruleId(), e.getMessage());
+            return false;
         }
     }
 

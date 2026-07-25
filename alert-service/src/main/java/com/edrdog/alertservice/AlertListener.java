@@ -50,7 +50,11 @@ public class AlertListener {
         }
         String key = route.get().cooldownId() + "|" + alert.host() + "|" + alert.ruleId();
         if (cooldown.allow(key, alert.ts())) {
-            slack.send(alert, route.get().webhookUrl());
+            // 발송이 실패하면 기록을 되돌린다. 안 그러면 실패한 발송이 쿨다운 창을 태워
+            // 같은 alert 의 재발생분까지 조용히 막힌다.
+            if (!slack.send(alert, route.get().webhookUrl())) {
+                cooldown.forget(key);
+            }
         }
     }
 }

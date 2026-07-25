@@ -26,4 +26,13 @@ public class Cooldown {
         lastSent.put(key, nowMs);
         return true;
     }
+
+    /**
+     * 기록을 지워 다음 요청이 다시 통과하게 한다.
+     * allow 는 발송 전에 호출되므로, 발송이 실패했는데 기록이 남으면 그 실패가 쿨다운 창을 태워
+     * 같은 alert 의 재발생분까지 막는다. 실패 시 롤백해 그 상황을 없앤다.
+     */
+    public void forget(String key) {
+        lastSent.remove(key);
+    }
 }
