@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: responder-service
+  namespace: edrdog
+  labels:
+    app: responder-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: responder-service
+  template:
+    metadata:
+      labels:
+        app: responder-service
+    spec:
+      containers:
+        - name: responder-service
+          # 배포 시 CI 가 kubectl set image 로 실제 태그(:<sha>) 주입
+          image: ghcr.io/2026-siheung-bootcamp-team-i/backend/responder-service:latest
+          ports:
+            - containerPort: 8082
+          env:
+            - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
+              value: "kafka:9094"
+            # 실제 조치(kill) 실행은 기본 OFF(dry-run). 신뢰가 쌓인 뒤 아래를 채워 켠다.
+            # 켤 때 FLEET_BASE_URL 은 https 여야 하며(FleetTls), 자가서명 인증서면 FLEET_TLS_TRUSTSTORE 를 지정한다.
+            # - name: RESPONDER_EXECUTE_ENABLED
+            #   value: "true"
+            # - name: FLEET_BASE_URL
+            #   value: "https://fleet.내부주소"
+            # - name: FLEET_TOKEN
+            #   valueFrom:
+            #     secretKeyRef: { name: fleet, key: token }
+            # - name: FLEET_TLS_TRUSTSTORE
+            #   value: "/etc/fleet/truststore.p12"
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8082
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8082
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: responder-service
+  namespace: edrdog
+  labels:
+    app: responder-service
+spec:
+  selector:
+    app: responder-service
+  ports:
+    - port: 80
+      targetPort: 8082

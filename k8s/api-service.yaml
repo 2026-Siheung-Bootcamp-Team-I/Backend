@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-service
+  namespace: edrdog
+  labels:
+    app: api-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api-service
+  template:
+    metadata:
+      labels:
+        app: api-service
+    spec:
+      containers:
+        - name: api-service
+          # 배포 시 CI 가 kubectl set image 로 실제 태그(:<sha>) 주입
+          image: ghcr.io/2026-siheung-bootcamp-team-i/backend/api-service:latest
+          ports:
+            - containerPort: 8084
+          env:
+            - name: KAFKA_BOOTSTRAP
+              value: "kafka:9094"
+            - name: DB_URL
+              value: "jdbc:mysql://mysql:3306/edrdog"
+            - name: DB_USER
+              value: "edrdog"
+            - name: DB_PASSWORD
+              value: "edrdog"
+            - name: EDRDOG_CLICKHOUSE_URL
+              value: "http://clickhouse:8123"
+            # 프론트 도메인 (배포 시 실제 값으로 교체)
+            - name: CORS_ALLOWED_ORIGINS
+              value: "http://localhost:5173"
+            # 발표 환경에서만 true (데모 계정 test/1234 + 과거 7일 시드)
+            - name: DEMO_SEED
+              value: "false"
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8084
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8084
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-service
+  namespace: edrdog
+  labels:
+    app: api-service
+spec:
+  selector:
+    app: api-service
+  ports:
+    - port: 80
+      targetPort: 8084
