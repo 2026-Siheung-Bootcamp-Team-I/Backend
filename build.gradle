@@ -24,6 +24,11 @@ subprojects {
 
     dependencies {
         implementation 'org.springframework.boot:spring-boot-starter-actuator'
+        // 분산 트레이싱 — 전 서비스 공통. Kafka 로 흩어진 이벤트 흐름을 traceId 하나로 잇는 게 목적.
+        // Micrometer Observation -> OTel 브리지 -> OTLP 로 otel-lgtm(Tempo) 전송.
+        // 메트릭 익스포터(micrometer-registry-otlp)는 필요한 모듈에만 개별 추가한다.
+        implementation 'io.micrometer:micrometer-tracing-bridge-otel'
+        implementation 'io.opentelemetry:opentelemetry-exporter-otlp'
         testImplementation 'org.springframework.boot:spring-boot-starter-test'
         testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     }
