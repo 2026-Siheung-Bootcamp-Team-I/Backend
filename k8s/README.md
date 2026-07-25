@@ -51,6 +51,19 @@ curl "http://localhost:3000/api/datasources/proxy/uid/loki/loki/api/v1/label/ser
 kind delete cluster --name edrdog    # 클러스터째 삭제 (데이터 emptyDir 라 함께 소멸)
 ```
 
+## 시크릿 (Infisical)
+
+매니페스트에 평문으로 박혀 있던 값(`DB_PASSWORD`, `CLICKHOUSE_PASSWORD` 등)을 Infisical 로 옮긴다.
+Operator 가 Infisical 을 읽어 `edrdog-secrets` k8s Secret 으로 동기화하고, 서비스는 그 Secret 을 `envFrom` 으로 받는다.
+
+설치와 연결 절차는 `k8s/infisical.yaml` 주석에 있다. 요약하면 Operator 설치 1회,
+Machine Identity 자격증명 Secret 생성 1회, `kubectl apply -f k8s/infisical.yaml`, 서비스에 `envFrom` patch.
+
+- 릴리스된 Operator(v0.11.5)에는 문서에 나오는 v1beta1 CRD 가 아직 없다. 실제로 도는 건 v1alpha1 `InfisicalSecret` 이다.
+- Deployment 에 같은 이름의 env 가 직접 박혀 있으면 그쪽이 `envFrom` 을 이긴다. Infisical 값을 쓰려면
+  `kubectl -n edrdog set env deployment/<이름> <키>-` 로 기존 env 를 먼저 지운다.
+- CD 는 `infisicalsecrets` CRD 가 있을 때만 이 파일을 apply 한다. Operator 가 없으면 건너뛴다.
+
 ## 메모
 
 - 개발용이라 **영속성 없음**(emptyDir). 파드 재시작 시 데이터 소멸.

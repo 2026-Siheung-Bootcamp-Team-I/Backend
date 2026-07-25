@@ -107,6 +107,11 @@ jobs:
           for f in k8s/otel-lgtm.yaml k8s/alloy.yaml; do
           git -C ~/Backend show "FETCH_HEAD:$f" | sudo kubectl apply -f -
           done
+          # Infisical 연동은 Operator 가 깔려 있을 때만. 없으면 CRD 가 없어 apply 가 실패하고
+          # set -e 때문에 서비스 롤링까지 같이 죽는다.
+          if sudo kubectl get crd infisicalsecrets.secrets.infisical.com >/dev/null 2>&1; then
+          git -C ~/Backend show "FETCH_HEAD:k8s/infisical.yaml" | sudo kubectl apply -f -
+          fi
           sudo kubectl -n "$NS" rollout status deployment/otel-lgtm --timeout=300s
           sudo kubectl -n "$NS" rollout status deployment/alloy --timeout=180s
           else
