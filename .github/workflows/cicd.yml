@@ -18,6 +18,10 @@ jobs:
           java-version: '21'
       - uses: gradle/actions/setup-gradle@v4
       - name: Build + test
+        # GeoLite2 mmdb 는 빌드 시점에 받아 jar 에 번들된다. 이 키가 없으면 다운로드를 건너뛰고
+        # 빌드는 그대로 성공하지만, 런타임에 GET /api/events/geo 가 항상 빈 배열을 준다(위협 지도가 빈다).
+        env:
+          MAXMIND_LICENSE_KEY: ${{ secrets.MAXMIND_LICENSE_KEY }}
         run: ./gradlew build
       - name: Strip plain jars
         if: github.event_name == 'push'
