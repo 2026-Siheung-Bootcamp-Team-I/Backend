@@ -27,6 +27,9 @@ spec:
             # tenant Slack webhook 조회용 api-service 내부 엔드포인트 (Service port 80)
             - name: EDRDOG_API_BASE_URL
               value: "http://api-service"
+            # 트레이스 OTLP 수집기 (k8s/otel-lgtm.yaml)
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-lgtm:4318"
           readinessProbe:
             httpGet:
               path: /actuator/health

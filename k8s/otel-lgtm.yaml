@@ -1,0 +1,2084 @@
+# 모니터링 스택 (otel-lgtm) — Grafana + Prometheus + Tempo + Loki 를 담은 올인원 이미지.
+# 서비스들이 OTLP 로 메트릭/트레이스를 밀어넣고(로그·인프라 메트릭은 k8s/alloy.yaml 이 수집), Grafana 에서 본다.
+#
+#   기동:  kubectl apply -f k8s/otel-lgtm.yaml -f k8s/alloy.yaml
+#   접속:  http://localhost:3000  (익명 Admin 으로 열려 있음)
+#   OTLP:  호스트 실행 서비스 -> http://localhost:4318, 클러스터 내부 -> http://otel-lgtm:4318
+---
+# 지표 보관용 볼륨. emptyDir 로 두면 파드가 한 번 재시작될 때 그동안의 지표·로그·트레이스가
+# 통째로 사라져 발표 중 그래프가 빈다. 기본 StorageClass 를 쓴다(kind: standard, k3s: local-path).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: otel-lgtm-data
+  namespace: edrdog
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-lgtm-dashboards
+  namespace: edrdog
+data:
+  # 이미지 기본 프로비저닝(RED / JVM 대시보드)을 유지한 채 EDRdog 폴더만 추가한다.
+  edrdog-dashboards.yaml: |
+    apiVersion: 1
+
+    providers:
+      - name: "EDRdog"
+        type: file
+        folder: "EDRdog"
+        options:
+          path: /otel-lgtm/edrdog-dashboards
+          foldersFromFilesStructure: false
+
+  edrdog-overview.json: |
+    {
+      "uid": "edrdog-overview",
+      "title": "EDRdog Overview",
+      "tags": [
+        "edrdog"
+      ],
+      "timezone": "browser",
+      "editable": true,
+      "schemaVersion": 39,
+      "refresh": "10s",
+      "time": {
+        "from": "now-30m",
+        "to": "now"
+      },
+      "links": [
+        {
+          "type": "dashboards",
+          "title": "EDRdog",
+          "tags": [
+            "edrdog"
+          ],
+          "asDropdown": true,
+          "includeVars": true,
+          "keepTime": true,
+          "icon": "external link"
+        }
+      ],
+      "templating": {
+        "list": [
+          {
+            "name": "ds",
+            "type": "datasource",
+            "query": "prometheus",
+            "current": {
+              "text": "Prometheus",
+              "value": "prometheus"
+            },
+            "hide": 0
+          },
+          {
+            "name": "job",
+            "label": "service",
+            "type": "query",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${ds}"
+            },
+            "query": {
+              "query": "label_values(jvm_threads_live, job)",
+              "refId": "job"
+            },
+            "refresh": 2,
+            "includeAll": true,
+            "allValue": ".*",
+            "multi": true,
+            "current": {
+              "text": "All",
+              "value": "$__all"
+            }
+          }
+        ]
+      },
+      "panels": [
+        {
+          "type": "row",
+          "id": 1,
+          "title": "서비스 요약",
+          "collapsed": false,
+          "panels": [],
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "type": "stat",
+          "id": 2,
+          "title": "요청률",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 6,
+            "x": 0,
+            "y": 1
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "decimals": 2,
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "text"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "graphMode": "area",
+            "colorMode": "value",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(http_server_requests_seconds_count{job=~\"$job\"}[$__rate_interval]))"
+            }
+          ]
+        },
+        {
+          "type": "stat",
+          "id": 3,
+          "title": "에러율 (5xx)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 6,
+            "x": 6,
+            "y": 1
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "decimals": 2,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 0.01
+                  },
+                  {
+                    "color": "red",
+                    "value": 0.05
+                  }
+                ]
+              },
+              "min": 0,
+              "max": 1
+            },
+            "overrides": []
+          },
+          "options": {
+            "graphMode": "area",
+            "colorMode": "value",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "(sum(rate(http_server_requests_seconds_count{job=~\"$job\", outcome=\"SERVER_ERROR\"}[$__rate_interval])) or vector(0)) / clamp_min(sum(rate(http_server_requests_seconds_count{job=~\"$job\"}[$__rate_interval])), 0.0001)"
+            }
+          ]
+        },
+        {
+          "type": "stat",
+          "id": 4,
+          "title": "응답시간 p95",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 6,
+            "x": 12,
+            "y": 1
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "decimals": 3,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 0.5
+                  },
+                  {
+                    "color": "red",
+                    "value": 1
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "graphMode": "area",
+            "colorMode": "value",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket{job=~\"$job\"}[$__rate_interval])))"
+            }
+          ]
+        },
+        {
+          "type": "stat",
+          "id": 5,
+          "title": "Kafka 컨슈머 최대 랙",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 6,
+            "x": 18,
+            "y": 1
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "decimals": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 1000
+                  },
+                  {
+                    "color": "red",
+                    "value": 10000
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "graphMode": "area",
+            "colorMode": "value",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "max(kafka_consumer_fetch_manager_records_lag_max{job=~\"$job\"} >= 0) or vector(0)"
+            }
+          ]
+        },
+        {
+          "type": "row",
+          "id": 6,
+          "title": "트래픽",
+          "collapsed": false,
+          "panels": [],
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 6
+          }
+        },
+        {
+          "type": "timeseries",
+          "id": 7,
+          "title": "서비스별 요청률",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 0,
+            "y": 7
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "custom": {
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "stacking": {
+                  "mode": "normal"
+                }
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (job) (rate(http_server_requests_seconds_count{job=~\"$job\"}[$__rate_interval]))",
+              "legendFormat": "{{job}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "id": 8,
+          "title": "서비스별 에러율",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 8,
+            "y": 7
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "custom": {
+                "fillOpacity": 10,
+                "showPoints": "never"
+              },
+              "min": 0,
+              "max": 1
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            }
+          },
+          "targets": [
+            {
+              "expr": "(sum by (job) (rate(http_server_requests_seconds_count{job=~\"$job\", outcome=\"SERVER_ERROR\"}[$__rate_interval])) or 0 * sum by (job) (rate(http_server_requests_seconds_count{job=~\"$job\"}[$__rate_interval]))) / clamp_min(sum by (job) (rate(http_server_requests_seconds_count{job=~\"$job\"}[$__rate_interval])), 0.0001)",
+              "legendFormat": "{{job}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "id": 9,
+          "title": "응답시간 분위 (전체)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 16,
+            "y": 7
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "custom": {
+                "fillOpacity": 0,
+                "showPoints": "never"
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            }
+          },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.99, sum by (le) (rate(http_server_requests_seconds_bucket{job=~\"$job\"}[$__rate_interval])))",
+              "legendFormat": "p99",
+              "refId": "A"
+            },
+            {
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket{job=~\"$job\"}[$__rate_interval])))",
+              "legendFormat": "p95",
+              "refId": "B"
+            },
+            {
+              "expr": "histogram_quantile(0.50, sum by (le) (rate(http_server_requests_seconds_bucket{job=~\"$job\"}[$__rate_interval])))",
+              "legendFormat": "p50",
+              "refId": "C"
+            }
+          ]
+        },
+        {
+          "type": "row",
+          "id": 10,
+          "title": "리소스 / 로그",
+          "collapsed": false,
+          "panels": [],
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 15
+          }
+        },
+        {
+          "type": "timeseries",
+          "id": 11,
+          "title": "힙 사용률",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 0,
+            "y": 16
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "custom": {
+                "fillOpacity": 10,
+                "showPoints": "never"
+              },
+              "min": 0,
+              "max": 1
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (job) (jvm_memory_used_bytes{job=~\"$job\", area=\"heap\"}) / clamp_min(sum by (job) (jvm_memory_max_bytes{job=~\"$job\", area=\"heap\"}), 1)",
+              "legendFormat": "{{job}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "id": 12,
+          "title": "Kafka 컨슈머 랙",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 8,
+            "y": 16
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "fillOpacity": 10,
+                "showPoints": "never"
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            }
+          },
+          "targets": [
+            {
+              "expr": "max by (job) (kafka_consumer_fetch_manager_records_lag_max{job=~\"$job\"} >= 0)",
+              "legendFormat": "{{job}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "id": 13,
+          "title": "로그 볼륨 (레벨별)",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 16,
+            "y": 16
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "cps",
+              "custom": {
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "stacking": {
+                  "mode": "normal"
+                }
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (level) (count_over_time({namespace=\"edrdog\"} [$__auto]))",
+              "legendFormat": "{{level}}",
+              "queryType": "range",
+              "refId": "A"
+            }
+          ]
+        }
+      ]
+    }
+
+  edrdog-http.json: |
+    {
+      "uid": "edrdog-http",
+      "title": "EDRdog HTTP",
+      "tags": [
+        "edrdog"
+      ],
+      "timezone": "browser",
+      "editable": true,
+      "schemaVersion": 39,
+      "refresh": "10s",
+      "time": {
+        "from": "now-30m",
+        "to": "now"
+      },
+      "links": [
+        {
+          "type": "dashboards",
+          "title": "EDRdog",
+          "tags": [
+            "edrdog"
+          ],
+          "asDropdown": true,
+          "includeVars": true,
+          "keepTime": true,
+          "icon": "external link"
+        }
+      ],
+      "templating": {
+        "list": [
+          {
+            "name": "ds",
+            "type": "datasource",
+            "query": "prometheus",
+            "current": {
+              "text": "Prometheus",
+              "value": "prometheus"
+            },
+            "hide": 0
+          },
+          {
+            "name": "job",
+            "label": "service",
+            "type": "query",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${ds}"
+            },
+            "query": {
+              "query": "label_values(jvm_threads_live, job)",
+              "refId": "job"
+            },
+            "refresh": 2,
+            "includeAll": true,
+            "allValue": ".*",
+            "multi": true,
+            "current": {
+              "text": "All",
+              "value": "$__all"
+            }
+          }
+        ]
+      },
+      "panels": [
+        {
+          "type": "row",
+          "id": 101,
+          "title": "처리량 / 오류",
+          "collapsed": false,
+          "panels": [],
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "type": "timeseries",
+          "id": 102,
+          "title": "서비스별 요청률",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 0,
+            "y": 1
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "custom": {
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "stacking": {
+                  "mode": "normal"
+                }
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (job) (rate(http_server_requests_seconds_count{job=~\"$job\"}[$__rate_interval]))",
+              "legendFormat": "{{job}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "id": 103,
+          "title": "상태코드별 요청률",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 8,
+            "y": 1
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "custom": {
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "stacking": {
+                  "mode": "normal"
+                }
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (status) (rate(http_server_requests_seconds_count{job=~\"$job\"}[$__rate_interval]))",
+              "legendFormat": "{{status}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "id": 104,
+          "title": "서비스별 에러율",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 16,
+            "y": 1
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "custom": {
+                "fillOpacity": 10,
+                "showPoints": "never"
+              },
+              "min": 0,
+              "max": 1
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            }
+          },
+          "targets": [
+            {
+              "expr": "(sum by (job) (rate(http_server_requests_seconds_count{job=~\"$job\", outcome=\"SERVER_ERROR\"}[$__rate_interval])) or 0 * sum by (job) (rate(http_server_requests_seconds_count{job=~\"$job\"}[$__rate_interval]))) / clamp_min(sum by (job) (rate(http_server_requests_seconds_count{job=~\"$job\"}[$__rate_interval])), 0.0001)",
+              "legendFormat": "{{job}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "row",
+          "id": 105,
+          "title": "응답시간",
+          "collapsed": false,
+          "panels": [],
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 9
+          }
+        },
+        {
+          "type": "timeseries",
+          "id": 106,
+          "title": "분위 (전체)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 10
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "custom": {
+                "fillOpacity": 0,
+                "showPoints": "never"
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            }
+          },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.99, sum by (le) (rate(http_server_requests_seconds_bucket{job=~\"$job\"}[$__rate_interval])))",
+              "legendFormat": "p99",
+              "refId": "A"
+            },
+            {
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket{job=~\"$job\"}[$__rate_interval])))",
+              "legendFormat": "p95",
+              "refId": "B"
+            },
+            {
+              "expr": "histogram_quantile(0.50, sum by (le) (rate(http_server_requests_seconds_bucket{job=~\"$job\"}[$__rate_interval])))",
+              "legendFormat": "p50",
+              "refId": "C"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "id": 107,
+          "title": "서비스별 p95",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 10
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "custom": {
+                "fillOpacity": 0,
+                "showPoints": "never"
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            }
+          },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum by (le, job) (rate(http_server_requests_seconds_bucket{job=~\"$job\"}[$__rate_interval])))",
+              "legendFormat": "{{job}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "row",
+          "id": 108,
+          "title": "엔드포인트",
+          "collapsed": false,
+          "panels": [],
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 18
+          }
+        },
+        {
+          "type": "table",
+          "id": 109,
+          "title": "느린 엔드포인트 Top (p95)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "gridPos": {
+            "h": 9,
+            "w": 12,
+            "x": 0,
+            "y": 19
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "decimals": 3
+            },
+            "overrides": []
+          },
+          "options": {
+            "showHeader": true,
+            "sortBy": [
+              {
+                "displayName": "p95",
+                "desc": true
+              }
+            ]
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "format": "table",
+              "instant": true,
+              "expr": "topk(10, histogram_quantile(0.95, sum by (le, job, uri, method) (rate(http_server_requests_seconds_bucket{job=~\"$job\"}[$__rate_interval]))))"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true
+                },
+                "renameByName": {
+                  "Value": "p95"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "type": "table",
+          "id": 110,
+          "title": "호출 많은 엔드포인트 Top",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "gridPos": {
+            "h": 9,
+            "w": 12,
+            "x": 12,
+            "y": 19
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "decimals": 2
+            },
+            "overrides": []
+          },
+          "options": {
+            "showHeader": true,
+            "sortBy": [
+              {
+                "displayName": "req/s",
+                "desc": true
+              }
+            ]
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "format": "table",
+              "instant": true,
+              "expr": "topk(10, sum by (job, uri, method) (rate(http_server_requests_seconds_count{job=~\"$job\"}[$__rate_interval])))"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true
+                },
+                "renameByName": {
+                  "Value": "req/s"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+
+  edrdog-jvm-kafka.json: |
+    {
+      "uid": "edrdog-jvm-kafka",
+      "title": "EDRdog Resources",
+      "tags": [
+        "edrdog"
+      ],
+      "timezone": "browser",
+      "editable": true,
+      "schemaVersion": 39,
+      "refresh": "10s",
+      "time": {
+        "from": "now-30m",
+        "to": "now"
+      },
+      "links": [
+        {
+          "type": "dashboards",
+          "title": "EDRdog",
+          "tags": [
+            "edrdog"
+          ],
+          "asDropdown": true,
+          "includeVars": true,
+          "keepTime": true,
+          "icon": "external link"
+        }
+      ],
+      "templating": {
+        "list": [
+          {
+            "name": "ds",
+            "type": "datasource",
+            "query": "prometheus",
+            "current": {
+              "text": "Prometheus",
+              "value": "prometheus"
+            },
+            "hide": 0
+          },
+          {
+            "name": "job",
+            "label": "service",
+            "type": "query",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${ds}"
+            },
+            "query": {
+              "query": "label_values(jvm_threads_live, job)",
+              "refId": "job"
+            },
+            "refresh": 2,
+            "includeAll": true,
+            "allValue": ".*",
+            "multi": true,
+            "current": {
+              "text": "All",
+              "value": "$__all"
+            }
+          }
+        ]
+      },
+      "panels": [
+        {
+          "type": "row",
+          "id": 201,
+          "title": "JVM 메모리",
+          "collapsed": false,
+          "panels": [],
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "type": "timeseries",
+          "id": 202,
+          "title": "힙 사용률",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 0,
+            "y": 1
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "custom": {
+                "fillOpacity": 10,
+                "showPoints": "never"
+              },
+              "min": 0,
+              "max": 1
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (job) (jvm_memory_used_bytes{job=~\"$job\", area=\"heap\"}) / clamp_min(sum by (job) (jvm_memory_max_bytes{job=~\"$job\", area=\"heap\"}), 1)",
+              "legendFormat": "{{job}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "id": 203,
+          "title": "힙 사용량",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 8,
+            "y": 1
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "custom": {
+                "fillOpacity": 10,
+                "showPoints": "never"
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (job) (jvm_memory_used_bytes{job=~\"$job\", area=\"heap\"})",
+              "legendFormat": "{{job}} used",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "id": 204,
+          "title": "GC 정지 시간",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 16,
+            "y": 1
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "custom": {
+                "fillOpacity": 10,
+                "showPoints": "never"
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (job) (rate(jvm_gc_pause_seconds_sum{job=~\"$job\"}[$__rate_interval]))",
+              "legendFormat": "{{job}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "row",
+          "id": 205,
+          "title": "JVM 런타임",
+          "collapsed": false,
+          "panels": [],
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 9
+          }
+        },
+        {
+          "type": "timeseries",
+          "id": 206,
+          "title": "스레드",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 0,
+            "y": 10
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "fillOpacity": 0,
+                "showPoints": "never"
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (job) (jvm_threads_live{job=~\"$job\"})",
+              "legendFormat": "{{job}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "id": 207,
+          "title": "로드된 클래스",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 8,
+            "y": 10
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "fillOpacity": 0,
+                "showPoints": "never"
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (job) (jvm_classes_loaded{job=~\"$job\"})",
+              "legendFormat": "{{job}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "id": 208,
+          "title": "GC 할당률",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 16,
+            "y": 10
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "Bps",
+              "custom": {
+                "fillOpacity": 10,
+                "showPoints": "never"
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (job) (rate(jvm_gc_memory_allocated_bytes_total{job=~\"$job\"}[$__rate_interval]))",
+              "legendFormat": "{{job}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "row",
+          "id": 209,
+          "title": "Kafka 컨슈머",
+          "collapsed": false,
+          "panels": [],
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 18
+          }
+        },
+        {
+          "type": "timeseries",
+          "id": 210,
+          "title": "컨슈머 랙",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 0,
+            "y": 19
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "fillOpacity": 10,
+                "showPoints": "never"
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            }
+          },
+          "targets": [
+            {
+              "expr": "max by (job) (kafka_consumer_fetch_manager_records_lag_max{job=~\"$job\"} >= 0)",
+              "legendFormat": "{{job}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "id": 211,
+          "title": "소비 처리량",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 8,
+            "y": 19
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "cps",
+              "custom": {
+                "fillOpacity": 10,
+                "showPoints": "never"
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (job) (rate(kafka_consumer_fetch_manager_records_consumed_total{job=~\"$job\"}[$__rate_interval]))",
+              "legendFormat": "{{job}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "id": 212,
+          "title": "커밋률",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 16,
+            "y": 19
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "cps",
+              "custom": {
+                "fillOpacity": 10,
+                "showPoints": "never"
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (job) (rate(kafka_consumer_coordinator_commit_total{job=~\"$job\"}[$__rate_interval]))",
+              "legendFormat": "{{job}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "row",
+          "id": 213,
+          "title": "컨테이너 / 노드",
+          "collapsed": false,
+          "panels": [],
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 27
+          }
+        },
+        {
+          "type": "timeseries",
+          "id": 214,
+          "title": "컨테이너 CPU",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 0,
+            "y": 28
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "fillOpacity": 10,
+                "showPoints": "never"
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"edrdog\", container!=\"\"}[$__rate_interval]))",
+              "legendFormat": "{{pod}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "id": 215,
+          "title": "컨테이너 메모리",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 8,
+            "y": 28
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "custom": {
+                "fillOpacity": 10,
+                "showPoints": "never"
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (pod) (container_memory_working_set_bytes{namespace=\"edrdog\", container!=\"\"})",
+              "legendFormat": "{{pod}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "id": 216,
+          "title": "노드 사용률",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 16,
+            "y": 28
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "custom": {
+                "fillOpacity": 10,
+                "showPoints": "never"
+              },
+              "min": 0,
+              "max": 1
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum(rate(node_cpu_usage_seconds_total[$__rate_interval])) / clamp_min(sum(machine_cpu_cores), 1)",
+              "legendFormat": "CPU",
+              "refId": "A"
+            },
+            {
+              "expr": "sum(node_memory_working_set_bytes) / clamp_min(sum(machine_memory_bytes), 1)",
+              "legendFormat": "메모리",
+              "refId": "B"
+            }
+          ]
+        }
+      ]
+    }
+
+  edrdog-logs-traces.json: |
+    {
+      "uid": "edrdog-logs-traces",
+      "title": "EDRdog Logs & Traces",
+      "tags": [
+        "edrdog"
+      ],
+      "timezone": "browser",
+      "editable": true,
+      "schemaVersion": 39,
+      "refresh": "10s",
+      "time": {
+        "from": "now-30m",
+        "to": "now"
+      },
+      "links": [
+        {
+          "type": "dashboards",
+          "title": "EDRdog",
+          "tags": [
+            "edrdog"
+          ],
+          "asDropdown": true,
+          "includeVars": true,
+          "keepTime": true,
+          "icon": "external link"
+        }
+      ],
+      "templating": {
+        "list": [
+          {
+            "name": "service",
+            "label": "service",
+            "type": "query",
+            "datasource": {
+              "type": "loki",
+              "uid": "loki"
+            },
+            "query": {
+              "label": "service_name",
+              "stream": "{namespace=\"edrdog\"}",
+              "type": 1,
+              "refId": "service"
+            },
+            "refresh": 2,
+            "includeAll": true,
+            "allValue": ".+",
+            "multi": true,
+            "current": {
+              "text": "All",
+              "value": "$__all"
+            }
+          }
+        ]
+      },
+      "panels": [
+        {
+          "type": "row",
+          "id": 301,
+          "title": "로그",
+          "collapsed": false,
+          "panels": [],
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "type": "stat",
+          "id": 302,
+          "title": "ERROR (구간 합계)",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 6,
+            "x": 0,
+            "y": 1
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "decimals": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 1
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "graphMode": "area",
+            "colorMode": "value",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(count_over_time({namespace=\"edrdog\", service_name=~\"$service\", level=\"ERROR\"} [$__range])) or vector(0)"
+            }
+          ]
+        },
+        {
+          "type": "stat",
+          "id": 303,
+          "title": "WARN (구간 합계)",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 6,
+            "x": 6,
+            "y": 1
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "decimals": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 1
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "graphMode": "area",
+            "colorMode": "value",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(count_over_time({namespace=\"edrdog\", service_name=~\"$service\", level=\"WARN\"} [$__range])) or vector(0)"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "id": 304,
+          "title": "로그 볼륨 (레벨별)",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 12,
+            "x": 12,
+            "y": 1
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "cps",
+              "custom": {
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "stacking": {
+                  "mode": "normal"
+                }
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (level) (count_over_time({namespace=\"edrdog\", service_name=~\"$service\"} [$__auto]))",
+              "legendFormat": "{{level}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "logs",
+          "id": 305,
+          "title": "로그 스트림",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "gridPos": {
+            "h": 11,
+            "w": 24,
+            "x": 0,
+            "y": 6
+          },
+          "options": {
+            "showTime": true,
+            "wrapLogMessage": true,
+            "sortOrder": "Descending",
+            "enableLogDetails": true,
+            "dedupStrategy": "none",
+            "prettifyLogMessage": false,
+            "showLabels": false,
+            "showCommonLabels": false,
+            "enableInfiniteScrolling": false,
+            "syntaxHighlighting": true
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "{namespace=\"edrdog\", service_name=~\"$service\"}",
+              "queryType": "range"
+            }
+          ]
+        },
+        {
+          "type": "logs",
+          "id": 306,
+          "title": "에러 로그만",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "gridPos": {
+            "h": 9,
+            "w": 24,
+            "x": 0,
+            "y": 17
+          },
+          "options": {
+            "showTime": true,
+            "wrapLogMessage": true,
+            "sortOrder": "Descending",
+            "enableLogDetails": true,
+            "dedupStrategy": "none",
+            "prettifyLogMessage": false,
+            "showLabels": false,
+            "showCommonLabels": false,
+            "enableInfiniteScrolling": false,
+            "syntaxHighlighting": true
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "queryType": "range",
+              "expr": "{namespace=\"edrdog\", service_name=~\"$service\", level=~\"ERROR|WARN\"}"
+            }
+          ]
+        },
+        {
+          "type": "row",
+          "id": 307,
+          "title": "트레이스",
+          "collapsed": false,
+          "panels": [],
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 26
+          }
+        },
+        {
+          "type": "table",
+          "id": 308,
+          "title": "최근 트레이스 (Tempo)",
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "gridPos": {
+            "h": 10,
+            "w": 24,
+            "x": 0,
+            "y": 27
+          },
+          "options": {
+            "showHeader": true
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "queryType": "traceqlSearch",
+              "filters": [],
+              "limit": 20,
+              "tableType": "traces"
+            }
+          ]
+        }
+      ]
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-lgtm
+  namespace: edrdog
+  labels:
+    app: otel-lgtm
+spec:
+  replicas: 1
+  # ReadWriteOnce PVC 라 롤링 업데이트로는 새 파드가 볼륨을 못 잡고 서로 기다린다. 먼저 내리고 띄운다.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: otel-lgtm
+  template:
+    metadata:
+      labels:
+        app: otel-lgtm
+    spec:
+      containers:
+        - name: otel-lgtm
+          image: grafana/otel-lgtm:0.29.2
+          ports:
+            - containerPort: 3000  # Grafana
+            - containerPort: 3100  # Loki (Alloy 가 로그를 밀어넣는 곳)
+            - containerPort: 4317  # OTLP gRPC
+            - containerPort: 4318  # OTLP HTTP
+            - containerPort: 9090  # Prometheus (Alloy 가 인프라 메트릭을 밀어넣는 곳)
+          env:
+            # 첫 화면을 EDRdog 대시보드로 (기본 Grafana 홈 대신)
+            - name: GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH
+              value: /otel-lgtm/edrdog-dashboards/edrdog-overview.json
+          # Alloy 가 인프라 메트릭을 밀어넣는 remote write 수신은 이미지 기본 실행 인자에
+          # 이미 켜져 있다(--web.enable-remote-write-receiver). PROMETHEUS_EXTRA_ARGS 로
+          # 같은 플래그를 또 주면 중복으로 Prometheus 가 아예 뜨지 않으니 넣지 말 것.
+          volumeMounts:
+            # 프로비저닝 디렉터리는 통째로 덮으면 기본 대시보드가 사라지므로 파일 하나만 subPath 로 얹는다.
+            - name: dashboards
+              mountPath: /otel-lgtm/grafana/conf/provisioning/dashboards/edrdog-dashboards.yaml
+              subPath: edrdog-dashboards.yaml
+            - name: dashboards
+              mountPath: /otel-lgtm/edrdog-dashboards/edrdog-overview.json
+              subPath: edrdog-overview.json
+            - name: dashboards
+              mountPath: /otel-lgtm/edrdog-dashboards/edrdog-http.json
+              subPath: edrdog-http.json
+            - name: dashboards
+              mountPath: /otel-lgtm/edrdog-dashboards/edrdog-jvm-kafka.json
+              subPath: edrdog-jvm-kafka.json
+            - name: dashboards
+              mountPath: /otel-lgtm/edrdog-dashboards/edrdog-logs-traces.json
+              subPath: edrdog-logs-traces.json
+            - name: data
+              mountPath: /data
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 250m
+              memory: 768Mi   # 실측 유휴 ~670Mi (Grafana/Prometheus/Tempo/Loki 동시 구동)
+            limits:
+              memory: 2Gi
+      volumes:
+        - name: dashboards
+          configMap:
+            name: otel-lgtm-dashboards
+        - name: data
+          persistentVolumeClaim:
+            claimName: otel-lgtm-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-lgtm
+  namespace: edrdog
+  labels:
+    app: otel-lgtm
+spec:
+  type: NodePort
+  selector:
+    app: otel-lgtm
+  ports:
+    - name: grafana
+      port: 3000
+      targetPort: 3000
+      nodePort: 30300
+    - name: loki
+      port: 3100
+      targetPort: 3100
+      nodePort: 30310
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+      nodePort: 30317
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318
+      nodePort: 30318
+    - name: prometheus
+      port: 9090
+      targetPort: 9090
+      nodePort: 30909

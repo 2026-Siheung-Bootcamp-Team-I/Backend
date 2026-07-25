@@ -3,6 +3,7 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter'
     implementation 'org.springframework.boot:spring-boot-starter-web'    // 데모용 이벤트 발행/조회 REST + Swagger 호스팅
     implementation 'org.springframework.kafka:spring-kafka'
+    implementation 'io.micrometer:micrometer-registry-otlp'   // 메트릭 OTLP 전송 (판정 처리량/지연 관측 대상)
     implementation 'org.apache.kafka:kafka-streams'
     implementation 'com.fasterxml.jackson.core:jackson-databind'   // 이벤트 JSON serde
     implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.9'  // Swagger UI (/swagger-ui.html)

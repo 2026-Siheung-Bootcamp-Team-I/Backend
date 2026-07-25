@@ -3,4 +3,5 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-web'   // RestClient (ClickHouse HTTP)
     implementation 'org.springframework.kafka:spring-kafka'
     implementation 'com.fasterxml.jackson.core:jackson-databind'        // events JSON 역직렬화 + JSONEachRow 직렬화
+    implementation 'io.micrometer:micrometer-registry-otlp'             // 메트릭 OTLP 전송 (ClickHouse 적재 지연/컨슈머 랙 관측 대상)
 }

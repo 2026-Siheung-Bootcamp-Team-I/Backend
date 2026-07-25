@@ -1,0 +1,252 @@
+# 로그 수집 (Grafana Alloy) — edrdog 네임스페이스 파드의 stdout 을 읽어 otel-lgtm 안의 Loki 로 보낸다.
+# 앱은 건드리지 않는다. Spring 기본 로그 패턴에 이미 [traceId-spanId] 가 찍히므로
+# 그것만 뽑아 structured metadata 로 붙여 두면 Grafana 에서 로그 -> 트레이스로 바로 넘어갈 수 있다.
+#
+#   기동:  kubectl apply -f k8s/alloy.yaml
+#   확인:  Grafana > Dashboards > EDRdog > Logs & Traces
+#
+# DaemonSet 이 아니라 단일 Deployment 인 이유: loki.source.kubernetes 는 노드 파일이 아니라
+# 쿠버네티스 API 로 로그를 읽는다. DaemonSet 으로 띄우면 노드마다 같은 파드를 중복 수집한다.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: alloy
+  namespace: edrdog
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: edrdog-alloy-logs
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "namespaces"]
+    verbs: ["get", "list", "watch"]
+  # 인프라 메트릭: kubelet 이 노출하는 컨테이너/노드 사용량을 긁기 위해 필요
+  - apiGroups: [""]
+    resources: ["nodes", "nodes/metrics", "nodes/proxy"]
+    verbs: ["get", "list", "watch"]
+  - nonResourceURLs: ["/metrics", "/metrics/cadvisor", "/metrics/resource"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: edrdog-alloy-logs
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: edrdog-alloy-logs
+subjects:
+  - kind: ServiceAccount
+    name: alloy
+    namespace: edrdog
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alloy-config
+  namespace: edrdog
+data:
+  config.alloy: |
+    // 수집 대상: edrdog 네임스페이스 파드만
+    discovery.kubernetes "pods" {
+      role = "pod"
+
+      namespaces {
+        names = ["edrdog"]
+      }
+    }
+
+    // 파드 메타데이터를 Loki 라벨로 (카디널리티가 낮은 것만 라벨로 승격)
+    discovery.relabel "pods" {
+      targets = discovery.kubernetes.pods.targets
+
+      // 앱 서비스만 수집. 모니터링 스택 자신(otel-lgtm, alloy)의 로그까지 담으면
+      // 볼륨 그래프가 스택 노이즈로 뒤덮인다. 스택 로그는 kubectl logs 로 본다.
+      rule {
+        source_labels = ["__meta_kubernetes_pod_label_app"]
+        regex         = ".*-service"
+        action        = "keep"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_label_app"]
+        target_label  = "service_name"
+      }
+      // 파드 라벨은 archiver-service, 메트릭의 job 라벨은 archiver 라 이름이 어긋난다.
+      // -service 접미사를 떼서 양쪽 이름을 맞춘다(로그와 메트릭을 같은 이름으로 필터하려고).
+      rule {
+        source_labels = ["__meta_kubernetes_pod_label_app"]
+        regex         = "(.*)-service"
+        replacement   = "$1"
+        target_label  = "service_name"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_namespace"]
+        target_label  = "namespace"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_name"]
+        target_label  = "pod"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_container_name"]
+        target_label  = "container"
+      }
+    }
+
+    loki.source.kubernetes "pods" {
+      targets    = discovery.relabel.pods.output
+      forward_to = [loki.process.spring.receiver]
+    }
+
+    loki.process "spring" {
+      // 로그 레벨은 값 종류가 적으니 라벨로 (레벨별 필터/집계용)
+      stage.regex {
+        expression = "^\\S+\\s+(?P<level>TRACE|DEBUG|INFO|WARN|ERROR)\\s"
+      }
+      stage.labels {
+        values = {
+          level = "",
+        }
+      }
+
+      // traceId 는 값 종류가 무한하니 라벨이 아니라 structured metadata 로.
+      // Grafana 의 Loki 데이터소스가 trace_id 를 잡아 Tempo 링크를 만들어 준다.
+      stage.regex {
+        expression = "\\[(?P<trace_id>[0-9a-f]{32})-(?P<span_id>[0-9a-f]{16})\\]"
+      }
+      stage.structured_metadata {
+        values = {
+          trace_id = "",
+          span_id  = "",
+        }
+      }
+
+      forward_to = [loki.write.otel_lgtm.receiver]
+    }
+
+    loki.write "otel_lgtm" {
+      endpoint {
+        url = "http://otel-lgtm:3100/loki/api/v1/push"
+      }
+    }
+
+    // ---- 인프라 메트릭 ----
+    // 앱이 내보내는 JVM 지표만으로는 "힙은 여유로운데 파드가 왜 느리지" 같은 상황을 못 본다.
+    // kubelet 이 이미 노출하고 있는 컨테이너·노드 사용량을 긁어 채운다(별도 exporter 배포 없음).
+    discovery.kubernetes "nodes" {
+      role = "node"
+    }
+
+    discovery.relabel "cadvisor" {
+      targets = discovery.kubernetes.nodes.targets
+
+      rule {
+        target_label = "__metrics_path__"
+        replacement  = "/metrics/cadvisor"
+      }
+    }
+
+    discovery.relabel "kubelet_resource" {
+      targets = discovery.kubernetes.nodes.targets
+
+      rule {
+        target_label = "__metrics_path__"
+        replacement  = "/metrics/resource"
+      }
+    }
+
+    // 컨테이너별 CPU·메모리·네트워크
+    prometheus.scrape "cadvisor" {
+      targets           = discovery.relabel.cadvisor.output
+      forward_to        = [prometheus.relabel.infra.receiver]
+      job_name          = "kubelet/cadvisor"
+      scheme            = "https"
+      scrape_interval   = "30s"
+      bearer_token_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+
+      tls_config {
+        insecure_skip_verify = true
+      }
+    }
+
+    // 노드 전체 CPU·메모리
+    prometheus.scrape "kubelet_resource" {
+      targets           = discovery.relabel.kubelet_resource.output
+      forward_to        = [prometheus.relabel.infra.receiver]
+      job_name          = "kubelet/resource"
+      scheme            = "https"
+      scrape_interval   = "30s"
+      bearer_token_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+
+      tls_config {
+        insecure_skip_verify = true
+      }
+    }
+
+    // cAdvisor 는 시리즈가 수천 개다. 대시보드에서 실제로 쓰는 것만 남긴다.
+    prometheus.relabel "infra" {
+      forward_to = [prometheus.remote_write.otel_lgtm.receiver]
+
+      rule {
+        source_labels = ["__name__"]
+        regex         = "container_cpu_usage_seconds_total|container_memory_working_set_bytes|container_network_receive_bytes_total|container_network_transmit_bytes_total|node_cpu_usage_seconds_total|node_memory_working_set_bytes|machine_cpu_cores|machine_memory_bytes"
+        action        = "keep"
+      }
+    }
+
+    prometheus.remote_write "otel_lgtm" {
+      endpoint {
+        url = "http://otel-lgtm:9090/api/v1/write"
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alloy
+  namespace: edrdog
+  labels:
+    app: alloy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: alloy
+  template:
+    metadata:
+      labels:
+        app: alloy
+    spec:
+      serviceAccountName: alloy
+      containers:
+        - name: alloy
+          image: grafana/alloy:v1.18.0
+          args:
+            - run
+            - /etc/alloy/config.alloy
+            - --storage.path=/tmp/alloy
+            - --server.http.listen-addr=0.0.0.0:12345
+          ports:
+            - containerPort: 12345  # Alloy 자체 UI (디버깅용, 노출 안 함)
+          volumeMounts:
+            - name: config
+              mountPath: /etc/alloy
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: 12345
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 256Mi
+      volumes:
+        - name: config
+          configMap:
+            name: alloy-config

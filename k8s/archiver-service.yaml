@@ -26,6 +26,9 @@ spec:
               value: "kafka:9094"
             - name: EDRDOG_CLICKHOUSE_URL
               value: "http://clickhouse:8123"
+            # 메트릭/트레이스 OTLP 수집기 (k8s/otel-lgtm.yaml)
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-lgtm:4318"
           readinessProbe:
             httpGet:
               path: /actuator/health

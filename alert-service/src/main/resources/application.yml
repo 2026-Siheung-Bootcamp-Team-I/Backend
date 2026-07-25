@@ -11,6 +11,8 @@ spring:
       properties:
         spring.json.value.default.type: com.edrdog.alertservice.dto.Alert
         spring.json.trusted.packages: com.edrdog.alertservice.dto
+    listener:
+      observation-enabled: true         # 컨슈머 스팬 생성 → 발행 측 traceId 를 이어받아 한 트레이스로 연결
 
 server:
   port: 8083
@@ -31,3 +33,11 @@ management:
     web:
       exposure:
         include: health, info
+  # 관측 — 트레이스만 보낸다(메트릭 익스포터는 api/detector/archiver 에만).
+  tracing:
+    enabled: ${OTEL_ENABLED:true}
+    sampling:
+      probability: ${OTEL_TRACE_SAMPLING:1.0}
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/traces
