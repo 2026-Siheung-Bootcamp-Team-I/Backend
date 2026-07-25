@@ -30,7 +30,11 @@ public class ApiKeyFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
         String path = request.getRequestURI();
-        if (policy.isExempt(path) || policy.isAuthorized(request.getHeader(HEADER))) {
+        boolean preflight = ApiKeyPolicy.isPreflight(
+                request.getMethod(),
+                request.getHeader("Origin"),
+                request.getHeader("Access-Control-Request-Method"));
+        if (preflight || policy.isExempt(path) || policy.isAuthorized(request.getHeader(HEADER))) {
             chain.doFilter(request, response);
             return;
         }

@@ -59,6 +59,25 @@ class CorsIntegrationTest {
     }
 
     @Test
+    void API키가_필요한_경로도_preflight_는_통과한다() throws Exception {
+        // 브라우저는 preflight 에 X-API-Key 를 싣지 않는다. ApiKeyFilter 가 여기서 401 을 주면
+        // 본 요청이 아예 발사되지 않아 온보딩의 enroll secret 발급이 "서버에 연결하지 못했습니다"로 죽는다.
+        mvc.perform(options("/api/tenant/enroll-secret")
+                        .header("Origin", "http://localhost:5173")
+                        .header("Access-Control-Request-Method", "POST")
+                        .header("Access-Control-Request-Headers", "Authorization,X-API-Key"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "http://localhost:5173"));
+    }
+
+    @Test
+    void preflight_가_아닌_OPTIONS_는_여전히_API키를_요구한다() throws Exception {
+        // Origin/Access-Control-Request-Method 없는 OPTIONS 는 preflight 가 아니므로 그냥 막는다.
+        mvc.perform(options("/api/tenant/enroll-secret"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void 허용되지_않은_출처의_preflight_는_거부된다() throws Exception {
         mvc.perform(options("/api/alerts")
                         .header("Origin", "https://evil.example")

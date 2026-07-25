@@ -65,4 +65,17 @@ class ApiKeyPolicyTest {
         assertFalse(policy.isAuthorized(""));
         assertFalse(policy.isAuthorized("  "));
     }
+
+    @Test
+    void CORS_preflight_는_키_없이도_통과_대상이다() {
+        assertTrue(ApiKeyPolicy.isPreflight("OPTIONS", "http://localhost:5173", "POST"));
+        assertTrue(ApiKeyPolicy.isPreflight("options", "https://edrdog.example", "GET"));
+    }
+
+    @Test
+    void preflight_헤더가_빠진_OPTIONS_는_preflight_가_아니다() {
+        assertFalse(ApiKeyPolicy.isPreflight("OPTIONS", null, "POST"));
+        assertFalse(ApiKeyPolicy.isPreflight("OPTIONS", "http://localhost:5173", null));
+        assertFalse(ApiKeyPolicy.isPreflight("POST", "http://localhost:5173", "POST"));
+    }
 }

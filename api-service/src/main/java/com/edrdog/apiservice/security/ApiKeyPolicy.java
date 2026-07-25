@@ -27,6 +27,16 @@ public class ApiKeyPolicy {
         this.configuredKey = configuredKey;
     }
 
+    /**
+     * CORS preflight 여부. 브라우저는 preflight 에 커스텀 헤더(X-API-Key)를 싣지 않으므로
+     * 여기서 막으면 본 요청이 아예 발사되지 않는다(프론트에는 "서버에 연결하지 못했습니다"로 보인다).
+     * preflight 는 본문 없는 협상 요청이라 통과시켜도 데이터가 새지 않고, 실제 요청은 그대로 검사된다.
+     * 판정은 브라우저가 붙이는 두 헤더의 존재로 한다(단순 OPTIONS 는 preflight 가 아니다).
+     */
+    public static boolean isPreflight(String method, String origin, String requestMethodHeader) {
+        return "OPTIONS".equalsIgnoreCase(method) && origin != null && requestMethodHeader != null;
+    }
+
     /** 헬스체크·Swagger 등 인증 없이 열어두는 경로. */
     public boolean isExempt(String path) {
         return EXEMPT_PREFIXES.stream().anyMatch(path::startsWith);
