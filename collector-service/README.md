@@ -68,7 +68,13 @@ OSQUERY_TLS_KEYSTORE_PASSWORD=changeit \
 공용 파일: OS별 플래그 [`osquery/osquery.mac.flags`](osquery/osquery.mac.flags) /
 [`osquery/osquery.win.flags`](osquery/osquery.win.flags).
 `--tls_hostname` 은 **엔드포인트에서 도달 가능한 api-service HTTPS 주소**로 맞출 것
-(같은 머신 데모면 `localhost:8443`, 원격이면 실주소).
+(로컬 `bootRun` 데모면 `localhost:8443`, k8s 배포면 `<서버주소>:30443` — `k8s/README.md` 참고).
+서버 인증서 SAN 이 이 호스트와 다르면 enroll 단계에서 조용히 실패한다.
+
+퍼블리셔별 활성 플래그가 플래그 파일에 이미 들어 있다. 지우면 **에러 없이 이벤트만 0건**이 되므로 주의:
+macOS 는 `--disable_endpointsecurity=false`(프로세스) · `--enable_file_events=true`(FIM) ·
+`--disable_audit=false --audit_allow_config=true --audit_allow_sockets=true`(소켓),
+Windows 는 `--enable_process_etw_events=true`(프로세스) · `--enable_ntfs_event_publisher=true`(FIM).
 
 ### macOS
 
@@ -79,11 +85,14 @@ OSQUERY_TLS_KEYSTORE_PASSWORD=changeit \
 3. **FDA 부여**: 시스템 설정 → 개인정보 보호 및 보안 → 전체 디스크 접근 → osqueryd 바이너리 추가.
    - `.app` 번들이 아니라 그 안의 유닉스 바이너리를 지정
      (`/opt/osquery/lib/osquery.app/Contents/MacOS/osqueryd`, `Cmd+Shift+G`).
-4. **launchd 데몬으로 실행**(포그라운드/대화형은 TCC 가 터미널 앱에 귀속돼 안 됨):
+4. **launchd 데몬으로 실행**(포그라운드/대화형은 TCC 가 터미널 앱에 귀속돼 안 됨).
+   launchd 잡(`io.osquery.agent`)은 flagfile 경로가 `/var/osquery/osquery.flags` 로 박혀 있으므로
+   플래그 파일을 **그 경로에 두고** 띄운다. 다른 경로에 두면 `osqueryctl start` 가 그냥 무시한다.
    ```bash
-   sudo osqueryd --flagfile /path/to/osquery/osquery.mac.flags
-   # 또는 osqueryctl 로 데몬 등록 후 sudo osqueryctl start
+   sudo cp collector-service/osquery/osquery.mac.flags /var/osquery/osquery.flags
+   sudo osqueryctl start     # /var/osquery/io.osquery.agent.plist 를 LaunchDaemons 로 복사 후 load
    ```
+   중지는 `sudo osqueryctl stop`(unload + plist 삭제).
 5. **재부팅**: TCC(FDA) 권한은 살아있는 세션에 즉시 반영되지 않는다. 재부팅 후 exec 이벤트 수집 확인.
 6. 이벤트가 안 잡히면 FDA/EndpointSecurity 권한부터 의심.
 
@@ -92,12 +101,19 @@ OSQUERY_TLS_KEYSTORE_PASSWORD=changeit \
 `process_etw_events`(ETW)로 프로세스 생성을 감시. **관리자 권한**으로 실행.
 network 이벤트는 core osquery 에 실시간 소켓 테이블이 없어 **Zeek 가 담당**한다.
 
+설치 경로는 `C:\Program Files\osquery` 이고 데몬은 PATH 에 없다. 전체 경로로 부른다.
+
 ```powershell
-osqueryd.exe --flagfile C:\ProgramData\osquery\osquery.win.flags
+winget install --id osquery.osquery -e
+& "C:\Program Files\osquery\osqueryd\osqueryd.exe" --flagfile C:\ProgramData\osquery\osquery.win.flags
 ```
 
-`process_etw_events.type` 리터럴은 버전마다 다를 수 있다. 안 잡히면
-`osqueryi.exe` 에서 `SELECT DISTINCT type FROM process_etw_events;` 로 확인 후 서버 `OsqueryConfig` 의 `WHERE` 수정.
+`process_etw_events.type` 리터럴은 버전마다 다를 수 있다. 확인은 **osqueryd 를 멈춘 상태에서**
+`osqueryi.exe --disable_events=false --enable_process_etw_events=true` 로 직접 띄운 뒤
+`SELECT DISTINCT type FROM process_etw_events;` 를 본다.
+osqueryd 가 도는 중에 그냥 `osqueryi` 를 띄우면 별도 프로세스라 osqueryd 의 이벤트 버퍼가 아니라
+자기 자신의 빈 버퍼를 보게 되고(DB 도 잠겨 있음), 항상 0건으로 보인다.
+값이 다르면 서버 `OsqueryConfig` 의 `WHERE` 를 고친다.
 
 ## 수집 API 배선 검증 (FDA 없이)
 
