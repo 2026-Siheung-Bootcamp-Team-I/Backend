@@ -88,6 +88,21 @@ curl -sk https://localhost:8443/api/osquery/enroll -H 'Content-Type: application
   L4(TCP) 통과 프록시를 쓴다.
 - 인증서 SAN 이 `--tls_hostname` 의 호스트와 다르면 역시 enroll 단계에서 실패한다. 주소가 바뀌면 인증서를
   다시 만들고 Secret 을 갱신한 뒤 엔드포인트의 PEM 까지 교체해야 한다.
+### 매니페스트 변경을 배포서버에 반영하기
+
+CD 는 서비스 5개 매니페스트를 apply 하지 않는다(apply 하면 image 가 `:latest` 로 되돌아갔다가
+`set image` 로 다시 `:sha` 가 되면서 롤아웃이 두 번 돈다). 그래서 `k8s/api-service.yaml` 을 고쳤으면
+서버에서 한 번 수동으로 적용한다. 지금 떠 있는 이미지 태그를 지키면서 적용하는 순서:
+
+```bash
+IMG=$(sudo kubectl -n edrdog get deploy/api-service -o jsonpath='{.spec.template.spec.containers[0].image}')
+sudo kubectl -n edrdog apply -f k8s/api-service.yaml
+sudo kubectl -n edrdog set image deployment/api-service api-service="$IMG"
+sudo kubectl -n edrdog rollout status deployment/api-service
+```
+
+Service 는 매니페스트가 서버 실제 상태(NodePort 30084)와 같아 apply 해도 그대로다.
+
 - kind 로컬에서는 `kind-cluster.yaml` 의 `30443 -> hostPort 8443` 매핑을 쓴다.
   **`extraPortMappings` 는 클러스터 생성 시에만 반영**되므로 기존 클러스터라면 다시 만들거나
   `kubectl -n edrdog port-forward svc/api-service-osquery 8443:8443` 로 우회한다.

@@ -22,6 +22,13 @@ spec:
           ports:
             - containerPort: 8084
             - containerPort: 8443   # osquery 수집 전용 HTTPS 커넥터 (osquery-tls Secret 이 있을 때만 열린다)
+          # Infisical 이 동기화한 edrdog-secrets. EDRDOG_API_KEY(프론트 X-API-Key), INTERNAL_API_KEY
+          # (alert-service 내부 조회), CLICKHOUSE_PASSWORD 등이 여기서 온다. 이게 빠진 채로 apply 하면
+          # 프론트는 401, 알림은 전면 중단, 대시보드는 ClickHouse 인증 실패로 깨진다.
+          # 아래 env 에 같은 이름이 있으면 그쪽이 이긴다(그래서 DB_PASSWORD 는 아래 평문 값이 쓰인다).
+          envFrom:
+            - secretRef:
+                name: edrdog-secrets
           env:
             # --- osquery 수집 HTTPS 커넥터 ---
             # 엔드포인트의 osquery TLS logger 는 평문 HTTP 로 안 붙으므로 이 포트가 없으면 수집 자체가 불가능하다.
@@ -53,11 +60,13 @@ spec:
             - name: EDRDOG_CLICKHOUSE_URL
               value: "http://clickhouse:8123"
             # 프론트 도메인 (배포 시 실제 값으로 교체)
+            # 배포된 프론트(Vercel) + 로컬 dev 서버. 서버 실제 값과 같게 둔다.
             - name: CORS_ALLOWED_ORIGINS
-              value: "http://localhost:5173"
-            # 발표 환경에서만 true (데모 계정 test/1234 + 과거 7일 시드)
+              value: "https://frontend1-ten-gamma.vercel.app,http://localhost:5173"
+            # 발표 환경에서만 true (데모 계정 test/1234 + 과거 7일 시드).
+            # 현재 배포서버가 true 라 그대로 맞춘다. 해커톤이 끝나면 false 로 되돌린다.
             - name: DEMO_SEED
-              value: "false"
+              value: "true"
             # 메트릭/트레이스 OTLP 수집기 (k8s/otel-lgtm.yaml)
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: "http://otel-lgtm:4318"
@@ -94,6 +103,10 @@ spec:
               - key: keystore.p12
                 path: keystore.p12
 ---
+# 프론트/외부 API 진입점. NodePort 30084 — 호스트(EC2)에서 도는 Caddy 가 localhost:30084 로 프록시한다.
+# 배포서버가 이미 이 형태로 떠 있는데 여기가 ClusterIP 로 남아 있어서, 이 파일을 apply 하면
+# NodePort 가 벗겨져 사이트가 죽었다(그래서 CD 가 이 매니페스트를 통째로 건너뛰고 있다).
+# 실제 상태에 맞춰 둔다. 포트를 바꾸려면 Caddy 설정도 같이 바꿔야 한다.
 apiVersion: v1
 kind: Service
 metadata:
@@ -102,11 +115,13 @@ metadata:
   labels:
     app: api-service
 spec:
+  type: NodePort
   selector:
     app: api-service
   ports:
     - port: 80
       targetPort: 8084
+      nodePort: 30084
 ---
 # osquery 엔드포인트가 붙는 수집 포트. NodePort 30443 로 직접 노출한다.
 # Caddy 로 프록시하면 안 된다: osquery 가 --tls_server_certs 로 서버 인증서를 핀하기 때문에
