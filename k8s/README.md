@@ -66,6 +66,8 @@ kind delete cluster --name edrdog    # 클러스터째 삭제 (데이터 emptyDi
   - **메트릭**: api / detector / archiver 만 OTLP 로 전송 (`micrometer-registry-otlp` 를 그 3개 모듈 `build.gradle` 에만 추가)
   - **트레이스**: 6개 서비스 전부 OTLP 로 전송
   - **로그**: 앱은 그냥 stdout 에 찍고, Alloy 가 `*-service` 파드 로그를 읽어 Loki 로 보낸다 (앱 코드 변경 없음)
+  - **인프라 메트릭**: Alloy 가 kubelet 의 cAdvisor·resource 엔드포인트를 긁어 컨테이너·노드 CPU/메모리를
+    Prometheus 로 remote write 한다. 별도 exporter 를 띄우지 않는다.
 - Kafka 발행·소비 구간에도 스팬이 생겨(`spring.kafka.*.observation-enabled`), api → collector → detector → archiver 흐름이
   트레이스 하나로 이어진다.
 - 로그에는 Spring 기본 패턴의 `[traceId-spanId]` 를 Alloy 가 뽑아 structured metadata 로 붙인다.
@@ -76,13 +78,16 @@ kind delete cluster --name edrdog    # 클러스터째 삭제 (데이터 emptyDi
   |---|---|
   | EDRdog Overview | 요청률·에러율·p95·컨슈머 랙 요약, 서비스별 트래픽, 힙, 로그 볼륨 |
   | EDRdog HTTP | 상태코드별 요청률, 분위(p50/95/99), 느린·많이 불린 엔드포인트 Top |
-  | EDRdog JVM & Kafka | 힙/GC/스레드/클래스, 컨슈머 랙·소비 처리량·커밋률 |
+  | EDRdog Resources | 힙/GC/스레드/클래스, 컨슈머 랙·소비 처리량·커밋률, 컨테이너·노드 CPU/메모리 |
   | EDRdog Logs & Traces | 레벨별 로그 볼륨, 로그 스트림, 에러 로그, 최근 트레이스 목록 |
 
   이미지 기본 대시보드(RED / JVM Overview)도 루트에 그대로 남아 있다.
   대시보드를 고치려면 `otel-lgtm.yaml` ConfigMap 안의 JSON 을 고치고 apply 한 뒤 파드를 재시작한다
   (subPath 마운트라 ConfigMap 만 바꿔서는 반영되지 않는다).
 - 스택 없이 서비스만 띄우려면 `OTEL_ENABLED=false`. 샘플링은 `OTEL_TRACE_SAMPLING`(기본 1.0 = 전량).
+- 지표는 **PVC(`otel-lgtm-data`, 5Gi)** 에 남는다. 여기만 emptyDir 이 아니다. 파드가 재시작돼도 그동안의
+  지표·로그·트레이스가 살아 있어야 발표 중에 그래프가 비지 않기 때문이다. 기본 StorageClass 를 쓴다.
+  RWO 볼륨이라 Deployment 전략은 `Recreate`(롤링이면 새 파드가 볼륨을 못 잡고 서로 기다린다).
 - **Grafana 는 비번 없이 들어가진다.** otel-lgtm 이미지가 익명 접속을 Admin 권한으로 열어두기 때문이다
   (`GF_AUTH_ANONYMOUS_ENABLED=true`, `GF_AUTH_ANONYMOUS_ORG_ROLE=Admin`). 데모용으로 편한 대신,
   포트에 닿는 사람은 누구나 설정을 바꿀 수 있다. 오래 띄워둘 거면 이 두 env 를 Deployment 에서 꺼야 한다.

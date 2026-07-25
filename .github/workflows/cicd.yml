@@ -69,8 +69,11 @@ jobs:
             ${{ steps.vars.outputs.image_base }}:${{ github.sha }}
             ${{ steps.vars.outputs.image_base }}:latest
 
-  # CD: EC2(k3s) 에 SSH 로 접속해 새 이미지(:SHA)로 롤링. k3s API 를 외부에 노출하지 않는다.
+  # CD: EC2(k3s) 에 SSH 로 접속해 모니터링 매니페스트를 apply 하고 서비스는 새 이미지(:SHA)로 롤링.
+  # k3s API 를 외부에 노출하지 않는다.
   # 필요한 secret: EC2_HOST(도메인/공인IP), EC2_SSH_KEY(개인키). 선택: EC2_USER(기본 ubuntu).
+  # 서비스 매니페스트는 apply 하지 않는다(레포와 서버 상태가 어긋나 있어 실서비스가 죽는다).
+  # 서비스 환경변수(OTEL_EXPORTER_OTLP_ENDPOINT 등)는 Infisical 로 주입한다.
   deploy:
     needs: image
     if: github.event_name == 'push'
@@ -94,6 +97,22 @@ jobs:
             "REPO='$REPO_LC' SHA='$SHA' NS=edrdog bash -s" <<'REMOTE'
           set -euo pipefail
           MODULES="detector-service responder-service archiver-service api-service alert-service"
+
+          # 모니터링 스택만 매니페스트로 apply 한다.
+          # 서비스 5개 매니페스트는 손대지 않는다. 레포의 api-service Service 는 ClusterIP 인데
+          # 서버는 NodePort 30084 로 떠 있어(Caddy 가 이 포트로 프록시) apply 하면 사이트가 죽는다.
+          # 서버 브랜치를 건드리지 않으려고 FETCH_HEAD 에서 파일만 꺼내 적용한다.
+          if [ -d ~/Backend/.git ]; then
+          git -C ~/Backend fetch --quiet origin main
+          for f in k8s/otel-lgtm.yaml k8s/alloy.yaml; do
+          git -C ~/Backend show "FETCH_HEAD:$f" | sudo kubectl apply -f -
+          done
+          sudo kubectl -n "$NS" rollout status deployment/otel-lgtm --timeout=300s
+          sudo kubectl -n "$NS" rollout status deployment/alloy --timeout=180s
+          else
+          echo "~/Backend 클론이 없어 모니터링 매니페스트 apply 를 건너뛴다" >&2
+          fi
+
           for m in $MODULES; do
           sudo kubectl -n "$NS" set image "deployment/$m" "$m=ghcr.io/$REPO/$m:$SHA"
           done
