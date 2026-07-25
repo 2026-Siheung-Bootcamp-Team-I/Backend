@@ -1,0 +1,69 @@
+# events-raw(osquery/Zeek 원시 result-log)를 소비해 detector 스키마로 정규화한 뒤 events 로 재발행한다.
+# 이게 없으면 api-service 가 발행한 원시 로그를 아무도 소비하지 않아 events 가 비고,
+# detector/archiver 가 events 만 보므로 탐지도 대시보드도 조용해진다(수집 경로가 끊긴다).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: collector-service
+  namespace: edrdog
+  labels:
+    app: collector-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: collector-service
+  template:
+    metadata:
+      labels:
+        app: collector-service
+    spec:
+      containers:
+        - name: collector-service
+          # 배포 시 CI 가 kubectl set image 로 실제 태그(:<sha>) 주입
+          image: ghcr.io/2026-siheung-bootcamp-team-i/backend/collector-service:latest
+          ports:
+            - containerPort: 8082
+          # 다른 서비스와 같은 패턴 (Infisical 동기화 Secret)
+          envFrom:
+            - secretRef:
+                name: edrdog-secrets
+          env:
+            - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
+              value: "kafka:9094"
+            # 트레이스 OTLP 수집기 (k8s/otel-lgtm.yaml)
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-lgtm:4318"
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8082
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8082
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: collector-service
+  namespace: edrdog
+  labels:
+    app: collector-service
+spec:
+  selector:
+    app: collector-service
+  ports:
+    - port: 80
+      targetPort: 8082
