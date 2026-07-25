@@ -69,13 +69,15 @@ jobs:
             ${{ steps.vars.outputs.image_base }}:${{ github.sha }}
             ${{ steps.vars.outputs.image_base }}:latest
 
-  # CD: EC2(k3s) 에 SSH 로 접속해 새 이미지(:SHA)로 롤링. k3s API 를 외부에 노출하지 않는다.
+  # CD: EC2(k3s) 에 SSH 로 접속해 인프라 매니페스트를 적용하고 새 이미지(:SHA)로 롤링.
+  # k3s API 를 외부에 노출하지 않는다.
   # 필요한 secret: EC2_HOST(도메인/공인IP), EC2_SSH_KEY(개인키). 선택: EC2_USER(기본 ubuntu).
   deploy:
     needs: image
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - name: Deploy over SSH
         env:
           REPO: ${{ github.repository }}
@@ -87,6 +89,17 @@ jobs:
           mkdir -p ~/.ssh
           printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
+          SSH="ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 -i $HOME/.ssh/deploy_key $SSH_USER@$SSH_HOST"
+
+          # 1) 인프라 매니페스트를 레포 기준으로 적용한다. 서비스 5개(detector/responder/
+          #    archiver/api/alert)는 아래 set image 가 태그를 관리하므로 여기서 제외한다.
+          #    (레포의 env 값이 서버 운영값과 달라 덮어쓰는 사고를 막기 위함)
+          MANIFESTS="k8s/00-namespace.yaml k8s/kafka.yaml k8s/clickhouse.yaml k8s/mysql.yaml k8s/kafdrop.yaml"
+          # 파일 경계마다 --- 를 넣어 하나의 스트림으로 합친다.
+          awk 'FNR==1 && NR!=1 {print "---"} {print}' $MANIFESTS \
+            | $SSH "sudo kubectl apply -f -"
+
+          # 2) 새 이미지로 롤링.
           # GHCR 는 소문자 경로만 받으므로 repo 이름을 소문자로 바꿔 원격에 넘긴다.
           REPO_LC="${REPO,,}"
           ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 \
