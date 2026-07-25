@@ -38,7 +38,8 @@ public class DemoAccountSeeder {
      */
     public static final long TENANT_ID = 99L;
 
-    static final String EMAIL = "test@edrdog.local";
+    /** 데모 계정 이메일. 데모 API 가 이 계정으로 쓸 tenant 를 찾는다(DemoTenant). */
+    public static final String EMAIL = "test@edrdog.local";
 
     /** 이메일 형식이 아니던 옛 데모 계정. 남아 있으면 정리한다. */
     static final String LEGACY_EMAIL = "test";
