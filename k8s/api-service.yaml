@@ -94,6 +94,10 @@ spec:
               - key: keystore.p12
                 path: keystore.p12
 ---
+# 프론트/외부 API 진입점. NodePort 30084 — 호스트(EC2)에서 도는 Caddy 가 localhost:30084 로 프록시한다.
+# 배포서버가 이미 이 형태로 떠 있는데 여기가 ClusterIP 로 남아 있어서, 이 파일을 apply 하면
+# NodePort 가 벗겨져 사이트가 죽었다(그래서 CD 가 이 매니페스트를 통째로 건너뛰고 있다).
+# 실제 상태에 맞춰 둔다. 포트를 바꾸려면 Caddy 설정도 같이 바꿔야 한다.
 apiVersion: v1
 kind: Service
 metadata:
@@ -102,11 +106,13 @@ metadata:
   labels:
     app: api-service
 spec:
+  type: NodePort
   selector:
     app: api-service
   ports:
     - port: 80
       targetPort: 8084
+      nodePort: 30084
 ---
 # osquery 엔드포인트가 붙는 수집 포트. NodePort 30443 로 직접 노출한다.
 # Caddy 로 프록시하면 안 된다: osquery 가 --tls_server_certs 로 서버 인증서를 핀하기 때문에
