@@ -103,8 +103,11 @@ jobs:
           MODULES="detector-service responder-service archiver-service api-service alert-service"
 
           # 모니터링 스택과 Kafka UI 만 매니페스트로 apply 한다.
-          # 서비스 5개 매니페스트는 손대지 않는다. 레포의 api-service Service 는 ClusterIP 인데
-          # 서버는 NodePort 30084 로 떠 있어(Caddy 가 이 포트로 프록시) apply 하면 사이트가 죽는다.
+          # 서비스 5개 매니페스트는 손대지 않는다. apply 하면 image 가 :latest 로 되돌아갔다가
+          # 아래 set image 로 다시 :sha 가 되면서 롤아웃이 두 번 돌기 때문이다.
+          # (레포 api-service Service 가 ClusterIP 라 apply 하면 NodePort 30084 가 벗겨져 사이트가
+          #  죽던 문제는 매니페스트를 실제 상태에 맞추면서 해소됐다. 매니페스트 변경 반영은
+          #  k8s/README.md 의 수동 apply 절차를 따른다.)
           # 서버 브랜치를 건드리지 않으려고 FETCH_HEAD 에서 파일만 꺼내 적용한다.
           if [ -d ~/Backend/.git ]; then
           git -C ~/Backend fetch --quiet origin main
