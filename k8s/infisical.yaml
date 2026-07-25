@@ -1,0 +1,55 @@
+# Infisical 연동 — Infisical 에 등록한 값을 k8s Secret(edrdog-secrets) 으로 동기화한다.
+# 매니페스트에 비밀번호를 평문으로 박아두던 걸(DB_PASSWORD, CLICKHOUSE_PASSWORD 등) 여기로 옮기는 게 목적이다.
+#
+# 문서에는 v1beta1(InfisicalConnection/InfisicalAuth/InfisicalStaticSecret)이 나오지만
+# 릴리스된 Operator(v0.11.5)에는 아직 그 CRD 가 없다. 실제로 도는 건 v1alpha1 InfisicalSecret 이다.
+#
+# 1) Operator 설치 (1회)
+#   kubectl apply -f https://raw.githubusercontent.com/Infisical/kubernetes-operator/infisical-k8-operator/v0.11.5/kubectl-install/install-secrets-operator.yaml
+#
+# 2) Machine Identity 자격증명 (1회, 값이 비밀이라 레포에 두지 않는다)
+#    Infisical > Access Control > Identities 에서 Universal Auth 로 발급하고
+#    프로젝트 멤버로 추가한 뒤, 서버에서 직접 만든다:
+#   kubectl -n edrdog create secret generic infisical-universal-auth \
+#     --from-literal=clientId=<Client ID> \
+#     --from-literal=clientSecret=<Client Secret>
+#
+# 3) 적용
+#   kubectl apply -f k8s/infisical.yaml
+#   kubectl -n edrdog get infisicalsecret edrdog          # 상태 확인
+#   kubectl -n edrdog get secret edrdog-secrets -o jsonpath='{.data}' | tr ',' '\n'
+#
+# 4) 서비스가 이 Secret 을 읽게 한다(Service 객체를 안 건드리려고 patch 로 넣는다)
+#   for m in detector-service responder-service archiver-service api-service alert-service; do
+#     kubectl -n edrdog patch deployment "$m" --type=strategic \
+#       -p "{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"$m\",\"envFrom\":[{\"secretRef\":{\"name\":\"edrdog-secrets\"}}]}]}}}}"
+#   done
+#
+#   주의: Deployment 에 같은 이름의 env 가 직접 박혀 있으면 그쪽이 envFrom 을 이긴다.
+#   예를 들어 api-service 의 DB_PASSWORD 는 매니페스트에 평문으로 있어서, Infisical 값을 쓰려면
+#   `kubectl -n edrdog set env deployment/api-service DB_PASSWORD-` 로 먼저 지워야 한다.
+---
+apiVersion: secrets.infisical.com/v1alpha1
+kind: InfisicalSecret
+metadata:
+  name: edrdog
+  namespace: edrdog
+spec:
+  hostAPI: https://app.infisical.com/api
+  resyncInterval: 60
+
+  authentication:
+    universalAuth:
+      credentialsRef:
+        secretName: infisical-universal-auth
+        secretNamespace: edrdog
+      secretsScope:
+        # 프로젝트 슬러그는 Infisical 프로젝트 Settings 에서 확인한다. 비밀값이 아니다.
+        projectSlug: REPLACE_WITH_INFISICAL_PROJECT_SLUG
+        envSlug: prod        # Infisical 의 Production 환경 슬러그
+        secretsPath: /
+
+  managedSecretReference:
+    secretName: edrdog-secrets
+    secretNamespace: edrdog
+    creationPolicy: Owner

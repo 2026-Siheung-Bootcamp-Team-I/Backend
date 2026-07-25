@@ -22,6 +22,12 @@ rules:
   - apiGroups: [""]
     resources: ["pods", "pods/log", "namespaces"]
     verbs: ["get", "list", "watch"]
+  # 인프라 메트릭: kubelet 이 노출하는 컨테이너/노드 사용량을 긁기 위해 필요
+  - apiGroups: [""]
+    resources: ["nodes", "nodes/metrics", "nodes/proxy"]
+    verbs: ["get", "list", "watch"]
+  - nonResourceURLs: ["/metrics", "/metrics/cadvisor", "/metrics/resource"]
+    verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -124,6 +130,76 @@ data:
     loki.write "otel_lgtm" {
       endpoint {
         url = "http://otel-lgtm:3100/loki/api/v1/push"
+      }
+    }
+
+    // ---- 인프라 메트릭 ----
+    // 앱이 내보내는 JVM 지표만으로는 "힙은 여유로운데 파드가 왜 느리지" 같은 상황을 못 본다.
+    // kubelet 이 이미 노출하고 있는 컨테이너·노드 사용량을 긁어 채운다(별도 exporter 배포 없음).
+    discovery.kubernetes "nodes" {
+      role = "node"
+    }
+
+    discovery.relabel "cadvisor" {
+      targets = discovery.kubernetes.nodes.targets
+
+      rule {
+        target_label = "__metrics_path__"
+        replacement  = "/metrics/cadvisor"
+      }
+    }
+
+    discovery.relabel "kubelet_resource" {
+      targets = discovery.kubernetes.nodes.targets
+
+      rule {
+        target_label = "__metrics_path__"
+        replacement  = "/metrics/resource"
+      }
+    }
+
+    // 컨테이너별 CPU·메모리·네트워크
+    prometheus.scrape "cadvisor" {
+      targets           = discovery.relabel.cadvisor.output
+      forward_to        = [prometheus.relabel.infra.receiver]
+      job_name          = "kubelet/cadvisor"
+      scheme            = "https"
+      scrape_interval   = "30s"
+      bearer_token_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+
+      tls_config {
+        insecure_skip_verify = true
+      }
+    }
+
+    // 노드 전체 CPU·메모리
+    prometheus.scrape "kubelet_resource" {
+      targets           = discovery.relabel.kubelet_resource.output
+      forward_to        = [prometheus.relabel.infra.receiver]
+      job_name          = "kubelet/resource"
+      scheme            = "https"
+      scrape_interval   = "30s"
+      bearer_token_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+
+      tls_config {
+        insecure_skip_verify = true
+      }
+    }
+
+    // cAdvisor 는 시리즈가 수천 개다. 대시보드에서 실제로 쓰는 것만 남긴다.
+    prometheus.relabel "infra" {
+      forward_to = [prometheus.remote_write.otel_lgtm.receiver]
+
+      rule {
+        source_labels = ["__name__"]
+        regex         = "container_cpu_usage_seconds_total|container_memory_working_set_bytes|container_network_receive_bytes_total|container_network_transmit_bytes_total|node_cpu_usage_seconds_total|node_memory_working_set_bytes|machine_cpu_cores|machine_memory_bytes"
+        action        = "keep"
+      }
+    }
+
+    prometheus.remote_write "otel_lgtm" {
+      endpoint {
+        url = "http://otel-lgtm:9090/api/v1/write"
       }
     }
 ---
