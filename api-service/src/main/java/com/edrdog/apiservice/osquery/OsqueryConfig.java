@@ -100,17 +100,40 @@ public final class OsqueryConfig {
             }
             """;
 
+    /** osquery PlatformType 비트마스크의 TYPE_WINDOWS. */
+    private static final int TYPE_WINDOWS = 0x02;
+
     /**
-     * enroll 시 저장한 platform 으로 스케줄을 고른다. 값에 windows 가 들어가면 Windows, 그 외(darwin/미상)는 macOS.
-     * osquery {@code platform_type} 은 버전에 따라 문자열이 다를 수 있어 느슨하게 판정한다.
-     * ("darwin" 이 "win" 을 부분문자열로 포함하므로 "windows" 로 정확히 본다.)
+     * enroll 시 저장한 platform 으로 스케줄을 고른다. Windows 면 ETW 스케줄, 그 외(darwin/미상)는 macOS.
      */
     public static String forPlatform(String platform) {
         return isWindows(platform) ? WINDOWS_JSON : MACOS_JSON;
     }
 
+    /**
+     * osquery 가 enroll 에 싣는 {@code platform_type} 은 이름이 아니라 <b>비트마스크 숫자</b>다.
+     * 실기기에서 Windows 는 {@code 2}, macOS 는 {@code 21}(POSIX 1 + BSD 4 + OSX 16) 로 들어왔다.
+     *
+     * <p>문자열로만 보면 숫자가 전부 macOS 로 떨어져, Windows 엔드포인트가 macOS 스케줄을 받는다.
+     * 그러면 {@code es_process_events} 처럼 그 OS 에 없는 테이블을 조회하게 되고, 오류 없이
+     * 결과만 비어서 <b>수집이 조용히 0건</b>이 된다. 실제로 그렇게 막혔다.
+     *
+     * <p>이름도 함께 받는다. 값의 형태가 버전에 따라 다를 수 있고, 이름으로 오면 그쪽이 더 분명하다.
+     * ("darwin" 이 "win" 을 부분문자열로 포함하므로 "windows" 로 정확히 본다.)
+     */
     private static boolean isWindows(String platform) {
-        return platform != null && platform.toLowerCase().contains("windows");
+        if (platform == null) {
+            return false;
+        }
+        String value = platform.trim().toLowerCase();
+        if (value.contains("windows")) {
+            return true;
+        }
+        try {
+            return (Integer.parseInt(value) & TYPE_WINDOWS) != 0;
+        } catch (NumberFormatException e) {
+            return false;   // 이름도 숫자도 아니면 판단 근거가 없다. macOS 로 폴백한다.
+        }
     }
 
     private OsqueryConfig() {
