@@ -63,6 +63,32 @@ public final class Rules {
         return fileInAutorunPath(current);
     }
 
+/**
+     * 선행 이벤트로 버퍼에 남길 가치가 있는지 (순수 판정).
+     *
+     * <p>버퍼는 상태 크기 때문에 상한이 있는데, 실기기는 초당 십여 건씩 프로세스 이벤트를 낸다.
+     * 전부 담으면 상한이 금방 차서 5분 윈도우가 사실상 십여 초로 줄고, 상관 룰이 발화하지 못한다.
+     * 룰이 '선행'으로 실제 참조하는 것만 남긴다. 나머지는 현재 이벤트로 판정될 때 이미 쓰였다.
+     *
+     * <ul>
+     *   <li>network: 다운로드 포트만 (R2)</li>
+     *   <li>process: office 앱(R1 의 부모 후보) 또는 임시·다운로드 경로 실행(R2 역방향)</li>
+     * </ul>
+     */
+    public static boolean isCorrelatable(Event e) {
+        if (e == null) {
+            return false;
+        }
+        if (isNetwork(e)) {
+            return DOWNLOAD_PORTS.contains(e.destPort());
+        }
+        if (isProcess(e)) {
+            return in(OFFICE_APPS, lower(e.process()))
+                    || executableHasMarker(e.cmdline(), SCRIPT_TEMP_MARKERS);
+        }
+        return false;
+    }
+
     /** R1 T1059: 버퍼의 office앱 exec → 그 office앱을 부모로 shell 실행. */
     private static Optional<Alert> suspiciousProcessChain(List<Event> prior, Event current) {
         if (!isProcess(current)) {

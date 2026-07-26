@@ -102,4 +102,19 @@ class DetectionTopologyTest {
 
         assertThat(alerts.isEmpty()).isTrue();
     }
+
+    @Test
+    @DisplayName("무관한 이벤트가 버퍼 상한을 넘게 쏟아져도 상관은 유지된다")
+    void noisyBuffer_keepsCorrelation() {
+        // 실기기(맥북)는 초당 15건씩 프로세스 이벤트를 낸다. 버퍼가 최근 N건만 보관하면
+        // 5분 윈도우가 사실상 십여 초로 줄어 R2 가 거의 발화하지 못한다(실측).
+        events.pipeInput("k", network("host-3", 443, 1000));
+        for (int i = 0; i < 500; i++) {
+            events.pipeInput("k", process("host-3", "noise" + i, "bash", 1000 + i));
+        }
+        events.pipeInput("k", processFrom("host-3", "evil", "/Users/me/Downloads/evil", 200_000));
+
+        assertThat(alerts.getQueueSize()).isEqualTo(1);
+        assertThat(alerts.readValue().ruleId()).isEqualTo("DOWNLOAD_AND_EXECUTE");
+    }
 }
