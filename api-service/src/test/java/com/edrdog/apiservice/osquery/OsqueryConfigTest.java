@@ -134,6 +134,29 @@ class OsqueryConfigTest {
         }
     }
 
+    /**
+     * ETW 프로세스 이벤트는 실기기에서 {@code ProcessStop} 만 올라온다. 커널 세션과 프로바이더가
+     * 정상이고(OsqueryKernelETWSession 실행 중, Microsoft-Windows-Kernel-Process, 손실 0),
+     * 조건 없이 {@code SELECT type, path FROM process_etw_events} 를 돌려도 type 은 전부
+     * ProcessStop 이었다(osquery 5.23.1, Windows 실기기).
+     *
+     * <p>그래서 {@code type = 'ProcessStart'} 로 거르면 오류 없이 결과만 0건이 되고,
+     * Windows 수집이 통째로 죽는다. 종료 이벤트에도 path/cmdline 이 실려 있어 무엇이 실행됐는지는
+     * 알 수 있으므로 ProcessStop 으로 받는다. 상주 프로세스를 못 잡는 한계는 감수한다.
+     */
+    @Test
+    void windows_프로세스_쿼리는_ProcessStop_을_받는다() throws Exception {
+        JsonNode s = schedule("windows");
+
+        for (String key : new String[]{"process_etw_events", "script_etw_events"}) {
+            String query = s.get(key).get("query").asText();
+            assertTrue(query.contains("'ProcessStop'"),
+                    key + " 는 ProcessStop 을 받아야 한다(ProcessStart 는 실기기에서 오지 않는다): " + query);
+            assertFalse(query.contains("'ProcessStart'"),
+                    key + " 가 ProcessStart 만 거르면 수집이 0건이 된다: " + query);
+        }
+    }
+
     /** 실행 경로 LIKE 도 백슬래시가 하나여야 매칭된다. 한 겹 남으면 조용히 0건이 된다. */
     @Test
     void windows_스크립트_쿼리의_경로_패턴은_백슬래시가_하나다() throws Exception {

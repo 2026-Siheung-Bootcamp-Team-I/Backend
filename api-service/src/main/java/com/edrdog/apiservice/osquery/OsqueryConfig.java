@@ -63,8 +63,18 @@ public final class OsqueryConfig {
             """;
 
     /**
-     * Windows: ETW 프로세스 생성. parent(ppid)는 processes 조인으로 이름화.
+     * Windows: ETW 프로세스 이벤트. parent(ppid)는 processes 조인으로 이름화.
      * network 는 core osquery 실시간 소켓 테이블이 없어 여기서 다루지 않는다(Zeek 담당).
+     *
+     * <p><b>ProcessStart 가 아니라 ProcessStop 을 받는다.</b> 실기기(osquery 5.23.1, Windows)에서
+     * 커널 ETW 세션과 프로바이더가 모두 정상인데도 {@code process_etw_events} 에는 ProcessStop 만
+     * 올라온다. 조건 없이 {@code SELECT type, path} 로 확인했을 때 ProcessStart 는 한 건도 없었다.
+     * 그 상태로 ProcessStart 를 거르면 osquery 는 오류를 내지 않고 결과만 비워서, Windows 수집이
+     * 통째로 조용히 0건이 된다.
+     *
+     * <p>종료 이벤트에도 path/cmdline 이 실려 있어 무엇이 실행됐는지는 그대로 알 수 있다. 다만
+     * 프로세스가 끝나야 기록되므로 상주 프로세스는 잡지 못하고, 탐지가 사후에만 이뤄진다.
+     * 스크립트처럼 짧게 끝나는 실행은 오히려 잘 잡힌다.
      */
     private static final String WINDOWS_JSON = """
             {
@@ -82,12 +92,12 @@ public final class OsqueryConfig {
               },
               "schedule": {
                 "process_etw_events": {
-                  "query": "SELECT e.path AS path, e.cmdline AS cmdline, p.name AS parent, e.pid AS pid FROM process_etw_events e LEFT JOIN processes p ON e.ppid = p.pid WHERE e.type = 'ProcessStart'",
+                  "query": "SELECT e.path AS path, e.cmdline AS cmdline, p.name AS parent, e.pid AS pid FROM process_etw_events e LEFT JOIN processes p ON e.ppid = p.pid WHERE e.type = 'ProcessStop'",
                   "interval": 10,
-                  "description": "프로세스 생성 이벤트(ETW)"
+                  "description": "프로세스 실행 이벤트(ETW). 종료 시점에 기록된다"
                 },
                 "script_etw_events": {
-                  "query": "SELECT e.path AS path, e.cmdline AS cmdline, p.name AS parent, e.pid AS pid FROM process_etw_events e LEFT JOIN processes p ON e.ppid = p.pid WHERE e.type = 'ProcessStart' AND (e.path LIKE '%\\\\powershell.exe' OR e.path LIKE '%\\\\cmd.exe' OR e.path LIKE '%\\\\wscript.exe' OR e.path LIKE '%\\\\cscript.exe' OR e.path LIKE '%\\\\mshta.exe')",
+                  "query": "SELECT e.path AS path, e.cmdline AS cmdline, p.name AS parent, e.pid AS pid FROM process_etw_events e LEFT JOIN processes p ON e.ppid = p.pid WHERE e.type = 'ProcessStop' AND (e.path LIKE '%\\\\powershell.exe' OR e.path LIKE '%\\\\cmd.exe' OR e.path LIKE '%\\\\wscript.exe' OR e.path LIKE '%\\\\cscript.exe' OR e.path LIKE '%\\\\mshta.exe')",
                   "interval": 10,
                   "description": "스크립트 인터프리터 실행. cmdline 의 스크립트 경로로 임시/다운로드 실행을 detector 가 MEDIUM(T1059) 판정"
                 },
