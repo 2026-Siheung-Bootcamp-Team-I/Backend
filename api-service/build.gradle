@@ -34,8 +34,23 @@ tasks.register('downloadGeoLite2') {
         def tarFile = new File(outDir, 'GeoLite2-Country.tar.gz')
         def url = "https://download.maxmind.com/app/geoip_download?edition_id=GeoLite2-Country&license_key=${key}&suffix=tar.gz"
         logger.lifecycle('[geoip] GeoLite2-Country 다운로드 중...')
-        tarFile.withOutputStream { os ->
-            new URI(url).toURL().openStream().withCloseable { input -> os << input }
+        // MaxMind 는 짧은 시간에 여러 번 받으면 429 를 준다. 실제로 배포가 이것 때문에 막힌 적이 있다.
+        // 잠깐 기다렸다 다시 시도한다. 그래도 안 되면 실패시킨다(mmdb 없는 jar 는 지도가 빈 채로 뜬다).
+        def attempts = 4
+        for (int i = 1; ; i++) {
+            try {
+                tarFile.withOutputStream { os ->
+                    new URI(url).toURL().openStream().withCloseable { input -> os << input }
+                }
+                break
+            } catch (IOException e) {
+                if (i >= attempts) {
+                    throw new GradleException("[geoip] ${attempts}회 시도 실패: ${e.message}", e)
+                }
+                def waitSec = 15 * i
+                logger.warn("[geoip] 다운로드 실패(${e.message}) → ${waitSec}초 후 재시도 (${i}/${attempts})")
+                Thread.sleep(waitSec * 1000L)
+            }
         }
         // tar.gz 안의 GeoLite2-Country_YYYYMMDD/GeoLite2-Country.mmdb 를 평탄화해 추출
         copy {
