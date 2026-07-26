@@ -35,7 +35,55 @@ public final class KillScript {
         return "'" + s.replace("'", "'\\''") + "'";
     }
 
-    /** target(프로세스명 또는 경로) → 정확 일치 kill 스크립트. */
+    /**
+     * 대상 호스트 플랫폼에 맞는 kill 스크립트.
+     *
+     * <p>Fleet 은 Windows 호스트에 PowerShell(.ps1)을, 그 외에는 sh 를 실행한다.
+     * POSIX 스크립트를 Windows 로 보내면 ps/awk/kill 이 없어 그냥 실패한다.
+     *
+     * @param platform Fleet 이 알려주는 호스트 플랫폼(windows / darwin / ubuntu ...). null 이면 POSIX.
+     */
+    public static String build(String target, String platform) {
+        return isWindows(platform) ? buildWindows(target) : build(target);
+    }
+
+    private static boolean isWindows(String platform) {
+        return platform != null && platform.toLowerCase().contains("windows");
+    }
+
+    /** PowerShell 작은따옴표 이스케이프: ' → '' (PowerShell 규칙은 sh 와 다르다). */
+    private static String psSingleQuote(String s) {
+        return "'" + s.replace("'", "''") + "'";
+    }
+
+    /**
+     * Windows: 프로세스명 정확 일치로 종료.
+     *
+     * <p>{@code Get-Process -Name} 은 확장자 없는 이름을 받으므로 .exe 를 뗀다.
+     * 이름 비교는 PowerShell 이 대소문자를 구분하지 않는데, Windows 파일명 규칙 자체가 그래서 의도한 동작이다.
+     */
+    private static String buildWindows(String target) {
+        String base = basename(target);
+        if (base.toLowerCase().endsWith(".exe")) {
+            base = base.substring(0, base.length() - 4);
+        }
+        String name = psSingleQuote(base);
+        return """
+                # EDRdog responder: 대상 프로세스명과 일치하는 실행 프로세스를 종료 (trigger=response)
+                $name = %s
+                $procs = Get-Process -Name $name -ErrorAction SilentlyContinue
+                if (-not $procs) {
+                  Write-Output "EDRDOG_RESULT=NO_MATCH name=$name"
+                  exit 0
+                }
+                $ids = ($procs | ForEach-Object { $_.Id }) -join ' '
+                Write-Output "EDRDOG_RESULT=MATCH name=$name pids=$ids"
+                $procs | Stop-Process -Force -ErrorAction SilentlyContinue
+                Write-Output "EDRDOG_RESULT=KILLED name=$name pids=$ids"
+                """.formatted(name);
+    }
+
+    /** target(프로세스명 또는 경로) → 정확 일치 kill 스크립트 (POSIX sh). */
     public static String build(String target) {
         String name = shSingleQuote(basename(target));
         return """

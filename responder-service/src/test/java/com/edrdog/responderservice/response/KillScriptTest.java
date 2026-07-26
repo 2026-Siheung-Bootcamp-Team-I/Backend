@@ -53,4 +53,44 @@ class KillScriptTest {
         assertThat(script).doesNotContain("comm=");
         assertThat(script).doesNotContain("$2==n");
     }
+
+    // --- Windows (PowerShell) ---
+
+    @Test
+    @DisplayName("Windows 는 PowerShell 스크립트를 만든다 (ps/awk/kill 은 Windows 에 없다)")
+    void windows_buildsPowerShell() {
+        String script = KillScript.build("evil.exe", "windows");
+
+        assertThat(script).contains("Get-Process");
+        assertThat(script).contains("Stop-Process");
+        assertThat(script).doesNotContain("#!/bin/sh");
+        assertThat(script).doesNotContain("ps -Ao");
+        assertThat(script).contains("EDRDOG_RESULT=NO_MATCH");
+        assertThat(script).contains("EDRDOG_RESULT=KILLED");
+    }
+
+    @Test
+    @DisplayName("Windows 는 .exe 를 떼고 프로세스명으로 매칭한다 (Get-Process -Name 규칙)")
+    void windows_stripsExeSuffix() {
+        String script = KillScript.build("C:\\Users\\victim\\Downloads\\evil.exe", "windows");
+
+        assertThat(script).contains("'evil'");
+        assertThat(script).doesNotContain("'evil.exe'");
+    }
+
+    @Test
+    @DisplayName("Windows 도 작은따옴표를 이스케이프해 인젝션을 막는다")
+    void windows_escapesQuotes() {
+        String script = KillScript.build("ev'il.exe", "windows");
+
+        assertThat(script).contains("'ev''il'");
+    }
+
+    @Test
+    @DisplayName("platform 이 windows 가 아니면 기존 POSIX sh 를 그대로 쓴다")
+    void nonWindows_keepsPosix() {
+        assertThat(KillScript.build("curl", "darwin")).startsWith("#!/bin/sh");
+        assertThat(KillScript.build("curl", "ubuntu")).startsWith("#!/bin/sh");
+        assertThat(KillScript.build("curl", null)).startsWith("#!/bin/sh");
+    }
 }
