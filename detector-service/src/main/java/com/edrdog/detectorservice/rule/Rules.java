@@ -93,8 +93,34 @@ public final class Rules {
                 actTarget(current)));
     }
 
-    /** R2 T1105+T1204: 버퍼의 network 다운로드 → 이후 process 실행. */
+    /**
+     * R2 T1105+T1204: network 다운로드 → 이후 process 실행.
+     *
+     * <p>판정은 <b>이벤트 시각</b> 순서로 한다. 도착 순서로만 보면 이 조합을 거의 놓친다.
+     * 네트워크 이벤트는 Zeek 가 연결 종료 후에 기록하고 전송기가 묶어 보내서 항상 늦게 도착하는데,
+     * 실행 이벤트는 osquery 가 바로 올린다. 실기기에서 R2 가 한 번도 발화하지 않은 원인이었다.
+     * 그래서 어느 쪽이 나중에 도착하든, 시각상 다운로드가 먼저면 판정한다.
+     */
     private static Optional<Alert> downloadAndExecute(List<Event> prior, Event current) {
+        // 네트워크가 늦게 도착한 경우: 버퍼에서 그 뒤에 실행된 프로세스를 찾는다.
+        if (isNetwork(current) && DOWNLOAD_PORTS.contains(current.destPort())) {
+            return prior.stream()
+                    .filter(Rules::isProcess)
+                    .filter(e -> !isBaseline(lower(e.process())))
+                    .filter(e -> executableHasMarker(e.cmdline(), SCRIPT_TEMP_MARKERS))
+                    .filter(e -> e.ts() >= current.ts())   // 시각상 다운로드가 먼저여야 한다
+                    .findFirst()
+                    .map(exec -> new Alert(
+                            exec.host(),
+                            "DOWNLOAD_AND_EXECUTE",
+                            "T1105+T1204",
+                            Alert.SEV_CRITICAL,
+                            Alert.actionFor(Alert.SEV_CRITICAL),
+                            exec.ts(),
+                            List.of(summary(current), summary(exec)),
+                            exec.tenantId(),
+                            actTarget(exec)));
+        }
         if (!isProcess(current) || isBaseline(lower(current.process()))) {
             return Optional.empty();
         }
@@ -108,6 +134,7 @@ public final class Rules {
         Optional<Event> download = prior.stream()
                 .filter(Rules::isNetwork)
                 .filter(e -> DOWNLOAD_PORTS.contains(e.destPort()))
+                .filter(e -> e.ts() <= current.ts())   // 시각상 다운로드가 먼저여야 한다
                 .findFirst();
         if (download.isEmpty()) {
             return Optional.empty();
