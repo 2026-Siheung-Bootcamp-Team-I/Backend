@@ -168,11 +168,15 @@ public final class DemoData {
         };
     }
 
-    /** detector dto Alert.actionFor 와 동일 규칙. */
+    /**
+     * detector dto Alert.actionFor 와 동일 규칙.
+     *
+     * <p>CRITICAL 도 kill 이다. 격리는 구현이 없어 실제로 할 수 있는 건 프로세스 종료뿐인데,
+     * 시드만 isolate 로 권고하면 화면에서 "격리하세요" 아래 종료 버튼이 붙어 서로 어긋난다.
+     */
     private static String actionFor(String severity) {
         return switch (severity) {
-            case "CRITICAL" -> "isolate";
-            case "HIGH" -> "kill";
+            case "CRITICAL", "HIGH" -> "kill";
             default -> "notify";
         };
     }

@@ -46,6 +46,28 @@ public class ResponderClient {
         }
     }
 
+    /**
+     * Fleet enroll secret 조회를 responder 에 위임한다(Fleet 토큰은 responder 만 들고 있다).
+     * responder 가 죽어 있거나 오류면 null 로 답한다. 안내 화면이 값을 못 받았을 뿐이라
+     * 온보딩 나머지 단계까지 막을 이유는 없다.
+     */
+    public String fleetEnrollSecret() {
+        try {
+            FleetEnrollSecret res = http.get()
+                    .uri("/api/responder/fleet/enroll-secret")
+                    .retrieve()
+                    .body(FleetEnrollSecret.class);
+            return res == null ? null : res.secret();
+        } catch (RestClientException e) {
+            log.error("responder Fleet enroll secret 조회 실패 err={}", e.toString());
+            return null;
+        }
+    }
+
+    /** responder Fleet enroll secret 응답(FleetSecretController.FleetEnrollSecret 과 동일 필드). */
+    private record FleetEnrollSecret(String secret) {
+    }
+
     /** responder kill 요청 본문(responder KillController.KillRequest 와 동일 필드). */
     private record KillCommand(String host, String target) {
     }
