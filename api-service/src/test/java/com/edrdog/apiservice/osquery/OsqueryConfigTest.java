@@ -115,6 +115,34 @@ class OsqueryConfigTest {
                 "시작프로그램 경로로 걸러야 한다(백슬래시 1개). 실제 쿼리: " + query);
     }
 
+    /**
+     * process_etw_events 에는 time 컬럼이 없다. 실기기 PRAGMA 로 확인한 컬럼은
+     * type / pid / ppid / session_id / flags / exit_code / path / cmdline / username /
+     * token_elevation_type / token_elevation_status / mandatory_label / datetime 이다.
+     *
+     * <p>없는 컬럼을 선택하면 쿼리 전체가 실패해 수집이 0건이 된다. 시각은 result-log 최상위의
+     * unixTime 으로 들어오므로(RawEventMapper) 컬럼을 고를 필요가 없다.
+     */
+    @Test
+    void windows_프로세스_쿼리는_없는_time_컬럼을_고르지_않는다() throws Exception {
+        JsonNode s = schedule("windows");
+
+        for (String key : new String[]{"process_etw_events", "script_etw_events"}) {
+            String query = s.get(key).get("query").asText();
+            assertFalse(query.contains("e.time"), key + " 는 없는 컬럼을 고르면 안 된다: " + query);
+            assertTrue(query.contains("e.ppid"), key + " 는 parent 조인에 ppid 를 쓴다");
+        }
+    }
+
+    /** 실행 경로 LIKE 도 백슬래시가 하나여야 매칭된다. 한 겹 남으면 조용히 0건이 된다. */
+    @Test
+    void windows_스크립트_쿼리의_경로_패턴은_백슬래시가_하나다() throws Exception {
+        String query = schedule("windows").get("script_etw_events").get("query").asText();
+
+        assertTrue(query.contains("'%\\powershell.exe'"), "실제 쿼리: " + query);
+        assertTrue(query.contains("'%\\cmd.exe'"), "실제 쿼리: " + query);
+    }
+
     @Test
     void windows_파일_이벤트는_path_컬럼을_내려준다() throws Exception {
         JsonNode s = schedule("windows");
