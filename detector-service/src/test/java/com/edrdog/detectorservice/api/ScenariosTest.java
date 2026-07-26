@@ -50,7 +50,7 @@ class ScenariosTest {
         assertThat(alert).isPresent();
         assertThat(alert.get().ruleId()).isEqualTo("DOWNLOAD_AND_EXECUTE");
         assertThat(alert.get().severity()).isEqualTo(Alert.SEV_CRITICAL);
-        assertThat(alert.get().action()).isEqualTo(Alert.ACTION_ISOLATE);
+        assertThat(alert.get().action()).isEqualTo(Alert.ACTION_KILL);
     }
 
     @Test

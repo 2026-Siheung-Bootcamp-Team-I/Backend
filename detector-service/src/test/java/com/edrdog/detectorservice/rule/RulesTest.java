@@ -76,7 +76,7 @@ class RulesTest {
     }
 
     @Test
-    @DisplayName("R2: network 다운로드 후 같은 host 에서 process 실행 → DOWNLOAD_AND_EXECUTE(T1105+T1204, CRITICAL, isolate)")
+    @DisplayName("R2: network 다운로드 후 같은 host 에서 process 실행 → DOWNLOAD_AND_EXECUTE(T1105+T1204, CRITICAL, kill)")
     void r2_downloadThenExecute_alerts() {
         List<Event> buffer = List.of(network("203.0.113.9", 443, 1000));
         Event current = processFrom("evil.exe", "/tmp/evil.exe --run", 2000);
@@ -88,7 +88,7 @@ class RulesTest {
         assertThat(a.ruleId()).isEqualTo("DOWNLOAD_AND_EXECUTE");
         assertThat(a.mitre()).isEqualTo("T1105+T1204");
         assertThat(a.severity()).isEqualTo(Alert.SEV_CRITICAL);
-        assertThat(a.action()).isEqualTo(Alert.ACTION_ISOLATE);
+        assertThat(a.action()).isEqualTo(Alert.ACTION_KILL);
         assertThat(a.ts()).isEqualTo(2000);
         assertThat(a.matched()).hasSize(2);
     }
@@ -263,5 +263,15 @@ class RulesTest {
         Event laterNetwork = network("203.0.113.9", 443, 2000);
 
         assertThat(Rules.evaluate(buffer, laterNetwork)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("CRITICAL 권고는 kill 이다 (격리는 구현이 없어 권고하지 않는다)")
+    void criticalRecommendsKill() {
+        // 권고와 실제 조치가 다르면 사용자가 격리된 줄 알고 넘어간다.
+        // responder 가 할 수 있는 건 프로세스 종료뿐이라 권고도 거기에 맞춘다.
+        assertThat(Alert.actionFor(Alert.SEV_CRITICAL)).isEqualTo(Alert.ACTION_KILL);
+        assertThat(Alert.actionFor(Alert.SEV_HIGH)).isEqualTo(Alert.ACTION_KILL);
+        assertThat(Alert.actionFor(Alert.SEV_MEDIUM)).isEqualTo(Alert.ACTION_NOTIFY);
     }
 }
