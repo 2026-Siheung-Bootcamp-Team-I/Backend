@@ -1,6 +1,7 @@
 package com.edrdog.apiservice.alert.web;
 
 import com.edrdog.apiservice.alert.AlertService;
+import com.edrdog.apiservice.alert.AlertStatus;
 import com.edrdog.apiservice.auth.exception.AuthException;
 import com.edrdog.apiservice.auth.service.AuthService;
 import com.edrdog.apiservice.auth.service.Principal;
@@ -135,7 +136,13 @@ public class AlertController {
             throw AuthException.invalidInput("target 프로세스가 필요합니다");
         }
         AlertResponse alert = alerts.get(tenantId, id);   // 타 tenant 면 404, 통과하면 권위 있는 host 확보
-        return responder.kill(alert.host(), request.target());
+        KillResult result = responder.kill(alert.host(), request.target());
+        // 종료에 성공했으면 그 알림은 처리된 것이다. open 으로 남겨두면 목록에서 조치 여부를
+        // 알 수 없어 같은 알림을 또 붙잡게 된다. 실패했으면 그대로 둔다(처리된 것처럼 보이면 안 된다).
+        if (result.killed()) {
+            alerts.triage(tenantId, id, AlertStatus.CONFIRMED);
+        }
+        return result;
     }
 
     /** Bearer 토큰을 검증해 현재 유저의 tenant 를 문자열로 반환. 토큰이 없거나 만료면 AuthService 가 401. */

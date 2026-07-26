@@ -192,6 +192,42 @@ class AlertApiIntegrationTest {
     }
 
     @Test
+    void 조치가_성공하면_알림이_confirmed_로_넘어간다() throws Exception {
+        // 조치했는데 알림이 open 그대로면 목록에서 처리 여부를 알 수 없다.
+        String[] a = signup("a-respond-confirm@edrdog.com");
+        String id = seedAlert(a[1], "hostC", 300L);
+        when(responder.kill(eq("hostC"), eq("evil.exe")))
+                .thenReturn(new KillResult("hostC", "evil.exe", "KILLED", "exec-2"));
+
+        mvc.perform(post("/api/alerts/" + id + "/respond").header("Authorization", "Bearer " + a[0])
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"target\":\"evil.exe\"}"))
+                .andExpect(status().isOk());
+
+        mvc.perform(get("/api/alerts/" + id).header("Authorization", "Bearer " + a[0]))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("confirmed"));
+    }
+
+    @Test
+    void 조치가_실패하면_알림_상태를_바꾸지_않는다() throws Exception {
+        // 종료되지 않았는데 처리된 것처럼 보이면 안 된다.
+        String[] a = signup("a-respond-fail@edrdog.com");
+        String id = seedAlert(a[1], "hostD", 400L);
+        when(responder.kill(eq("hostD"), eq("evil.exe")))
+                .thenReturn(new KillResult("hostD", "evil.exe", "FAILED", null));
+
+        mvc.perform(post("/api/alerts/" + id + "/respond").header("Authorization", "Bearer " + a[0])
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"target\":\"evil.exe\"}"))
+                .andExpect(status().isOk());
+
+        mvc.perform(get("/api/alerts/" + id).header("Authorization", "Bearer " + a[0]))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("open"));
+    }
+
+    @Test
     void 남의_alert_respond_는_404이고_responder를_호출하지_않는다() throws Exception {
         String[] a = signup("a-presp@edrdog.com");
         String[] b = signup("b-presp@edrdog.com");
