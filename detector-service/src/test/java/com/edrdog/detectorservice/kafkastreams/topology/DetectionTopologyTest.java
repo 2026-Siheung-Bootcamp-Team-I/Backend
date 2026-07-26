@@ -52,6 +52,11 @@ class DetectionTopologyTest {
         return new Event(host, Event.TYPE_PROCESS, ts, proc, parent, proc, null, 0, "tenant-a");
     }
 
+    /** cmdline 을 직접 주는 process 이벤트. R2 는 실행 경로를 본다. */
+    private Event processFrom(String host, String proc, String cmdline, long ts) {
+        return new Event(host, Event.TYPE_PROCESS, ts, proc, "explorer.exe", cmdline, null, 0, "tenant-a");
+    }
+
     private Event network(String host, int destPort, long ts) {
         return new Event(host, Event.TYPE_NETWORK, ts, null, null, null, "203.0.113.9", destPort, "tenant-a");
     }
@@ -73,7 +78,7 @@ class DetectionTopologyTest {
     @DisplayName("network 다운로드 → 실행 시퀀스 → alerts 에 CRITICAL 발행")
     void downloadExecute_emitsAlert() {
         events.pipeInput("k", network("host-2", 443, 1000));
-        events.pipeInput("k", process("host-2", "evil.exe", "cmd.exe", 2000));
+        events.pipeInput("k", processFrom("host-2", "evil.exe", "C:\\Users\\me\\Downloads\\evil.exe", 2000));
 
         assertThat(alerts.getQueueSize()).isEqualTo(1);
         assertThat(alerts.readValue().severity()).isEqualTo(Alert.SEV_CRITICAL);

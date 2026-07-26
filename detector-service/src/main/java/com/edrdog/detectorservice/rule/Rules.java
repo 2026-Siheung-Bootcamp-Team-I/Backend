@@ -98,6 +98,11 @@ public final class Rules {
         if (!isProcess(current) || isBaseline(lower(current.process()))) {
             return Optional.empty();
         }
+        // 받아온 것을 실행했는지가 핵심이다(T1105+T1204). 실행 경로 조건이 없으면
+        // "웹 접속 한 번 + 아무 프로세스 실행"이 전부 CRITICAL 이 되어 실사용에서 오탐만 남는다.
+        if (!pathArgumentHasMarker(current.cmdline(), SCRIPT_TEMP_MARKERS)) {
+            return Optional.empty();
+        }
         Optional<Event> download = prior.stream()
                 .filter(Rules::isNetwork)
                 .filter(e -> DOWNLOAD_PORTS.contains(e.destPort()))
@@ -119,7 +124,7 @@ public final class Rules {
 
     /** R3 T1059: 임시/다운로드 경로에서 실행된 스크립트 (저심각 point 룰). */
     private static Optional<Alert> scriptFromTempPath(Event current) {
-        if (!isScript(current) || !pathHasMarker(current.cmdline(), SCRIPT_TEMP_MARKERS)) {
+        if (!isScript(current) || !pathArgumentHasMarker(current.cmdline(), SCRIPT_TEMP_MARKERS)) {
             return Optional.empty();
         }
         return Optional.of(new Alert(
@@ -171,6 +176,33 @@ public final class Rules {
     private static boolean pathHasMarker(String path, Set<String> markers) {
         String p = lower(path);
         return p != null && markers.stream().anyMatch(p::contains);
+    }
+
+    /** 셸 연산자 — 여기부터는 실행 대상이 아니라 출력/후속 명령이라 판정에서 제외한다. */
+    private static final Set<String> SHELL_OPERATORS = Set.of(">", ">>", ">|", "<", "|", "||", "&&", ";", "&");
+
+    /**
+     * cmdline 에서 "실행 대상으로 보이는 경로 인자"에만 표식이 있는지 본다.
+     *
+     * <p>cmdline 전체를 문자열로 훑으면 실행과 무관한 위치의 경로까지 걸린다. 실제로
+     * {@code ... && pwd -P >| /tmp/x} 처럼 리다이렉션 대상이 임시 경로라는 이유로 알림이 나갔다.
+     * 그래서 셸 연산자가 나오면 거기서 끊고, 앞쪽 인자 중 경로처럼 생긴 토큰만 검사한다.
+     */
+    private static boolean pathArgumentHasMarker(String cmdline, Set<String> markers) {
+        String c = lower(cmdline);
+        if (c == null) {
+            return false;
+        }
+        for (String token : c.split("\\s+")) {
+            if (SHELL_OPERATORS.contains(token)) {
+                return false;   // 연산자 뒤는 실행 대상이 아니다
+            }
+            boolean looksLikePath = token.contains("/") || token.contains("\\");
+            if (looksLikePath && markers.stream().anyMatch(token::contains)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** null 안전한 집합 포함 검사 (immutable Set 은 contains(null) 시 NPE). */

@@ -20,6 +20,11 @@ class RulesTest {
         return new Event(HOST, Event.TYPE_PROCESS, ts, proc, parent, proc + " args", null, 0, TENANT);
     }
 
+    /** cmdline 을 직접 주는 process 이벤트. R2 는 실행 경로(cmdline)를 본다. */
+    private Event processFrom(String proc, String cmdline, long ts) {
+        return new Event(HOST, Event.TYPE_PROCESS, ts, proc, "bash", cmdline, null, 0, TENANT);
+    }
+
     private Event network(String destIp, int destPort, long ts) {
         return new Event(HOST, Event.TYPE_NETWORK, ts, null, null, null, destIp, destPort, TENANT);
     }
@@ -74,7 +79,7 @@ class RulesTest {
     @DisplayName("R2: network 다운로드 후 같은 host 에서 process 실행 → DOWNLOAD_AND_EXECUTE(T1105+T1204, CRITICAL, isolate)")
     void r2_downloadThenExecute_alerts() {
         List<Event> buffer = List.of(network("203.0.113.9", 443, 1000));
-        Event current = process("evil.exe", "cmd.exe", 2000);
+        Event current = processFrom("evil.exe", "/tmp/evil.exe --run", 2000);
 
         Optional<Alert> alert = Rules.evaluate(buffer, current);
 
@@ -86,6 +91,28 @@ class RulesTest {
         assertThat(a.action()).isEqualTo(Alert.ACTION_ISOLATE);
         assertThat(a.ts()).isEqualTo(2000);
         assertThat(a.matched()).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("R2 음성: 받아온 뒤라도 임시·다운로드 경로가 아닌 실행은 미판정 (평범한 앱 실행)")
+    void r2_executeFromNormalPath_noAlert() {
+        // 웹 접속 후 정상 앱을 실행하는 건 일상이다. 여기까지 CRITICAL 로 올리면 실사용에서 오탐만 남는다.
+        List<Event> buffer = List.of(network("203.0.113.9", 443, 1000));
+        Event current = processFrom("Slack", "/Applications/Slack.app/Contents/MacOS/Slack", 2000);
+
+        assertThat(Rules.evaluate(buffer, current)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("R2 양성: 다운로드 폴더에서 실행해도 잡는다")
+    void r2_executeFromDownloads_alerts() {
+        List<Event> buffer = List.of(network("203.0.113.9", 80, 1000));
+        Event current = processFrom("setup", "/Users/me/Downloads/setup --silent", 2000);
+
+        Optional<Alert> alert = Rules.evaluate(buffer, current);
+
+        assertThat(alert).isPresent();
+        assertThat(alert.get().ruleId()).isEqualTo("DOWNLOAD_AND_EXECUTE");
     }
 
     @Test
@@ -135,6 +162,28 @@ class RulesTest {
     }
 
     @Test
+    @DisplayName("R3 음성: 리다이렉션 뒤에 /tmp/ 가 나올 뿐이면 미판정 (실제 오탐 사례)")
+    void r3_tempPathOnlyAfterRedirect_noAlert() {
+        // 실제로 Slack 까지 갔던 오탐. 실행된 스크립트는 홈 디렉터리에 있고
+        // /tmp/ 는 출력 리다이렉션 대상일 뿐인데 cmdline 전체 문자열 검사에 걸렸다.
+        Event current = script("zsh",
+                "/bin/zsh -c source /Users/me/.claude/shell-snapshots/snap.sh && pwd -P >| /tmp/claude-cwd", 3000);
+
+        assertThat(Rules.evaluate(List.of(), current)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("R3 양성: 인터프리터가 임시 경로 스크립트를 인자로 실행하면 잡는다")
+    void r3_interpreterRunsTempScript_alerts() {
+        Event current = script("zsh", "/bin/zsh /tmp/evil.sh", 3000);
+
+        Optional<Alert> alert = Rules.evaluate(List.of(), current);
+
+        assertThat(alert).isPresent();
+        assertThat(alert.get().ruleId()).isEqualTo("SCRIPT_FROM_TEMP_PATH");
+    }
+
+    @Test
     @DisplayName("R4: 자동실행(시작프로그램) 경로에 파일 생성 → FILE_IN_AUTORUN_PATH(T1547, MEDIUM, notify)")
     void r4_fileInAutorunPath_alerts() {
         Event current = file("evil.lnk",
@@ -168,7 +217,8 @@ class RulesTest {
                 process("winword.exe", "explorer.exe", 900),
                 network("203.0.113.9", 443, 1000)
         );
-        Event current = process("powershell.exe", "winword.exe", 2000);
+        Event current = new Event(HOST, Event.TYPE_PROCESS, 2000, "powershell.exe", "winword.exe",
+                "C:\\Users\\me\\Downloads\\payload.ps1", null, 0, TENANT);
 
         Optional<Alert> alert = Rules.evaluate(buffer, current);
 
