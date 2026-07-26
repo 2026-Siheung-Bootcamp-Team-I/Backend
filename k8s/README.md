@@ -107,6 +107,43 @@ Service 는 매니페스트가 서버 실제 상태(NodePort 30084)와 같아 ap
   **`extraPortMappings` 는 클러스터 생성 시에만 반영**되므로 기존 클러스터라면 다시 만들거나
   `kubectl -n edrdog port-forward svc/api-service-osquery 8443:8443` 로 우회한다.
 
+## GeoLite2 (위협 지도)
+
+mmdb 는 이미지 안이 아니라 **호스트 디스크**에 둔다. `api-service` 가 `GEOIP_DB_PATH`
+(`/etc/geoip/GeoLite2-Country.mmdb`, hostPath `/opt/edrdog/geoip`)를 먼저 읽고, 없으면 jar 번들로 넘어간다.
+
+이렇게 하는 이유: MaxMind 는 하루 다운로드 한도가 있어 429 를 준다. 빌드가 mmdb 를 못 받으면
+예전에는 빌드 전체가 멈춰 **배포가 통째로 막혔다**. 그렇다고 mmdb 없는 이미지를 올리면 위협 지도가
+조용히 빈다. 파일을 호스트에 두면 이미지를 어떻게 갈아도 지도가 살아 있고, 빌드는 429 가 나도
+경고만 남기고 지나간다.
+
+파일 배치는 1회다. 지금 도는 파드의 jar 에서 꺼내 쓰면 새로 받을 필요가 없다.
+
+```bash
+# 1) 지금 도는 파드의 jar 에서 mmdb 를 꺼낸다 (컨테이너에 unzip 이 없으므로 jar 를 통째로 복사)
+POD=$(sudo kubectl -n edrdog get pod -l app=api-service -o jsonpath='{.items[0].metadata.name}')
+sudo kubectl -n edrdog cp "$POD:/app/app.jar" /tmp/api.jar
+sudo mkdir -p /opt/edrdog/geoip
+sudo unzip -p /tmp/api.jar BOOT-INF/classes/GeoLite2-Country.mmdb > /tmp/GeoLite2-Country.mmdb
+sudo install -m 644 /tmp/GeoLite2-Country.mmdb /opt/edrdog/geoip/GeoLite2-Country.mmdb
+rm -f /tmp/api.jar /tmp/GeoLite2-Country.mmdb
+
+# 2) 크기가 0 이 아닌지 확인한다. 0 이면 그 이미지에 번들이 없던 것이다.
+ls -l /opt/edrdog/geoip/GeoLite2-Country.mmdb
+
+# 3) 매니페스트를 적용한다 (위 "매니페스트 변경을 배포서버에 반영하기" 와 같은 순서)
+IMG=$(sudo kubectl -n edrdog get deploy/api-service -o jsonpath='{.spec.template.spec.containers[0].image}')
+sudo kubectl -n edrdog apply -f k8s/api-service.yaml
+sudo kubectl -n edrdog set image deployment/api-service api-service="$IMG"
+sudo kubectl -n edrdog rollout status deployment/api-service
+
+# 4) 파일에서 읽었는지 로그로 확인한다
+sudo kubectl -n edrdog logs deploy/api-service | grep 'GeoIP DB 로드'
+```
+
+4번이 `GeoIP DB 로드(파일)` 이면 성공이다. `(클래스패스)` 면 볼륨의 파일을 못 읽어 jar 번들로
+넘어간 것이고, 그 상태로 mmdb 없는 이미지가 배포되면 지도가 빈다.
+
 ## 시크릿 (Infisical)
 
 매니페스트에 평문으로 박혀 있던 값(`DB_PASSWORD`, `CLICKHOUSE_PASSWORD` 등)을 Infisical 로 옮긴다.

@@ -70,6 +70,14 @@ spec:
             # 메트릭/트레이스 OTLP 수집기 (k8s/otel-lgtm.yaml)
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: "http://otel-lgtm:4318"
+            # GeoLite2 mmdb 를 이미지 밖(호스트 디스크)에서 읽는다. GeoIpResolver 는 이 경로를
+            # 먼저 보고, 없으면 jar 에 번들된 것으로 넘어간다.
+            #
+            # 이미지 안에만 두면 MaxMind 다운로드가 429 로 막힌 날에는 배포 자체가 불가능하고
+            # (실제로 배포가 막혔다), 억지로 mmdb 없이 이미지를 올리면 위협 지도가 조용히 빈다.
+            # 파일을 호스트에 두면 이미지를 어떻게 갈아도 지도가 살아 있다.
+            - name: GEOIP_DB_PATH
+              value: "/etc/geoip/GeoLite2-Country.mmdb"
           readinessProbe:
             httpGet:
               path: /actuator/health
@@ -93,6 +101,9 @@ spec:
             - name: osquery-tls
               mountPath: /etc/osquery-tls
               readOnly: true
+            - name: geoip
+              mountPath: /etc/geoip
+              readOnly: true
       volumes:
         # optional:true 라 Secret 이 없어도 파드는 뜬다(빈 디렉터리로 마운트). 그때는 커넥터도 꺼져 있다.
         - name: osquery-tls
@@ -102,6 +113,13 @@ spec:
             items:
               - key: keystore.p12
                 path: keystore.p12
+        # 단일 노드 k3s 라 hostPath 로 충분하다. 파일이 없어도 파드는 그대로 뜨고
+        # (DirectoryOrCreate 로 빈 디렉터리가 만들어진다) GeoIpResolver 가 jar 번들로 넘어간다.
+        # 배치 절차는 k8s/README.md 참고.
+        - name: geoip
+          hostPath:
+            path: /opt/edrdog/geoip
+            type: DirectoryOrCreate
 ---
 # 프론트/외부 API 진입점. NodePort 30084 — 호스트(EC2)에서 도는 Caddy 가 localhost:30084 로 프록시한다.
 # 배포서버가 이미 이 형태로 떠 있는데 여기가 ClusterIP 로 남아 있어서, 이 파일을 apply 하면
