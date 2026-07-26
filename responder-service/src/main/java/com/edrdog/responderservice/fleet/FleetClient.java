@@ -81,8 +81,11 @@ public class FleetClient {
                 : new FileSystemResource(location).getInputStream();
     }
 
-    /** 호스트 식별자(hostname/uuid)를 Fleet 내부 host id 로 변환. */
-    public int resolveHostId(String identifier) {
+    /**
+     * 호스트 식별자(hostname/uuid)로 Fleet 내부 id 와 플랫폼을 조회한다.
+     * 플랫폼이 필요한 이유는 Fleet 이 Windows 에 PowerShell, 그 외에 sh 를 실행하기 때문이다.
+     */
+    public FleetHost resolveHost(String identifier) {
         HostIdentifierResponse res = http.get()
                 .uri("/api/v1/fleet/hosts/identifier/{id}", identifier)
                 .retrieve()
@@ -90,7 +93,7 @@ public class FleetClient {
         if (res == null || res.host() == null) {
             throw new IllegalStateException("Fleet 에서 호스트를 찾지 못함: " + identifier);
         }
-        return res.host().id();
+        return new FleetHost(res.host().id(), res.host().platform());
     }
 
     /** 스크립트를 호스트에서 동기 실행하고 결과를 반환. */
@@ -102,9 +105,9 @@ public class FleetClient {
                 .body(FleetScriptResult.class);
     }
 
-    /** GET hosts/identifier 응답의 필요한 부분만. */
+    /** GET hosts/identifier 응답의 필요한 부분만. 나머지 필드는 무시된다. */
     private record HostIdentifierResponse(Host host) {
-        private record Host(int id) {
+        private record Host(int id, String platform) {
         }
     }
 }
