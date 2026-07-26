@@ -239,4 +239,29 @@ class RulesTest {
         assertThat(alert.get().severity()).isEqualTo(Alert.SEV_CRITICAL);
         assertThat(alert.get().ruleId()).isEqualTo("DOWNLOAD_AND_EXECUTE");
     }
+
+    @Test
+    @DisplayName("R2: 네트워크 이벤트가 늦게 도착해도 이벤트 시각 순서가 맞으면 판정한다")
+    void r2_lateArrivingNetwork_stillAlerts() {
+        // Zeek 는 연결이 끝난 뒤에 기록하고 전송기가 묶어 보내므로 네트워크 이벤트는 항상 늦게 도착한다.
+        // 도착 순서만 보면 이 조합을 영영 놓친다(실측: 실기기에서 R2 가 한 번도 발화하지 않았다).
+        List<Event> buffer = List.of(processFrom("evil", "/Users/me/Downloads/evil", 2000));
+        Event lateNetwork = network("203.0.113.9", 443, 1000);   // 이벤트 시각은 실행보다 앞선다
+
+        Optional<Alert> alert = Rules.evaluate(buffer, lateNetwork);
+
+        assertThat(alert).isPresent();
+        assertThat(alert.get().ruleId()).isEqualTo("DOWNLOAD_AND_EXECUTE");
+        assertThat(alert.get().severity()).isEqualTo(Alert.SEV_CRITICAL);
+    }
+
+    @Test
+    @DisplayName("R2 음성: 실행이 네트워크보다 먼저 일어났으면(시각 기준) 판정하지 않는다")
+    void r2_executeBeforeDownload_noAlert() {
+        // 순서를 보장하지 않으면 '받기 전에 실행한 것'까지 다운로드-실행으로 오인한다.
+        List<Event> buffer = List.of(processFrom("evil", "/Users/me/Downloads/evil", 1000));
+        Event laterNetwork = network("203.0.113.9", 443, 2000);
+
+        assertThat(Rules.evaluate(buffer, laterNetwork)).isEmpty();
+    }
 }
