@@ -124,8 +124,23 @@ if (Get-Service osqueryd -ErrorAction SilentlyContinue) {
     sc.exe delete osqueryd | Out-Null
     Start-Sleep -Seconds 2
 }
-sc.exe create osqueryd binPath= "`"$OsqueryExe`" --flagfile=`"$FlagsPath`"" start= auto DisplayName= "osquery daemon (EDRdog)" | Out-Null
-Start-Service osqueryd
+# sc.exe 가 아니라 New-Service 를 쓴다. PowerShell 5.1 은 외부 명령에 따옴표가 들어간 인자를
+# 그대로 넘기지 못해서, 공백이 있는 경로("C:\Program Files\...")를 binPath 로 주면 등록이
+# 실패한다. 게다가 sc.exe 결과를 Out-Null 로 버리면 그 실패가 화면에 남지 않아, 다음 줄의
+# Start-Service 에서 "서비스를 찾을 수 없다"는 엉뚱한 오류로만 드러난다. 실기기에서 그랬다.
+$binPath = '"{0}" --flagfile="{1}"' -f $OsqueryExe, $FlagsPath
+try {
+    New-Service -Name osqueryd -BinaryPathName $binPath -StartupType Automatic `
+        -DisplayName 'osquery daemon (EDRdog)' -ErrorAction Stop | Out-Null
+} catch {
+    Fail "서비스 등록 실패: $_"
+}
+
+try {
+    Start-Service osqueryd -ErrorAction Stop
+} catch {
+    Fail "서비스 시작 실패: $_"
+}
 Start-Sleep -Seconds 3
 
 $svc = Get-Service osqueryd
