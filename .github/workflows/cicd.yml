@@ -48,6 +48,9 @@ jobs:
       contents: read
       packages: write
     strategy:
+      # 한 모듈이 실패해도 나머지는 계속 빌드한다. Docker Hub 에서 베이스 이미지를 받다가
+      # 네트워크 타임아웃이 나면(실제로 발생했다) fail-fast 가 멀쩡한 모듈까지 취소시킨다.
+      fail-fast: false
       matrix:
         module: [detector-service, responder-service, archiver-service, api-service, alert-service, collector-service]
     steps:
