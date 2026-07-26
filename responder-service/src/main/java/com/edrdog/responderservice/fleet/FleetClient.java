@@ -5,6 +5,7 @@ import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 
 import javax.net.ssl.SSLContext;
@@ -86,14 +87,22 @@ public class FleetClient {
      * 플랫폼이 필요한 이유는 Fleet 이 Windows 에 PowerShell, 그 외에 sh 를 실행하기 때문이다.
      */
     public FleetHost resolveHost(String identifier) {
-        HostIdentifierResponse res = http.get()
-                .uri("/api/v1/fleet/hosts/identifier/{id}", identifier)
-                .retrieve()
-                .body(HostIdentifierResponse.class);
-        if (res == null || res.host() == null) {
-            throw new IllegalStateException("Fleet 에서 호스트를 찾지 못함: " + identifier);
+        // Fleet 조회는 대소문자를 구분한다. 알림의 host 는 osquery 가 준 원본이라 Fleet 저장값과
+        // 다를 수 있어(macOS 실측: 원본 404, 소문자 200) 후보를 순서대로 시도한다.
+        for (String candidate : HostIdentifiers.candidates(identifier)) {
+            try {
+                HostIdentifierResponse res = http.get()
+                        .uri("/api/v1/fleet/hosts/identifier/{id}", candidate)
+                        .retrieve()
+                        .body(HostIdentifierResponse.class);
+                if (res != null && res.host() != null) {
+                    return new FleetHost(res.host().id(), res.host().platform());
+                }
+            } catch (HttpClientErrorException.NotFound e) {
+                // 다음 후보로 넘어간다. 후보를 다 소진하면 아래에서 실패로 처리한다.
+            }
         }
-        return new FleetHost(res.host().id(), res.host().platform());
+        throw new IllegalStateException("Fleet 에서 호스트를 찾지 못함: " + identifier);
     }
 
     /** 스크립트를 호스트에서 동기 실행하고 결과를 반환. */
