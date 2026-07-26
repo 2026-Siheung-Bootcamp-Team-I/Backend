@@ -98,9 +98,11 @@ public final class Rules {
         if (!isProcess(current) || isBaseline(lower(current.process()))) {
             return Optional.empty();
         }
-        // 받아온 것을 실행했는지가 핵심이다(T1105+T1204). 실행 경로 조건이 없으면
-        // "웹 접속 한 번 + 아무 프로세스 실행"이 전부 CRITICAL 이 되어 실사용에서 오탐만 남는다.
-        if (!pathArgumentHasMarker(current.cmdline(), SCRIPT_TEMP_MARKERS)) {
+        // 받아온 것을 "실행"했는지가 핵심이다(T1105+T1204). 조건이 없으면 웹 접속 한 번 뒤의
+        // 모든 프로세스 실행이 CRITICAL 이 된다. 인자까지 보면 정상 프로세스가 임시 경로를
+        // 인자로 받는 경우(find /private/tmp/..., mount_apfs ... /private/tmp/PKInstallSandbox/...)
+        // 까지 걸리므로, 실행된 파일 자체(argv[0])만 본다.
+        if (!executableHasMarker(current.cmdline(), SCRIPT_TEMP_MARKERS)) {
             return Optional.empty();
         }
         Optional<Event> download = prior.stream()
@@ -180,6 +182,23 @@ public final class Rules {
 
     /** 셸 연산자 — 여기부터는 실행 대상이 아니라 출력/후속 명령이라 판정에서 제외한다. */
     private static final Set<String> SHELL_OPERATORS = Set.of(">", ">>", ">|", "<", "|", "||", "&&", ";", "&");
+
+    /**
+     * 실행된 파일 자체(argv[0])의 경로에 표식이 있는지 본다.
+     *
+     * <p>인자까지 보면 정상 프로세스가 임시 경로를 인자로 받는 것만으로 걸린다. 실제로
+     * {@code find /private/tmp/...} 와 {@code mount_apfs ... /private/tmp/PKInstallSandbox/...} 가
+     * CRITICAL 로 올라갔다. macOS 는 설치·업데이트 과정에서 /private/tmp 를 상시 쓴다.
+     * "받아온 파일을 실행"이 R2 의 의미이므로 실행 파일 경로만 판단 근거로 쓴다.
+     */
+    private static boolean executableHasMarker(String cmdline, Set<String> markers) {
+        String c = lower(cmdline);
+        if (c == null || c.isBlank()) {
+            return false;
+        }
+        String argv0 = c.trim().split("\\s+")[0];
+        return markers.stream().anyMatch(argv0::contains);
+    }
 
     /**
      * cmdline 에서 "실행 대상으로 보이는 경로 인자"에만 표식이 있는지 본다.
