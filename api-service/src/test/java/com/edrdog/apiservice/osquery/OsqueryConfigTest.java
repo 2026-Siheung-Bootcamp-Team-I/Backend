@@ -157,13 +157,23 @@ class OsqueryConfigTest {
         }
     }
 
-    /** 실행 경로 LIKE 도 백슬래시가 하나여야 매칭된다. 한 겹 남으면 조용히 0건이 된다. */
+    /**
+     * ETW 의 {@code path} 는 전체 경로가 아니라 <b>파일명만</b> 온다. 실기기 이벤트에서
+     * {@code "path": "svchost.exe"} 였고, 전체 경로는 {@code cmdline} 에만 들어 있었다
+     * ({@code "cmdline": "C:\WINDOWS\system32\svchost.exe -k GPSvcGroup"}).
+     *
+     * <p>그래서 {@code LIKE '%\powershell.exe'} 처럼 디렉터리 구분자를 요구하면 절대 매칭되지
+     * 않는다. 오류 없이 결과만 0건이 되어 스크립트 이벤트가 통째로 사라진다.
+     */
     @Test
-    void windows_스크립트_쿼리의_경로_패턴은_백슬래시가_하나다() throws Exception {
+    void windows_스크립트_쿼리는_파일명만_와도_매칭된다() throws Exception {
         String query = schedule("windows").get("script_etw_events").get("query").asText();
 
-        assertTrue(query.contains("'%\\powershell.exe'"), "실제 쿼리: " + query);
-        assertTrue(query.contains("'%\\cmd.exe'"), "실제 쿼리: " + query);
+        assertTrue(query.contains("'%powershell.exe'"),
+                "ETW path 는 파일명만 오므로 백슬래시를 요구하면 안 된다. 실제 쿼리: " + query);
+        assertTrue(query.contains("'%cmd.exe'"), "실제 쿼리: " + query);
+        assertFalse(query.contains("\\powershell.exe"),
+                "구분자를 요구하면 조용히 0건이 된다. 실제 쿼리: " + query);
     }
 
     @Test
