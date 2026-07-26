@@ -116,6 +116,19 @@ class RulesTest {
     }
 
     @Test
+    @DisplayName("R2 음성: 인자만 임시 경로인 정상 프로세스는 미판정 (실제 오탐 사례)")
+    void r2_tempPathOnlyInArgument_noAlert() {
+        // 실제로 Slack 까지 갔던 오탐 2건. 실행된 파일은 /usr/bin/find, /sbin/mount_apfs 이고
+        // 임시 경로는 인자일 뿐이다. macOS 는 설치·업데이트 과정에서 /private/tmp 를 상시 사용한다.
+        List<Event> buffer = List.of(network("203.0.113.9", 443, 1000));
+
+        assertThat(Rules.evaluate(buffer,
+                processFrom("find", "find /private/tmp/scratch -name *.py", 2000))).isEmpty();
+        assertThat(Rules.evaluate(buffer,
+                processFrom("mount_apfs", "/sbin/mount_apfs -o nobrowse /dev/disk1 /private/tmp/PKInstallSandbox/Root", 2100))).isEmpty();
+    }
+
+    @Test
     @DisplayName("R2 음성: network 이벤트의 포트가 다운로드 포트가 아니면 미판정")
     void r2_nonDownloadPort_noAlert() {
         List<Event> buffer = List.of(network("203.0.113.9", 22, 1000));
