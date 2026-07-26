@@ -9,6 +9,7 @@ import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -56,15 +57,22 @@ class DemoDataTest {
         assertEquals(Set.of("CRITICAL", "HIGH", "MEDIUM"), severities);
     }
 
+    /** 격리는 구현이 없어 CRITICAL 도 kill 로 권고한다(detector Alert.actionFor 와 같은 규칙). */
     @Test
     void action_은_severity_규칙과_일치한다() {
         for (Alert a : DemoData.alerts(TENANT, NOW)) {
             String expected = switch (a.severity()) {
-                case "CRITICAL" -> "isolate";
-                case "HIGH" -> "kill";
+                case "CRITICAL", "HIGH" -> "kill";
                 default -> "notify";
             };
             assertEquals(expected, a.action(), a.ruleId() + " 의 action");
+        }
+    }
+
+    @Test
+    void 시드에는_격리_권고가_남아있지_않다() {
+        for (Alert a : DemoData.alerts(TENANT, NOW)) {
+            assertNotEquals("isolate", a.action(), a.ruleId() + " 의 action");
         }
     }
 
