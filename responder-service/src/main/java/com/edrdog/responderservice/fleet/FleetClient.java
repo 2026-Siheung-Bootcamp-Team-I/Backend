@@ -105,6 +105,20 @@ public class FleetClient {
         throw new IllegalStateException("Fleet 에서 호스트를 찾지 못함: " + identifier);
     }
 
+    /**
+     * Fleet 자체 enroll secret(fleetd 패키지 빌드용). 없거나 형태가 어긋나면 null.
+     *
+     * <p>온보딩 안내가 "관리자에게 문의"로 끊기지 않도록 서버가 대신 읽어준다. 조치(kill)를 쓰려면
+     * 기기를 Fleet 에 등록해야 하는데, 그 값을 보려고 Fleet 콘솔 계정을 따로 받아야 했다.
+     */
+    public String enrollSecret() {
+        FleetEnrollSecretResponse res = http.get()
+                .uri("/api/v1/fleet/spec/enroll_secret")
+                .retrieve()
+                .body(FleetEnrollSecretResponse.class);
+        return res == null ? null : res.first();
+    }
+
     /** 스크립트를 호스트에서 동기 실행하고 결과를 반환. */
     public FleetScriptResult runScriptSync(int hostId, String scriptContents) {
         return http.post()
