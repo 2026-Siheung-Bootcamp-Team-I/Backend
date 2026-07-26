@@ -69,4 +69,32 @@ class OsqueryConfigTest {
         assertTrue(s.has("process_events"), "플랫폼 미상이면 mac 스케줄로 폴백");
         assertTrue(s.has("socket_events"));
     }
+
+    /**
+     * osquery 가 enroll 에 싣는 platform_type 은 이름이 아니라 비트마스크 숫자다.
+     * 실기기에서 Windows 는 2, macOS 는 21 로 들어왔다(POSIX 1 + BSD 4 + OSX 16).
+     * 문자열로만 판정하면 Windows 가 macOS 스케줄을 받아 없는 테이블을 조회하고, 수집이 조용히 0건이 된다.
+     */
+    @Test
+    void platform_type_이_숫자로_와도_Windows_를_알아본다() throws Exception {
+        JsonNode s = schedule("2");
+
+        assertTrue(s.has("process_etw_events"), "platform_type=2 는 Windows(TYPE_WINDOWS=0x02)");
+        assertFalse(s.has("process_events"), "mac 스케줄을 내려주면 없는 테이블을 조회하게 된다");
+    }
+
+    @Test
+    void platform_type_숫자가_macOS_면_mac_스케줄을_내려준다() throws Exception {
+        JsonNode s = schedule("21");
+
+        assertTrue(s.has("process_events"), "platform_type=21 은 macOS(POSIX+BSD+OSX)");
+        assertFalse(s.has("process_etw_events"));
+    }
+
+    @Test
+    void Windows_비트가_없는_숫자는_macOS_로_폴백한다() throws Exception {
+        JsonNode s = schedule("9");   // POSIX(1) + LINUX(8)
+
+        assertTrue(s.has("process_events"), "Windows 비트가 없으면 mac 스케줄로 폴백");
+    }
 }
