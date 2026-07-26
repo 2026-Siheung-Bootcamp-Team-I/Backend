@@ -53,11 +53,22 @@ public class TenantService {
         return secret;
     }
 
-    /** 현재 enroll secret 조회. tenant 없음 404, 미발급이면 빈 Optional. */
-    @Transactional(readOnly = true)
+    /**
+     * 현재 enroll secret 조회. 없으면 그 자리에서 발급한다. tenant 없음 404.
+     *
+     * <p>tenant 당 하나 있으면 되는 값인데 사용자가 버튼을 눌러야 생기는 구조였다. 그러면 온보딩의
+     * 설치 명령이 빈 채로 보이고, 사용자는 왜 눌러야 하는지 알 수 없다. 조회 시점에 만들어 준다.
+     * 이미 있으면 그대로 돌려준다(호출할 때마다 바뀌면 이미 배포한 기기의 안내가 어긋난다).
+     * 값을 갈아치우는 건 명시적인 재발급(rotateEnrollSecret)만 한다.
+     */
+    @Transactional
     public Optional<String> getEnrollSecret(Long tenantId) {
         Tenant tenant = tenants.findById(tenantId)
                 .orElseThrow(() -> AuthException.notFound("tenant 를 찾을 수 없습니다"));
-        return Optional.ofNullable(tenant.getEnrollSecret());
+        if (tenant.getEnrollSecret() == null) {
+            tenant.updateEnrollSecret(OsqueryTokens.newToken());
+            tenants.save(tenant);
+        }
+        return Optional.of(tenant.getEnrollSecret());
     }
 }

@@ -89,4 +89,39 @@ class TenantServiceTest {
         AuthException e = assertThrows(AuthException.class, () -> service.getWebhook(99L));
         assertEquals(AuthException.Kind.NOT_FOUND, e.getKind());
     }
+
+    // --- enroll secret ---
+
+    @Test
+    void getEnrollSecret_미발급이면_그자리에서_발급한다() {
+        // 사용자가 버튼을 눌러야 secret 이 생기면 설치 명령이 빈 채로 보인다.
+        // tenant 당 하나 있으면 되는 값이라 조회 시점에 만들어 준다.
+        Tenant tenant = newTenant();
+        when(tenants.findById(1L)).thenReturn(Optional.of(tenant));
+
+        String secret = service.getEnrollSecret(1L).orElseThrow();
+
+        assertFalse(secret.isBlank());
+        assertEquals(secret, tenant.getEnrollSecret());
+        verify(tenants).save(tenant);
+    }
+
+    @Test
+    void getEnrollSecret_이미있으면_그대로_돌려준다() {
+        // 조회할 때마다 값이 바뀌면 이미 배포한 기기의 설치 안내가 어긋난다.
+        Tenant tenant = newTenant();
+        tenant.updateEnrollSecret("fixed-secret");
+        when(tenants.findById(1L)).thenReturn(Optional.of(tenant));
+
+        assertEquals("fixed-secret", service.getEnrollSecret(1L).orElseThrow());
+        assertEquals("fixed-secret", service.getEnrollSecret(1L).orElseThrow());
+    }
+
+    @Test
+    void getEnrollSecret_tenant없으면_404예외() {
+        when(tenants.findById(9L)).thenReturn(Optional.empty());
+
+        AuthException e = assertThrows(AuthException.class, () -> service.getEnrollSecret(9L));
+        assertEquals(AuthException.Kind.NOT_FOUND, e.getKind());
+    }
 }
