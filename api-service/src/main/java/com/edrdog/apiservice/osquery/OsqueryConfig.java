@@ -82,19 +82,19 @@ public final class OsqueryConfig {
               },
               "schedule": {
                 "process_etw_events": {
-                  "query": "SELECT e.path AS path, e.cmdline AS cmdline, p.name AS parent, e.pid AS pid, e.time AS time FROM process_etw_events e LEFT JOIN processes p ON e.ppid = p.pid WHERE e.type = 'ProcessStart'",
+                  "query": "SELECT e.path AS path, e.cmdline AS cmdline, p.name AS parent, e.pid AS pid FROM process_etw_events e LEFT JOIN processes p ON e.ppid = p.pid WHERE e.type = 'ProcessStart'",
                   "interval": 10,
                   "description": "프로세스 생성 이벤트(ETW)"
                 },
                 "script_etw_events": {
-                  "query": "SELECT e.path AS path, e.cmdline AS cmdline, p.name AS parent, e.pid AS pid, e.time AS time FROM process_etw_events e LEFT JOIN processes p ON e.ppid = p.pid WHERE e.type = 'ProcessStart' AND (e.path LIKE '%\\\\powershell.exe' OR e.path LIKE '%\\\\cmd.exe' OR e.path LIKE '%\\\\wscript.exe' OR e.path LIKE '%\\\\cscript.exe' OR e.path LIKE '%\\\\mshta.exe')",
+                  "query": "SELECT e.path AS path, e.cmdline AS cmdline, p.name AS parent, e.pid AS pid FROM process_etw_events e LEFT JOIN processes p ON e.ppid = p.pid WHERE e.type = 'ProcessStart' AND (e.path LIKE '%\\\\powershell.exe' OR e.path LIKE '%\\\\cmd.exe' OR e.path LIKE '%\\\\wscript.exe' OR e.path LIKE '%\\\\cscript.exe' OR e.path LIKE '%\\\\mshta.exe')",
                   "interval": 10,
                   "description": "스크립트 인터프리터 실행. cmdline 의 스크립트 경로로 임시/다운로드 실행을 detector 가 MEDIUM(T1059) 판정"
                 },
                 "file_events": {
-                  "query": "SELECT target_path, action, time FROM file_events WHERE action IN ('CREATED', 'UPDATED', 'MOVED_TO')",
+                  "query": "SELECT path, action, time FROM ntfs_journal_events WHERE path LIKE '%\\\\Start Menu\\\\Programs\\\\Startup\\\\%'",
                   "interval": 10,
-                  "description": "시작프로그램(Startup) 경로 FIM. target_path 로 지속성 확보를 detector 가 MEDIUM(T1547) 판정. file_paths.autorun 참조"
+                  "description": "시작프로그램(Startup) 경로 FIM. path 로 지속성 확보를 detector 가 MEDIUM(T1547) 판정"
                 }
               }
             }

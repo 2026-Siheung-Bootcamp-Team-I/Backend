@@ -97,4 +97,60 @@ class OsqueryConfigTest {
 
         assertTrue(s.has("process_events"), "Windows 비트가 없으면 mac 스케줄로 폴백");
     }
+
+    /**
+     * file_events 는 macOS/Linux 전용 테이블이다. Windows 에서 그 쿼리를 내려주면
+     * "no such table" 로 실패한다(실기기 로그로 확인). NTFS USN 저널은 별도 테이블을 쓴다.
+     */
+    @Test
+    void windows_파일_감시는_ntfs_journal_events_를_쓴다() throws Exception {
+        JsonNode s = schedule("windows");
+
+        String query = s.get("file_events").get("query").asText();
+        assertTrue(query.contains("ntfs_journal_events"), "Windows 파일 감시는 NTFS USN 저널 테이블");
+        assertFalse(query.contains("FROM file_events"), "Windows 에 file_events 테이블은 없다");
+        // 백슬래시가 하나여야 실제 Windows 경로와 매칭된다. 이스케이프가 한 겹 남으면
+        // 조건이 절대 참이 되지 않아, 오류 없이 결과만 0건이 된다.
+        assertTrue(query.contains("%\\Start Menu\\Programs\\Startup\\%"),
+                "시작프로그램 경로로 걸러야 한다(백슬래시 1개). 실제 쿼리: " + query);
+    }
+
+    /**
+     * process_etw_events 에는 time 컬럼이 없다. 실기기 PRAGMA 로 확인한 컬럼은
+     * type / pid / ppid / session_id / flags / exit_code / path / cmdline / username /
+     * token_elevation_type / token_elevation_status / mandatory_label / datetime 이다.
+     *
+     * <p>없는 컬럼을 선택하면 쿼리 전체가 실패해 수집이 0건이 된다. 시각은 result-log 최상위의
+     * unixTime 으로 들어오므로(RawEventMapper) 컬럼을 고를 필요가 없다.
+     */
+    @Test
+    void windows_프로세스_쿼리는_없는_time_컬럼을_고르지_않는다() throws Exception {
+        JsonNode s = schedule("windows");
+
+        for (String key : new String[]{"process_etw_events", "script_etw_events"}) {
+            String query = s.get(key).get("query").asText();
+            assertFalse(query.contains("e.time"), key + " 는 없는 컬럼을 고르면 안 된다: " + query);
+            assertTrue(query.contains("e.ppid"), key + " 는 parent 조인에 ppid 를 쓴다");
+        }
+    }
+
+    /** 실행 경로 LIKE 도 백슬래시가 하나여야 매칭된다. 한 겹 남으면 조용히 0건이 된다. */
+    @Test
+    void windows_스크립트_쿼리의_경로_패턴은_백슬래시가_하나다() throws Exception {
+        String query = schedule("windows").get("script_etw_events").get("query").asText();
+
+        assertTrue(query.contains("'%\\powershell.exe'"), "실제 쿼리: " + query);
+        assertTrue(query.contains("'%\\cmd.exe'"), "실제 쿼리: " + query);
+    }
+
+    @Test
+    void windows_파일_이벤트는_path_컬럼을_내려준다() throws Exception {
+        JsonNode s = schedule("windows");
+
+        // ntfs_journal_events 의 경로 컬럼은 target_path 가 아니라 path 다(실기기 PRAGMA 로 확인).
+        // RawEventMapper 는 target_path 가 없으면 path 로 폴백하므로 별칭 없이 그대로 내려도 된다.
+        String query = s.get("file_events").get("query").asText();
+        assertTrue(query.contains("path"), "판정에 쓸 경로 컬럼이 있어야 한다");
+        assertTrue(query.contains("time"), "이벤트 시각이 있어야 한다");
+    }
 }
