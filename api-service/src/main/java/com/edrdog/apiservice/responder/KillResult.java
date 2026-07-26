@@ -9,4 +9,11 @@ package com.edrdog.apiservice.responder;
  * @param executionId Fleet 실행 식별자 (없으면 null)
  */
 public record KillResult(String host, String target, String status, String executionId) {
+
+    /** 실제로 프로세스를 종료한 결과. 이때만 알림을 처리 완료로 넘긴다. */
+    public static final String KILLED = "KILLED";
+
+    public boolean killed() {
+        return KILLED.equals(status);
+    }
 }
