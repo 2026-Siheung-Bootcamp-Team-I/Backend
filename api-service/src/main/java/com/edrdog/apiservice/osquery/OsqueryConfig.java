@@ -75,6 +75,12 @@ public final class OsqueryConfig {
      * <p>종료 이벤트에도 path/cmdline 이 실려 있어 무엇이 실행됐는지는 그대로 알 수 있다. 다만
      * 프로세스가 끝나야 기록되므로 상주 프로세스는 잡지 못하고, 탐지가 사후에만 이뤄진다.
      * 스크립트처럼 짧게 끝나는 실행은 오히려 잘 잡힌다.
+     *
+     * <p><b>ETW 의 path 는 전체 경로가 아니라 파일명만 온다.</b> 실기기 이벤트가
+     * {@code "path": "svchost.exe"} 였고 전체 경로는 cmdline 에만 있었다
+     * ({@code "C:\WINDOWS\system32\svchost.exe -k GPSvcGroup"}). 그래서 인터프리터를 고를 때
+     * 디렉터리 구분자를 요구하면({@code LIKE '%\powershell.exe'}) 절대 매칭되지 않아
+     * 스크립트 이벤트가 통째로 0건이 된다. macOS 의 es_process_events 와 다른 점이다.
      */
     private static final String WINDOWS_JSON = """
             {
@@ -97,7 +103,7 @@ public final class OsqueryConfig {
                   "description": "프로세스 실행 이벤트(ETW). 종료 시점에 기록된다"
                 },
                 "script_etw_events": {
-                  "query": "SELECT e.path AS path, e.cmdline AS cmdline, p.name AS parent, e.pid AS pid FROM process_etw_events e LEFT JOIN processes p ON e.ppid = p.pid WHERE e.type = 'ProcessStop' AND (e.path LIKE '%\\\\powershell.exe' OR e.path LIKE '%\\\\cmd.exe' OR e.path LIKE '%\\\\wscript.exe' OR e.path LIKE '%\\\\cscript.exe' OR e.path LIKE '%\\\\mshta.exe')",
+                  "query": "SELECT e.path AS path, e.cmdline AS cmdline, p.name AS parent, e.pid AS pid FROM process_etw_events e LEFT JOIN processes p ON e.ppid = p.pid WHERE e.type = 'ProcessStop' AND (e.path LIKE '%powershell.exe' OR e.path LIKE '%cmd.exe' OR e.path LIKE '%wscript.exe' OR e.path LIKE '%cscript.exe' OR e.path LIKE '%mshta.exe')",
                   "interval": 10,
                   "description": "스크립트 인터프리터 실행. cmdline 의 스크립트 경로로 임시/다운로드 실행을 detector 가 MEDIUM(T1059) 판정"
                 },
