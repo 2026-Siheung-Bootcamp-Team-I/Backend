@@ -1,6 +1,7 @@
 package com.edrdog.responderservice.response;
 
 import com.edrdog.responderservice.fleet.FleetClient;
+import com.edrdog.responderservice.fleet.FleetHost;
 import com.edrdog.responderservice.fleet.FleetScriptResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,8 +45,11 @@ public class ResponseExecutor {
             return new ExecuteResult(host, target, "COOLDOWN", null);
         }
         try {
-            int hostId = fleet.resolveHostId(host);
-            FleetScriptResult result = fleet.runScriptSync(hostId, KillScript.build(target));
+            // 플랫폼을 같이 받아온다. Fleet 은 Windows 에 PowerShell, 그 외에 sh 를 실행하므로
+            // POSIX 스크립트를 Windows 로 보내면 ps/awk/kill 이 없어 그냥 실패한다.
+            FleetHost fleetHost = fleet.resolveHost(host);
+            FleetScriptResult result =
+                    fleet.runScriptSync(fleetHost.id(), KillScript.build(target, fleetHost.platform()));
             KillOutcome outcome = KillOutcome.interpret(result);
             log.info("[EXECUTE] trigger=response host={} target={} outcome={} execId={}",
                     host, target, outcome, result.executionId());
