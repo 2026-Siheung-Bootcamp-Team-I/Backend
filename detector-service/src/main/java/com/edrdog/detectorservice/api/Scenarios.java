@@ -58,7 +58,7 @@ public final class Scenarios {
         return List.of(
                 network(host, baseTs, "185.220.101.5", 443, tenantId),
                 process(host, baseTs + 1000, "update32.exe", "explorer.exe",
-                        "C:\\Users\\Public\\update32.exe", tenantId));
+                        "C:\\Users\\victim\\Downloads\\update32.exe", tenantId));
     }
 
     /** 다운로드 경로의 스크립트 실행 (unsigned/의심 스크립트 → MEDIUM). 단일 이벤트 point 룰. */
