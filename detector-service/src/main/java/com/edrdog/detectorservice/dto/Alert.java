@@ -34,11 +34,16 @@ public record Alert(
     public static final String ACTION_KILL = "kill";
     public static final String ACTION_ISOLATE = "isolate";
 
-    /** severity → 권고 대응 매핑. CRITICAL 은 격리, HIGH 는 프로세스 종료, MEDIUM 등 그 외는 알림. */
+    /**
+     * severity → 권고 대응 매핑. CRITICAL/HIGH 는 프로세스 종료, 그 외는 알림.
+     *
+     * <p>CRITICAL 을 격리로 권고했었는데 격리는 구현이 없다. responder 가 할 수 있는 건 종료뿐이다.
+     * 권고와 실제 조치가 다르면 사용자가 격리된 줄 알고 넘어간다. 있는 기능으로 권고를 맞춘다.
+     * 격리를 실제로 붙이면(방화벽 차단 등) 그때 CRITICAL 을 되돌린다.
+     */
     public static String actionFor(String severity) {
         return switch (severity) {
-            case SEV_CRITICAL -> ACTION_ISOLATE;
-            case SEV_HIGH -> ACTION_KILL;
+            case SEV_CRITICAL, SEV_HIGH -> ACTION_KILL;
             default -> ACTION_NOTIFY;
         };
     }
