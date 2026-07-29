@@ -91,7 +91,7 @@ spec:
       nodePort: 30092
 ---
 # 토픽 생성 Job — events-raw / events / alerts
-#   events-raw : osquery/Zeek 원시 result-log (collector 입력)
+#   events-raw : 에이전트가 보낸 이벤트 (collector 입력)
 #   events     : collector 가 정규화한 이벤트 (detector/archiver 입력)
 # kafka 준비 전 실행되면 실패하므로 OnFailure + backoffLimit 로 재시도.
 apiVersion: batch/v1

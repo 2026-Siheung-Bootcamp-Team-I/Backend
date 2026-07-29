@@ -23,7 +23,7 @@ kubectl -n edrdog get pods                            # Running 확인
 | Grafana | `http://localhost:3000` | admin / admin. 첫 화면이 EDRdog Overview |
 | OTLP HTTP | `http://localhost:4318` | 서비스가 메트릭·트레이스를 보내는 곳 |
 | OTLP gRPC | `localhost:4317` | 〃 |
-| osquery 수집 HTTPS | `localhost:8443` (NodePort 30443) | 엔드포인트 osquery 가 붙는 곳. 아래 시크릿을 만들어야 열린다 |
+| 에이전트 수집 HTTPS | `localhost:8443` (NodePort 30443) | 엔드포인트 에이전트가 붙는 곳. 아래 시크릿을 만들어야 열린다 |
 
 클러스터 내부(파드 간) Kafka 주소: `kafka.edrdog.svc.cluster.local:9094`
 클러스터 내부 OTLP 주소: `http://otel-lgtm:4318` (각 서비스 Deployment 의 `OTEL_EXPORTER_OTLP_ENDPOINT`)
@@ -52,41 +52,46 @@ curl "http://localhost:3000/api/datasources/proxy/uid/loki/loki/api/v1/label/ser
 kind delete cluster --name edrdog    # 클러스터째 삭제 (데이터 emptyDir 라 함께 소멸)
 ```
 
-## osquery 수집 포트 (api-service 8443 / NodePort 30443)
+## 에이전트 수집 포트 (api-service 8443 / NodePort 30443)
 
-엔드포인트의 osquery TLS logger 는 평문 HTTP 로 붙지 않는다. 그래서 api-service 는 프론트용 8084 와 별도로
-osquery 전용 HTTPS 커넥터를 8443 에 연다. **이 커넥터는 `osquery-tls` Secret 이 있을 때만 켜진다**
-(Secret 이 없으면 값이 안 들어와 `OSQUERY_TLS_ENABLED` 가 기본 false 로 남고, api-service 는 그대로 정상 기동한다).
+에이전트는 서버 인증서를 고정해서 붙으므로 수집 경로에 HTTPS 가 필수다. 그래서 api-service 는 프론트용
+8084 와 별도로 에이전트 전용 HTTPS 커넥터를 8443 에 연다. **이 커넥터는 `agent-tls` Secret 이 있을 때만 켜진다**
+(Secret 이 없으면 값이 안 들어와 `AGENT_TLS_ENABLED` 가 기본 false 로 남고, api-service 는 그대로 정상 기동한다).
 
 ```bash
 # 1) 서버 인증서 + 키스토어 생성. 인자는 엔드포인트가 실제로 붙을 주소(도메인 또는 공인 IP).
-#    osquery 가 이 인증서를 핀하므로 SAN 이 --tls_hostname 의 호스트와 같아야 한다.
+#    에이전트가 이 인증서를 고정하므로 SAN 이 접속 주소의 호스트와 같아야 한다.
+#    인자가 IPv4 면 스크립트가 알아서 SAN 을 ip: 로 넣는다.
 ./scripts/gen-dev-keystore.sh ./dev-tls edrdog.example.com
 
 # 2) Secret 생성 (키스토어 + 스위치 + 비번을 한 Secret 에)
-kubectl -n edrdog create secret generic osquery-tls \
-  --from-file=keystore.p12=./dev-tls/osquery-keystore.p12 \
-  --from-literal=OSQUERY_TLS_ENABLED=true \
-  --from-literal=OSQUERY_TLS_KEYSTORE_PASSWORD=changeit
+kubectl -n edrdog create secret generic agent-tls \
+  --from-file=keystore.p12=./dev-tls/agent-keystore.p12 \
+  --from-literal=AGENT_TLS_ENABLED=true \
+  --from-literal=AGENT_TLS_KEYSTORE_PASSWORD=changeit
 
 kubectl -n edrdog rollout restart deploy/api-service
 
 # 3) 확인 (self-signed 라 -k)
-curl -sk https://localhost:8443/api/osquery/enroll -H 'Content-Type: application/json' \
-  -d '{"enroll_secret":"틀린값"}'      # -> {"node_invalid":true} 면 커넥터 정상
+curl -sk https://localhost:8443/api/agent/enroll -H 'Content-Type: application/json' \
+  -d '{"enroll_secret":"틀린값"}'      # -> 401 + {"error":"invalid_enroll_secret"} 이면 커넥터 정상
 ```
 
-엔드포인트에는 `./dev-tls/osquery-server.pem` 을 배포하고 플래그를 맞춘다.
+엔드포인트에는 `./dev-tls/agent-server.pem` 을 배포하고 설정 파일을 맞춘다.
+설치 스크립트를 쓰면 이 PEM 을 서버에서 직접 받아 오므로 파일을 따로 옮기지 않아도 된다
+([`../agent/README.md`](../agent/README.md) 의 `설치`).
 
-```
---tls_hostname=edrdog.example.com:30443
---tls_server_certs=<osquery-server.pem 경로>
+```json
+{
+  "base_url": "https://edrdog.example.com:30443",
+  "ca_cert_path": "/etc/edrdog/server.pem"
+}
 ```
 
-- **Caddy 로 프록시하면 안 된다.** osquery 가 서버 인증서를 핀하므로 중간에서 TLS 를 다시 종단하면
-  엔드포인트가 enroll 단계에서 조용히 실패한다. 노출하려면 NodePort 30443 을 보안그룹에서 직접 열거나
-  L4(TCP) 통과 프록시를 쓴다.
-- 인증서 SAN 이 `--tls_hostname` 의 호스트와 다르면 역시 enroll 단계에서 실패한다. 주소가 바뀌면 인증서를
+- **Caddy 로 프록시하면 안 된다.** 에이전트가 설정에 적힌 인증서로 서버를 고정하기 때문에, 중간에서
+  Caddy 가 TLS 를 다시 종단하면 에이전트가 보는 인증서는 Caddy 것이 된다. 고정한 것과 달라서 등록
+  단계부터 붙지 못한다. 노출하려면 NodePort 30443 을 보안그룹에서 직접 열거나 L4(TCP) 통과 프록시를 쓴다.
+- 인증서 SAN 이 `base_url` 의 호스트와 다르면 역시 등록 단계에서 실패한다. 주소가 바뀌면 인증서를
   다시 만들고 Secret 을 갱신한 뒤 엔드포인트의 PEM 까지 교체해야 한다.
 ### 매니페스트 변경을 배포서버에 반영하기
 
@@ -105,7 +110,7 @@ Service 는 매니페스트가 서버 실제 상태(NodePort 30084)와 같아 ap
 
 - kind 로컬에서는 `kind-cluster.yaml` 의 `30443 -> hostPort 8443` 매핑을 쓴다.
   **`extraPortMappings` 는 클러스터 생성 시에만 반영**되므로 기존 클러스터라면 다시 만들거나
-  `kubectl -n edrdog port-forward svc/api-service-osquery 8443:8443` 로 우회한다.
+  `kubectl -n edrdog port-forward svc/api-service-agent 8443:8443` 로 우회한다.
 
 ## GeoLite2 (위협 지도)
 
