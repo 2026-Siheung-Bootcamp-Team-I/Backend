@@ -1,8 +1,8 @@
-// Collector — osquery/Zeek 원시 result-log(events-raw) 를 소비해 detector 스키마(Event)로 정규화 후 events 로 재발행
+// Collector — 에이전트 원시 이벤트(events-raw) 를 소비해 detector 스키마(Event)로 검증 후 events 로 재발행
 dependencies {
     // 루트 build.gradle 이 actuator 를 넣지만 web 이 없으면 HTTP 서버 자체가 안 떠서
     // /actuator/health 가 서빙되지 않는다(k8s probe 가 계속 실패해 컨테이너가 재시작된다).
     implementation 'org.springframework.boot:spring-boot-starter-web'
     implementation 'org.springframework.kafka:spring-kafka'
-    implementation 'com.fasterxml.jackson.core:jackson-databind'        // 원시 osquery JSON 파싱 + Event JSON 직렬화
+    implementation 'com.fasterxml.jackson.core:jackson-databind'        // 에이전트 원시 이벤트 JSON 파싱 + Event JSON 직렬화
 }

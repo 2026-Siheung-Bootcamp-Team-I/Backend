@@ -22,7 +22,7 @@ server:
 
 edrdog:
   kafka:
-    events-raw-topic: events-raw        # osquery/Zeek 원시 result-log (소비 입력)
+    events-raw-topic: events-raw        # 에이전트가 보낸 이벤트 (소비 입력)
     events-topic: events                # 정규화된 이벤트 (재발행 출력, detector/archiver 입력)
 
 management:

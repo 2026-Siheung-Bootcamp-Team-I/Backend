@@ -55,7 +55,7 @@ public class TenantController {
         return new WebhookResponse(principal.tenantId(), url);
     }
 
-    @Operation(summary = "enroll secret 발급/회전", description = "로그인 유저(Bearer)의 tenant 에 osquery enroll secret 을 새로 발급한다. 엔드포인트 osquery.conf 의 enroll_secret 에 넣는다.")
+    @Operation(summary = "enroll secret 발급/회전", description = "로그인 유저(Bearer)의 tenant 에 enroll secret 을 새로 발급한다. 엔드포인트 에이전트 설정의 enroll_secret 에 넣는다.")
     @PostMapping("/api/tenant/enroll-secret")
     public EnrollSecretResponse rotateEnrollSecret(
             @RequestHeader(name = "Authorization", required = false) String authorization) {

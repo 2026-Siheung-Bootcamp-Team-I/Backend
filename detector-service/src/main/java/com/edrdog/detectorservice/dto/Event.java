@@ -1,7 +1,7 @@
 package com.edrdog.detectorservice.dto;
 
 /**
- * osquery/Zeek 원시 엔드포인트 이벤트 (판정 입력 스키마).
+ * 엔드포인트 에이전트가 보낸 이벤트 (판정 입력 스키마).
  * host 를 상관분석 키로 사용. 여분 필드는 JsonSerde 가 무시하므로 원본에 필드가 더 있어도 안전.
  *
  * @param host      엔드포인트 식별자 (상관분석 키)

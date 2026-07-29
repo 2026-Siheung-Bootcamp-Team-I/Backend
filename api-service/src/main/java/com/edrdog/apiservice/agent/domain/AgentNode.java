@@ -1,4 +1,4 @@
-package com.edrdog.apiservice.osquery.domain;
+package com.edrdog.apiservice.agent.domain;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -8,12 +8,12 @@ import jakarta.persistence.Table;
 import java.time.Instant;
 
 /**
- * enroll 성공한 osquery 엔드포인트. node_key 로 tenant/host 를 되찾는 매핑이다.
+ * enroll 성공한 에이전트 엔드포인트. node_key 로 tenant/host 를 되찾는 매핑이다.
  * node_key 는 발급 토큰 그대로를 PK 로 쓴다(추측 불가 랜덤).
  */
 @Entity
-@Table(name = "osquery_nodes")
-public class OsqueryNode {
+@Table(name = "agent_nodes")
+public class AgentNode {
 
     @Id
     @Column(length = 64)
@@ -25,6 +25,7 @@ public class OsqueryNode {
     @Column(nullable = false)
     private String hostIdentifier;
 
+    /** 에이전트가 보낸 runtime.GOOS 값(darwin/windows). 센서·감시 경로를 가르는 데 쓴다. */
     @Column
     private String platform;
 
@@ -34,10 +35,10 @@ public class OsqueryNode {
     @Column(nullable = false)
     private Instant lastSeenAt;
 
-    protected OsqueryNode() {
+    protected AgentNode() {
     }
 
-    private OsqueryNode(String nodeKey, Long tenantId, String hostIdentifier, String platform, Instant now) {
+    private AgentNode(String nodeKey, Long tenantId, String hostIdentifier, String platform, Instant now) {
         this.nodeKey = nodeKey;
         this.tenantId = tenantId;
         this.hostIdentifier = hostIdentifier;
@@ -46,11 +47,11 @@ public class OsqueryNode {
         this.lastSeenAt = now;
     }
 
-    public static OsqueryNode enroll(String nodeKey, Long tenantId, String hostIdentifier, String platform, Instant now) {
-        return new OsqueryNode(nodeKey, tenantId, hostIdentifier, platform, now);
+    public static AgentNode enroll(String nodeKey, Long tenantId, String hostIdentifier, String platform, Instant now) {
+        return new AgentNode(nodeKey, tenantId, hostIdentifier, platform, now);
     }
 
-    /** config/log 수신 시각을 갱신(온라인 여부 관측용). */
+    /** 인증된 요청(heartbeat/events 등) 수신 시각을 갱신(온라인 여부 관측용). */
     public void touch(Instant now) {
         this.lastSeenAt = now;
     }

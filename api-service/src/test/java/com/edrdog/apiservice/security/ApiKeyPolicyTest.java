@@ -41,10 +41,11 @@ class ApiKeyPolicyTest {
     }
 
     @Test
-    void osquery_수집은_자체_인증이므로_API키_예외() {
-        assertTrue(policy.isExempt("/api/osquery/enroll"));
-        assertTrue(policy.isExempt("/api/osquery/config"));
-        assertTrue(policy.isExempt("/api/osquery/log"));
+    void 에이전트_수집은_자체_인증이므로_API키_예외() {
+        assertTrue(policy.isExempt("/api/agent/enroll"));
+        assertTrue(policy.isExempt("/api/agent/heartbeat"));
+        assertTrue(policy.isExempt("/api/agent/events"));
+        assertTrue(policy.isExempt("/api/agent/command-result"));
     }
 
     @Test

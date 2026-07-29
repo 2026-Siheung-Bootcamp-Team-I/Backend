@@ -6,7 +6,7 @@ package com.edrdog.apiservice.responder;
  * @param host        대상 호스트
  * @param target      대상 프로세스명/경로
  * @param status      KILLED | NO_MATCH | TIMEOUT | FAILED | COOLDOWN | DISABLED
- * @param executionId Fleet 실행 식별자 (없으면 null)
+ * @param executionId 명령 식별자. 에이전트에 내려보낸 그 명령의 id (없으면 null)
  */
 public record KillResult(String host, String target, String status, String executionId) {
 

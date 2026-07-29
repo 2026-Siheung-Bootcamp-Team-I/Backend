@@ -30,7 +30,7 @@ public class Tenant {
     private String slackWebhookUrl;
 
     @Column(unique = true)
-    private String enrollSecret;   // osquery 엔드포인트가 enroll 시 제출하는 테넌트 배포 시크릿
+    private String enrollSecret;   // 에이전트가 enroll 시 제출하는 테넌트 배포 시크릿
 
     protected Tenant() {
     }

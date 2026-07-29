@@ -28,7 +28,7 @@ server:
 
 edrdog:
   kafka:
-    events-topic: events      # osquery/Zeek 원시 이벤트 (판정 입력)
+    events-topic: events      # 검증을 거친 엔드포인트 이벤트 (판정 입력)
     alerts-topic: alerts      # SUSPECT 결과
 
 management:

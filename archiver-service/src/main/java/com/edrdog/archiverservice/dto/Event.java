@@ -1,7 +1,7 @@
 package com.edrdog.archiverservice.dto;
 
 /**
- * osquery/Zeek 원시 엔드포인트 이벤트 (적재 입력 스키마). detector 의 Event 사본.
+ * 엔드포인트 에이전트가 보낸 이벤트 (적재 입력 스키마). detector 의 Event 사본.
  * 여분 필드는 JsonDeserializer 가 무시하므로 원본에 필드가 더 있어도 안전.
  *
  * @param host      엔드포인트 식별자
