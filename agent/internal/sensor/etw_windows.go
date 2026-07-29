@@ -1,0 +1,439 @@
+//go:build windows
+
+package sensor
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"runtime"
+	"sort"
+	"strings"
+	"sync/atomic"
+	"syscall"
+	"time"
+	"unsafe"
+
+	"github.com/0xrawsec/golang-etw/etw"
+
+	"github.com/2026-Siheung-Bootcamp-Team-I/Backend/agent/internal/event"
+)
+
+// 이 파일은 배선만 한다. 판정에 관여하는 로직은 전부 etw_map.go 에 있다.
+// Windows 기기 없이 개발하므로, 여기에 로직을 두면 검증할 방법이 없다.
+
+// etwSessionName 은 우리가 여는 실시간 ETW 세션 이름이다.
+// 커널 로거("NT Kernel Logger")는 쓰지 않는다. 시스템 전체에 하나뿐이라 다른 도구와 부딪히고,
+// 예전 osquery 수집이 조용히 0건이 된 원인이 바로 그 세션이었다(아래 프로바이더 주석 참고).
+const etwSessionName = "EDRdog-Agent"
+
+// 프로바이더 GUID 는 여기에 적어 두지 않는다.
+//
+// 이벤트가 어느 프로바이더에서 왔는지 가릴 때 쓸 GUID 는 프로바이더를 켤 때 라이브러리가
+// 이름으로 풀어 준 값을 그대로 들고 있다가 쓴다. GUID 를 손으로 적어 두면 켤 때 쓰는 이름과
+// 견줄 때 쓰는 GUID 가 따로 놀 수 있고, 어긋나도 오류가 나지 않고 조용히 0건이 된다.
+// Windows 기기 없이 개발하는 처지에서는 그 실패 모드를 아예 만들지 않는 편이 낫다.
+//
+// 참고로 매니페스트 값은 Kernel-Process {22FB2CD6-0E7B-422B-A0C7-2FAD1FD0E716},
+// Kernel-Network {7DD42A49-5329-4832-8DFD-43D979153A88},
+// Kernel-File {EDD08927-9CC4-4E65-B970-C2560FB5C289} 이다.
+
+// 우리가 받을 이벤트 ID.
+const (
+	eventProcessStart = 1 // Kernel-Process ProcessStart
+	eventProcessStop  = 2 // Kernel-Process ProcessStop
+
+	eventTCPConnectV4 = 12 // Kernel-Network TCP 연결 시도(IPv4)
+	eventTCPConnectV6 = 28 // Kernel-Network TCP 연결 시도(IPv6). IPv4 ID + 16 이다
+
+	eventCreateNewFile = 30 // Kernel-File CreateNewFile
+)
+
+// etwProvider 는 센서 스위치 하나와 그에 맞는 프로바이더 설정이다.
+//
+// spec 형식은 golang-etw 의 ParseProvider 규약이다:
+//
+//	이름:EnableLevel:이벤트ID들:MatchAnyKeyword:MatchAllKeyword
+//
+// 이벤트 ID 를 적으면 커널 쪽 필터로도 걸리므로, 우리 콜백까지 올라오는 양 자체가 준다.
+type etwProvider struct {
+	sensor string
+	spec   string
+}
+
+var etwProviders = []etwProvider{
+	// ProcessStart(1)와 ProcessStop(2)을 같이 받는다. keyword 0x10 은 WINEVENT_KEYWORD_PROCESS 다.
+	//
+	// Stop 은 이벤트로 내보내지 않는다. 서버 스키마에 종료 타입이 없다. 그런데도 구독하는 이유는
+	// 진단이다. 이 저장소에는 세션과 프로바이더가 멀쩡한데 ProcessStop 만 올라오고 ProcessStart 는
+	// 한 건도 오지 않은 실기기 이력이 있다(커밋 22a5983). 원인은 아직 확인되지 않았다.
+	// 둘을 같이 세어 두면 "Start 0건 / Stop 다수" 라는 모양이 로그에 그대로 드러나므로,
+	// 프로바이더가 안 붙은 것인지 Start 만 안 오는 그 현상이 재현된 것인지 바로 가릴 수 있다.
+	{sensor: "process", spec: "Microsoft-Windows-Kernel-Process:0xff:1,2:0x10"},
+
+	// TCP 연결 시도만 받는다. 송수신(10/11 과 그 IPv6 짝 26/27)까지 받으면 양이 감당이 안 된다.
+	// keyword 0x30 은 KERNEL_NETWORK_KEYWORD_IPV4(0x10) + IPV6(0x20) 다.
+	{sensor: "network", spec: "Microsoft-Windows-Kernel-Network:0xff:12,28:0x30"},
+
+	// 파일은 새로 생긴 것만 받는다. CreateNewFile(30) 하나이고 keyword 는 CREATE_NEW_FILE(0x1000)
+	// 단독으로 충분하다.
+	//
+	// 자동실행 경로에 파일이 놓이는 것을 잡는 게 목적이라(detector R4) 그 이상은 필요 없다.
+	// Read(15)/QueryInformation(22)은 물론이고 Write(16)도 켜지 않는다. 평범한 기기에서 초당
+	// 수천 건이라 다른 이벤트를 전부 밀어낸다.
+	//
+	// DeletePath(26)/RenamePath(27)은 일부러 뺐다. 이 둘은 경로를 FileName 이 아니라 FilePath 에
+	// 싣는데 MapFile 은 FileName 만 읽는다. 켜 두면 이벤트가 올라와도 전부 조용히 버려진다.
+	// 삭제와 이름 변경까지 보려면 MapFile 이 FilePath 도 읽게 고친 뒤에 켜야 한다.
+	{sensor: "file", spec: "Microsoft-Windows-Kernel-File:0xff:30:0x1000"},
+
+	// dns 센서는 여기에 없다. Microsoft-Windows-DNS-Client 는 3006(질의)과 3008(응답)을 주는데
+	// 서버 스키마에 dns 타입이 없다. network 로 억지로 내보내려면 목적지 IP 와 포트를 지어내야
+	// 하는데, 질의는 연결이 아니다. 스키마를 바꾸지 않기로 했으므로 이번 범위에서 뺐다.
+}
+
+// ETWSensor 는 ETW 실시간 세션에서 프로세스/네트워크/파일 이벤트를 받는다.
+type ETWSensor struct {
+	Factory    event.Factory
+	WatchPaths []string
+	// Sensors 는 서버가 내려준 센서 스위치다. nil 이면 전부 켠다.
+	Sensors map[string]bool
+	// Logger 가 비면 slog.Default() 를 쓴다.
+	Logger *slog.Logger
+
+	// ProcessStart 와 ProcessStop 을 따로 센다. 둘의 비율이 진단 근거다(위 프로바이더 주석 참고).
+	starts atomic.Uint64
+	stops  atomic.Uint64
+}
+
+// Name 은 센서 이름이다.
+func (s *ETWSensor) Name() string { return "etw" }
+
+func (s *ETWSensor) logger() *slog.Logger {
+	if s.Logger != nil {
+		return s.Logger
+	}
+	return slog.Default()
+}
+
+// etwHealthInterval 은 수집 상태를 로그로 남기는 주기다.
+const etwHealthInterval = time.Minute
+
+// Run 은 ETW 세션을 열고 ctx 가 끝날 때까지 이벤트를 흘려보낸다.
+//
+// 세션을 못 열면 오류로 올린다. 관리자 권한이 없으면 StartTrace 가 거부되는데, 그걸 삼키면
+// 수집이 조용히 0건이 되어 원인을 찾는 데 한참 걸린다. 이 프로젝트가 실제로 겪은 일이다.
+func (s *ETWSensor) Run(ctx context.Context, out chan<- event.Event) error {
+	session := etw.NewRealTimeSession(etwSessionName)
+	if err := session.Start(); err != nil {
+		return fmt.Errorf("ETW 세션(%s)을 열지 못했다. %s: %w", etwSessionName, sessionErrorHint(err, etwSessionName), err)
+	}
+	defer session.Stop()
+
+	guids, err := s.enableProviders(session)
+	if err != nil {
+		return err
+	}
+	if len(guids) == 0 {
+		return errors.New("켜진 ETW 프로바이더가 없다. 서버가 내려준 sensors 설정을 확인해라")
+	}
+	s.logger().Info("ETW 세션 시작", "session", etwSessionName, "providers", sortedKeys(guids))
+
+	consumer := etw.NewRealTimeConsumer(ctx)
+	consumer.FromSessions(session)
+	if err := consumer.Start(); err != nil {
+		return fmt.Errorf("ETW 트레이스를 열지 못했다: %w", err)
+	}
+
+	// 트레이스 처리는 별도 고루틴에서 돌기 때문에, 세션이 밖에서 멈추면(logman stop 등)
+	// 에이전트는 멀쩡히 살아 있는데 이벤트만 0건이 된다. 그 상태를 알아채려고 끝을 지켜본다.
+	traceEnded := make(chan struct{})
+	go func() {
+		consumer.Wait()
+		close(traceEnded)
+	}()
+
+	traceDied := s.forward(ctx, consumer, traceEnded, guids, out)
+	consumer.Stop()
+
+	if traceDied {
+		if err := consumer.Err(); err != nil {
+			return fmt.Errorf("ETW 트레이스가 끝났다: %w", err)
+		}
+		return fmt.Errorf("ETW 트레이스가 예기치 않게 끝났다. 세션(%s)이 밖에서 멈췄을 수 있다", etwSessionName)
+	}
+	return ctx.Err()
+}
+
+// enableProviders 는 켜진 센서에 해당하는 프로바이더만 활성화하고 센서별 GUID 를 돌려준다.
+//
+// 돌려주는 GUID 는 라이브러리가 프로바이더 이름을 풀어 준 값이다. 들어오는 이벤트를 가릴 때
+// 이 값을 쓰면 켠 것과 견주는 것이 같음이 보장된다.
+//
+// 하나라도 실패하면 오류로 올린다. 반쪽만 도는 상태는 0건보다 알아채기 어렵다.
+func (s *ETWSensor) enableProviders(session *etw.RealTimeSession) (map[string]string, error) {
+	guids := make(map[string]string, len(etwProviders))
+	for _, p := range etwProviders {
+		if !s.sensorEnabled(p.sensor) {
+			continue
+		}
+		provider, err := etw.ParseProvider(p.spec)
+		if err != nil {
+			return nil, fmt.Errorf("%s 프로바이더를 찾지 못했다(%s): %w", p.sensor, p.spec, err)
+		}
+		if err := session.EnableProvider(provider); err != nil {
+			return nil, fmt.Errorf("%s 프로바이더를 켜지 못했다(%s): %w", p.sensor, p.spec, err)
+		}
+		guids[p.sensor] = provider.GUID
+	}
+	return guids, nil
+}
+
+// sensorEnabled 는 그 센서를 켤지 본다. 설정을 아직 못 받았으면 전부 켠다.
+func (s *ETWSensor) sensorEnabled(name string) bool {
+	if s.Sensors == nil {
+		return true
+	}
+	return s.Sensors[name]
+}
+
+// forward 는 소비자 채널에서 이벤트를 꺼내 변환하고 out 으로 보낸다.
+// ctx 가 끝나거나 트레이스가 먼저 끝나면 돌아온다. 트레이스가 먼저 끝났으면 true 를 준다.
+func (s *ETWSensor) forward(ctx context.Context, consumer *etw.Consumer, traceEnded <-chan struct{}, guids map[string]string, out chan<- event.Event) bool {
+	health := time.NewTicker(etwHealthInterval)
+	defer health.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-traceEnded:
+			return true
+		case <-health.C:
+			s.reportHealth()
+		case raw, ok := <-consumer.Events:
+			if !ok {
+				return true
+			}
+			e, keep := s.convert(raw, guids)
+			if !keep {
+				continue
+			}
+			select {
+			case out <- e:
+			case <-ctx.Done():
+				return false
+			}
+		}
+	}
+}
+
+// convert 는 ETW 이벤트 하나를 서버로 보낼 이벤트로 바꾼다.
+// 프로바이더와 이벤트 ID 로 갈라 etw_map.go 의 순수 함수에 넘긴다.
+func (s *ETWSensor) convert(raw *etw.Event, guids map[string]string) (event.Event, bool) {
+	at := raw.System.TimeCreated.SystemTime
+	if at.IsZero() {
+		at = time.Now()
+	}
+	guid := raw.System.Provider.Guid
+	id := raw.System.EventID
+
+	// 프로바이더를 먼저 가린 뒤 이벤트 ID 를 본다. 세 프로바이더가 같은 번호를 쓰기 때문에
+	// (예: 10 은 Kernel-Network 에서 송신, Kernel-File 에서 NameCreate 다) 순서가 뒤집히면
+	// 파일 이벤트를 네트워크로 읽는 것 같은 사고가 난다.
+	switch {
+	case sameGUID(guid, guids["process"]):
+		switch id {
+		case eventProcessStart:
+			s.starts.Add(1)
+			props := properties(raw)
+			s.enrichProcess(props)
+			return MapProcess(s.Factory, at, props, procInfo)
+		case eventProcessStop:
+			// 종료는 이벤트로 내보내지 않는다. 서버 스키마에 해당 타입이 없다. 세기만 한다.
+			s.stops.Add(1)
+		}
+
+	case sameGUID(guid, guids["network"]):
+		if id == eventTCPConnectV4 || id == eventTCPConnectV6 {
+			return MapNetwork(s.Factory, at, properties(raw), procInfo)
+		}
+
+	case sameGUID(guid, guids["file"]):
+		if id == eventCreateNewFile {
+			return MapFile(s.Factory, at, properties(raw), s.WatchPaths)
+		}
+	}
+	return event.Event{}, false
+}
+
+// sortedKeys 는 로그에 찍을 때 순서가 흔들리지 않게 키를 정렬해 준다.
+func sortedKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// enrichProcess 는 ETW 가 주지 못하는 두 값을 프로세스를 직접 조회해 채운다.
+//
+// ProcessStart 의 ImageName 은 파일명까지만이고 명령행은 아예 없다(etw_map.go 위쪽 주석 참고).
+// 갓 뜬 프로세스라 아직 살아 있을 확률이 높지만, 순식간에 끝나는 프로세스는 조회에 실패한다.
+// 실패하면 채우지 않고 넘어간다. MapProcess 가 ImageName 으로 물러나 이벤트는 그대로 나간다.
+func (s *ETWSensor) enrichProcess(props map[string]string) {
+	pid, ok := parsePID(prop(props, "ProcessID"))
+	if !ok {
+		return
+	}
+	if path := procInfo.Name(pid); path != "" {
+		props[propImagePath] = path
+	}
+	// 명령행은 프로세스당 한 번만 필요하므로 캐시를 씌우지 않는다.
+	if cmdline := liveProc.Cmdline(pid); cmdline != "" {
+		props[propCommandLine] = cmdline
+	}
+}
+
+// reportHealth 는 지금까지 받은 프로세스 이벤트 수를 남긴다.
+//
+// Start 는 0 인데 Stop 만 쌓이는 모양이 이 프로젝트에서 실제로 났던 고장이다(커밋 22a5983).
+// 그때는 왜 0건인지 알 방법이 없어 한참 헤맸다. 그 모양을 로그에서 바로 알아보게 한다.
+func (s *ETWSensor) reportHealth() {
+	starts, stops := s.starts.Load(), s.stops.Load()
+	if starts == 0 && stops > 0 {
+		s.logger().Warn("ProcessStop 만 올라오고 ProcessStart 가 한 건도 없다. "+
+			"프로바이더는 붙었으나 시작 이벤트가 오지 않는 상태다",
+			"stops", stops, "session", etwSessionName)
+		return
+	}
+	s.logger().Info("ETW 수집 상태", "processStart", starts, "processStop", stops)
+}
+
+// properties 는 파싱된 속성을 문자열 맵 하나로 모은다.
+// golang-etw 는 템플릿 종류에 따라 EventData 나 UserData 중 한쪽에 넣으므로 둘 다 본다.
+func properties(raw *etw.Event) map[string]string {
+	props := make(map[string]string, len(raw.EventData)+len(raw.UserData))
+	sections := []map[string]interface{}{raw.UserData, raw.EventData}
+	for _, section := range sections {
+		for k, v := range section {
+			if s, ok := v.(string); ok {
+				props[k] = s
+				continue
+			}
+			props[k] = fmt.Sprint(v)
+		}
+	}
+	return props
+}
+
+// sameGUID 는 중괄호와 대소문자를 무시하고 GUID 를 견준다.
+//
+// 빈 값은 어떤 것과도 같지 않다. 꺼진 센서의 GUID 는 빈 문자열인데, 그것을 같다고 보면
+// GUID 를 못 읽은 이벤트가 꺼 둔 센서의 것으로 둔갑한다.
+func sameGUID(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	return strings.EqualFold(strings.Trim(a, "{}"), strings.Trim(b, "{}"))
+}
+
+// liveProcess 는 살아 있는 프로세스에서 이미지 경로와 명령행을 읽는다.
+// ETW 가 PID 만 주기 때문에 필요하다. 이 조회들은 실패해도 오류를 올리지 않고 빈 값을 준다.
+// 프로세스는 언제든 먼저 죽을 수 있고, 그 때문에 이벤트를 통째로 버리는 게 더 손해다.
+type liveProcess struct{}
+
+// liveProc 는 실제 조회를 하는 구현이다. 상태가 없어 하나만 둔다.
+var liveProc liveProcess
+
+// procInfo 는 이미지 경로 조회에 캐시를 씌운 것이다. 네트워크 이벤트마다 불리므로 캐시가 필요하다.
+var procInfo = &pidCache{lookup: liveProc.Name}
+
+// Name 은 PID 의 전체 실행 경로를 준다. ProcessNamer 를 만족한다.
+func (liveProcess) Name(pid int) string {
+	handle, err := openForQuery(pid)
+	if err != nil {
+		return ""
+	}
+	defer syscall.CloseHandle(handle)
+
+	buf := make([]uint16, syscall.MAX_LONG_PATH)
+	size := uint32(len(buf))
+	ret, _, _ := procQueryFullProcessImageNameW.Call(
+		uintptr(handle), 0, uintptr(unsafe.Pointer(&buf[0])), uintptr(unsafe.Pointer(&size)))
+	if ret == 0 || size == 0 {
+		return ""
+	}
+	return syscall.UTF16ToString(buf[:size])
+}
+
+// Cmdline 은 PID 의 명령행을 준다.
+//
+// PEB 를 직접 읽는 대신 NtQueryInformationProcess 의 ProcessCommandLineInformation 을 쓴다.
+// Windows 8.1 부터 있고, 다른 프로세스 메모리를 따라다니지 않아 훨씬 단순하다.
+// 결과는 버퍼 앞에 놓인 UNICODE_STRING 이 가리킨다.
+func (liveProcess) Cmdline(pid int) string {
+	handle, err := openForQuery(pid)
+	if err != nil {
+		return ""
+	}
+	defer syscall.CloseHandle(handle)
+
+	buf := make([]byte, 4096)
+	for attempt := 0; attempt < 2; attempt++ {
+		var needed uint32
+		status, _, _ := procNtQueryInformationProcess.Call(
+			uintptr(handle),
+			processCommandLineInformation,
+			uintptr(unsafe.Pointer(&buf[0])),
+			uintptr(len(buf)),
+			uintptr(unsafe.Pointer(&needed)))
+
+		switch {
+		case status == 0:
+			us := (*unicodeString)(unsafe.Pointer(&buf[0]))
+			if us.Buffer == nil || us.Length == 0 {
+				return ""
+			}
+			cmdline := syscall.UTF16ToString(unsafe.Slice(us.Buffer, int(us.Length)/2))
+			runtime.KeepAlive(buf)
+			return cmdline
+		case status == statusInfoLengthMismatch && needed > uint32(len(buf)) && needed <= maxCmdlineBytes:
+			buf = make([]byte, needed)
+		default:
+			return ""
+		}
+	}
+	return ""
+}
+
+// openForQuery 는 정보 조회용으로만 프로세스를 연다.
+// PROCESS_QUERY_LIMITED_INFORMATION 이면 충분하고, 보호된 프로세스도 열리는 경우가 많다.
+func openForQuery(pid int) (syscall.Handle, error) {
+	const queryLimitedInformation = 0x1000
+	return syscall.OpenProcess(queryLimitedInformation, false, uint32(pid))
+}
+
+const (
+	// ProcessCommandLineInformation. NtQueryInformationProcess 의 정보 클래스 번호다.
+	processCommandLineInformation = 60
+	statusInfoLengthMismatch      = 0xC0000004
+	// 명령행이 이보다 크면 정상적인 값이 아니라고 보고 포기한다.
+	maxCmdlineBytes = 64 * 1024
+)
+
+// unicodeString 은 Win32 UNICODE_STRING 이다.
+type unicodeString struct {
+	Length        uint16
+	MaximumLength uint16
+	Buffer        *uint16
+}
+
+var (
+	kernel32                       = syscall.NewLazyDLL("kernel32.dll")
+	ntdll                          = syscall.NewLazyDLL("ntdll.dll")
+	procQueryFullProcessImageNameW = kernel32.NewProc("QueryFullProcessImageNameW")
+	procNtQueryInformationProcess  = ntdll.NewProc("NtQueryInformationProcess")
+)
