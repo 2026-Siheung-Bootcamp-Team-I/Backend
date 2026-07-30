@@ -55,7 +55,7 @@ edrdog:
     # 별도 TLS 포트로 붙기 때문이다(server.agent.tls.port).
     agent-server: ${INSTALL_AGENT_SERVER:}
     # 에이전트 바이너리를 받는 곳. CI 가 릴리스에 올린다(.github/workflows/agent-release.yml).
-    download-base: ${INSTALL_DOWNLOAD_BASE:https://github.com/2026-Siheung-Bootcamp-Team-I/Backend/releases/latest/download}
+    download-base: ${INSTALL_DOWNLOAD_BASE:https://github.com/EDRdog/Backend/releases/latest/download}
     # 설치 링크의 수명. 짧게 두는 이유는 링크가 새면 그 시간 동안 남의 기기가 우리 테넌트로
     # 붙을 수 있어서다. 여러 대에 쓸 수 있으므로 한 번에 여러 대 까는 데는 지장이 없다.
     token-ttl-hours: ${INSTALL_TOKEN_TTL_HOURS:24}
