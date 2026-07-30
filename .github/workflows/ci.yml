@@ -15,6 +15,14 @@ jobs:
           distribution: temurin
           java-version: '21'
       - uses: gradle/actions/setup-gradle@v4
+      # GeoLite2 mmdb 캐시. MaxMind 는 짧은 시간에 여러 번 받으면 429 를 준다(실제로 배포가 막혔다).
+      # DB 는 주 단위로 갱신되므로 주차 키로 캐시하면 하루에 몇 번을 빌드해도 한 번만 받는다.
+      - name: GeoLite2 캐시
+        uses: actions/cache@v4
+        with:
+          path: api-service/build/geoip
+          key: geolite2-${{ hashFiles('api-service/build.gradle') }}-week
+          restore-keys: geolite2-
       - name: Build + test
         # GeoLite2 mmdb 는 빌드 시점에 받아 jar 에 번들된다. 이 키가 없으면 다운로드를 건너뛰고
         # 빌드는 그대로 성공하지만, 런타임에 GET /api/events/geo 가 항상 빈 배열을 준다(위협 지도가 빈다).
