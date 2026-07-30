@@ -89,10 +89,19 @@ fi
 
 # --- 2. k3s -------------------------------------------------------------------
 step "2/7 k3s"
+# traefik 을 끄고 깐다. k3s 는 기본으로 traefik 을 깔고 그게 호스트 80/443 을 잡는데,
+# 그러면 Caddy 가 "address already in use" 로 못 뜬다. 우리는 Caddy 로 프록시한다.
 if command -v k3s >/dev/null 2>&1; then
   echo "  이미 깔려 있다."
 else
-  curl -sfL https://get.k3s.io | sh - || fail "k3s 설치 실패"
+  curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--disable=traefik" sh - || fail "k3s 설치 실패"
+fi
+export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+# 이미 깔린 뒤에 이 스크립트를 돌리는 경우가 있다. 그때도 traefik 은 걷어낸다.
+if kubectl -n kube-system get helmchart traefik >/dev/null 2>&1; then
+  echo "  traefik 을 걷어낸다 (Caddy 와 80/443 을 다툰다)"
+  kubectl -n kube-system delete helmchart traefik traefik-crd --ignore-not-found >/dev/null
+  kubectl -n kube-system delete deploy traefik --ignore-not-found >/dev/null
 fi
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 kubectl get nodes >/dev/null || fail "k3s 가 응답하지 않는다"
@@ -118,6 +127,14 @@ echo "  5분마다 갱신하도록 걸었다."
 
 # --- 4. Caddy -----------------------------------------------------------------
 step "4/7 Caddy"
+# 80 을 다른 웹서버가 잡고 있으면 Caddy 가 "address already in use" 로 못 뜬다.
+# 실제 인스턴스에 nginx 가 올라와 있었다. 그 상태로는 아래 restart 가 조용히 실패한다.
+for other in nginx apache2 httpd; do
+  if systemctl is-active --quiet "$other" 2>/dev/null; then
+    echo "  $other 가 80 을 잡고 있어 내린다"
+    systemctl disable --now "$other" >/dev/null 2>&1 || true
+  fi
+done
 if ! command -v caddy >/dev/null 2>&1; then
   if command -v apt-get >/dev/null 2>&1; then
     DEBIAN_FRONTEND=noninteractive apt-get update -qq
