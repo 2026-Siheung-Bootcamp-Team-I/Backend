@@ -109,6 +109,96 @@ class RawEventMapperTest {
     }
 
     @Test
+    void dns_이벤트를_그대로_통과시킨다() {
+        String raw = """
+                {
+                  "host": "lab-mac",
+                  "type": "dns",
+                  "ts": 1785341400000,
+                  "process": "curl",
+                  "domain": "evil.example.com",
+                  "detail": "{\\"qtype\\":\\"A\\",\\"answers\\":[\\"203.0.113.9\\"]}"
+                }
+                """;
+
+        Event e = map(raw).orElseThrow();
+
+        assertEquals(Event.TYPE_DNS, e.type());
+        assertEquals("curl", e.process());
+        assertEquals("evil.example.com", e.domain());
+        assertEquals("{\"qtype\":\"A\",\"answers\":[\"203.0.113.9\"]}", e.detail());
+    }
+
+    @Test
+    void l7_이벤트를_그대로_통과시킨다() {
+        String raw = """
+                {
+                  "host": "lab-mac",
+                  "type": "l7",
+                  "ts": 1785341400000,
+                  "destIp": "203.0.113.9",
+                  "destPort": 443,
+                  "domain": "cdn.example.com",
+                  "detail": "{\\"tlsVersion\\":\\"1.3\\",\\"issuer\\":\\"R3\\"}"
+                }
+                """;
+
+        Event e = map(raw).orElseThrow();
+
+        assertEquals(Event.TYPE_L7, e.type());
+        assertEquals("cdn.example.com", e.domain());
+        assertEquals("203.0.113.9", e.destIp());
+        assertEquals(443, e.destPort());
+        assertEquals("{\"tlsVersion\":\"1.3\",\"issuer\":\"R3\"}", e.detail());
+    }
+
+    @Test
+    void detail_이_없어도_통과한다() {
+        // detail 은 부가정보다. 없다고 이벤트를 버리면 도메인 기록까지 같이 날아간다.
+        String raw = """
+                { "host": "lab-mac", "type": "dns", "ts": 1785341400000, "domain": "a.example.com" }
+                """;
+
+        assertNull(map(raw).orElseThrow().detail());
+    }
+
+    @Test
+    void dns_인데_domain_이_없으면_스킵한다() {
+        String raw = """
+                { "host": "lab-mac", "type": "dns", "ts": 1785341400000, "process": "curl" }
+                """;
+
+        assertTrue(map(raw).isEmpty());
+    }
+
+    @Test
+    void dns_인데_domain_이_빈문자열이면_스킵한다() {
+        String raw = """
+                { "host": "lab-mac", "type": "dns", "ts": 1785341400000, "domain": "   " }
+                """;
+
+        assertTrue(map(raw).isEmpty());
+    }
+
+    @Test
+    void l7_인데_domain_이_없으면_스킵한다() {
+        String raw = """
+                { "host": "lab-mac", "type": "l7", "ts": 1785341400000, "destIp": "203.0.113.9" }
+                """;
+
+        assertTrue(map(raw).isEmpty());
+    }
+
+    @Test
+    void domain_이_없어도_dns_l7_이_아니면_통과한다() {
+        String raw = """
+                { "host": "lab-mac", "type": "process", "ts": 1785341400000, "process": "sh" }
+                """;
+
+        assertNull(map(raw).orElseThrow().domain());
+    }
+
+    @Test
     void tenantId_가_없으면_null_로_흐른다() {
         String raw = """
                 {

@@ -136,3 +136,70 @@ func TestEmptyOptionalFieldsAreOmitted(t *testing.T) {
 		}
 	}
 }
+
+func TestDNSEvent(t *testing.T) {
+	f := Factory{Host: "mac-1"}
+	got := decode(t, f.DNS(at, "/usr/bin/curl", "evil.example.com", map[string]any{
+		"queryType": "A",
+		"answers":   []string{"203.0.113.9"},
+	}))
+
+	if got["type"] != TypeDNS {
+		t.Errorf("type = %v, want %v", got["type"], TypeDNS)
+	}
+	if got["process"] != "curl" {
+		t.Errorf("process = %v, want curl", got["process"])
+	}
+	// 도메인은 검색 대상이라 별도 필드다. detail 안에 묻으면 조회가 안 된다.
+	if got["domain"] != "evil.example.com" {
+		t.Errorf("domain = %v", got["domain"])
+	}
+	var detail map[string]any
+	if err := json.Unmarshal([]byte(got["detail"].(string)), &detail); err != nil {
+		t.Fatalf("detail 이 JSON 이 아니다: %v", err)
+	}
+	if detail["queryType"] != "A" {
+		t.Errorf("detail.queryType = %v", detail["queryType"])
+	}
+}
+
+func TestL7Event(t *testing.T) {
+	f := Factory{Host: "mac-1"}
+	got := decode(t, f.L7(at, "/usr/bin/curl", "api.example.com", "203.0.113.9", 443, map[string]any{
+		"issuer": "CN=Test CA",
+	}))
+
+	if got["type"] != TypeL7 {
+		t.Errorf("type = %v, want %v", got["type"], TypeL7)
+	}
+	if got["domain"] != "api.example.com" {
+		t.Errorf("domain = %v", got["domain"])
+	}
+	if got["destIp"] != "203.0.113.9" || got["destPort"] != float64(443) {
+		t.Errorf("목적지 = %v:%v", got["destIp"], got["destPort"])
+	}
+}
+
+func TestDetailIsOmittedWhenEmpty(t *testing.T) {
+	// 부가정보가 없는데 "{}" 나 "null" 을 보내면 ClickHouse 에 의미 없는 값이 쌓인다.
+	f := Factory{Host: "mac-1"}
+	got := decode(t, f.DNS(at, "/usr/bin/curl", "example.com", nil))
+
+	if _, exists := got["detail"]; exists {
+		t.Errorf("detail 이 비었는데 실려 나갔다: %v", got["detail"])
+	}
+}
+
+func TestDomainIsOmittedForNonDomainEvents(t *testing.T) {
+	f := Factory{Host: "mac-1"}
+	for _, e := range []Event{
+		f.Process(at, "/bin/sh", "sh", "bash"),
+		f.Network(at, "/bin/sh", "203.0.113.1", 443),
+		f.File(at, "/tmp/x"),
+	} {
+		got := decode(t, e)
+		if _, exists := got["domain"]; exists {
+			t.Errorf("%s 이벤트에 domain 이 들어있다", got["type"])
+		}
+	}
+}

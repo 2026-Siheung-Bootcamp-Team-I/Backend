@@ -18,10 +18,12 @@ import java.util.Optional;
  * <ul>
  *   <li>JSON 이 깨졌거나 객체가 아니면 스킵</li>
  *   <li>{@code host} 가 비었으면 스킵 (상관분석 키가 없으면 쓸모가 없다)</li>
- *   <li>{@code type} 이 process/network/file/script 가 아니면 스킵 (모르는 타입을 process 로 넘겨짚지 않는다)</li>
+ *   <li>{@code type} 이 process/network/file/script/dns/l7 이 아니면 스킵 (모르는 타입을 process 로 넘겨짚지 않는다)</li>
  *   <li>{@code ts} 가 없거나 0 이하면 스킵</li>
  *   <li>{@code ts} 가 초 단위로 보이면 스킵. epoch millis 라야 한다.</li>
  *   <li>{@code network} 인데 {@code destIp} 가 비었으면 스킵</li>
+ *   <li>{@code dns}/{@code l7} 인데 {@code domain} 이 비었으면 스킵. 도메인이 없으면 어느 이름을 물어봤는지
+ *       모르니 남겨도 조사에 쓸 수 없다(network 가 destIp 없으면 버리는 것과 같은 이유다)</li>
  * </ul>
  *
  * <p>그 외에는 값을 그대로 옮긴다. basename 추출, 타입 추측, 시각 변환 같은 변환은 하지 않는다.
@@ -72,6 +74,11 @@ public final class RawEventMapper {
             return Optional.empty();
         }
 
+        String domain = text(root, "domain");
+        if (needsDomain(type) && (domain == null || domain.isBlank())) {
+            return Optional.empty();
+        }
+
         return Optional.of(new Event(
                 host,
                 type,
@@ -81,6 +88,8 @@ public final class RawEventMapper {
                 text(root, "cmdline"),
                 destIp,
                 intValue(root, "destPort"),
+                domain,
+                text(root, "detail"),
                 text(root, "tenantId")));
     }
 
@@ -88,7 +97,14 @@ public final class RawEventMapper {
         return Event.TYPE_PROCESS.equals(type)
                 || Event.TYPE_NETWORK.equals(type)
                 || Event.TYPE_FILE.equals(type)
-                || Event.TYPE_SCRIPT.equals(type);
+                || Event.TYPE_SCRIPT.equals(type)
+                || Event.TYPE_DNS.equals(type)
+                || Event.TYPE_L7.equals(type);
+    }
+
+    /** dns/l7 은 도메인이 핵심 값이다. 그게 없으면 남겨도 조사에 쓸 수 없어 버린다. */
+    private static boolean needsDomain(String type) {
+        return Event.TYPE_DNS.equals(type) || Event.TYPE_L7.equals(type);
     }
 
     private static String text(JsonNode node, String field) {

@@ -17,24 +17,24 @@ class RulesTest {
     private static final String TENANT = "tenant-a";
 
     private Event process(String proc, String parent, long ts) {
-        return new Event(HOST, Event.TYPE_PROCESS, ts, proc, parent, proc + " args", null, 0, TENANT);
+        return new Event(HOST, Event.TYPE_PROCESS, ts, proc, parent, proc + " args", null, 0, null, null, TENANT);
     }
 
     /** cmdline 을 직접 주는 process 이벤트. R2 는 실행 경로(cmdline)를 본다. */
     private Event processFrom(String proc, String cmdline, long ts) {
-        return new Event(HOST, Event.TYPE_PROCESS, ts, proc, "bash", cmdline, null, 0, TENANT);
+        return new Event(HOST, Event.TYPE_PROCESS, ts, proc, "bash", cmdline, null, 0, null, null, TENANT);
     }
 
     private Event network(String destIp, int destPort, long ts) {
-        return new Event(HOST, Event.TYPE_NETWORK, ts, null, null, null, destIp, destPort, TENANT);
+        return new Event(HOST, Event.TYPE_NETWORK, ts, null, null, null, destIp, destPort, null, null, TENANT);
     }
 
     private Event script(String proc, String fullCmdline, long ts) {
-        return new Event(HOST, Event.TYPE_SCRIPT, ts, proc, "explorer.exe", fullCmdline, null, 0, TENANT);
+        return new Event(HOST, Event.TYPE_SCRIPT, ts, proc, "explorer.exe", fullCmdline, null, 0, null, null, TENANT);
     }
 
     private Event file(String name, String fullPath, long ts) {
-        return new Event(HOST, Event.TYPE_FILE, ts, name, null, fullPath, null, 0, TENANT);
+        return new Event(HOST, Event.TYPE_FILE, ts, name, null, fullPath, null, 0, null, null, TENANT);
     }
 
     @Test
@@ -231,7 +231,7 @@ class RulesTest {
                 network("203.0.113.9", 443, 1000)
         );
         Event current = new Event(HOST, Event.TYPE_PROCESS, 2000, "powershell.exe", "winword.exe",
-                "C:\\Users\\me\\Downloads\\payload.ps1", null, 0, TENANT);
+                "C:\\Users\\me\\Downloads\\payload.ps1", null, 0, null, null, TENANT);
 
         Optional<Alert> alert = Rules.evaluate(buffer, current);
 

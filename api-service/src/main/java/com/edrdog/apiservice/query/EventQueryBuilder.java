@@ -17,8 +17,9 @@ public class EventQueryBuilder {
     static final int DEFAULT_LIMIT = 100;
     static final int MAX_LIMIT = 1000;
 
+    // domain/detail 은 dns/l7 이벤트용. 대시보드가 어떤 도메인을 물어봤는지 보려면 조회 컬럼에 있어야 한다.
     private static final String COLUMNS =
-            "host, type, ts, process, parent, cmdline, dest_ip, dest_port, ingested_at";
+            "host, type, ts, process, parent, cmdline, dest_ip, dest_port, domain, detail, ingested_at";
 
     private final String table;
 

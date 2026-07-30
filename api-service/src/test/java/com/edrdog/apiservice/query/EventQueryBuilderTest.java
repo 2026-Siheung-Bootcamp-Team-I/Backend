@@ -97,6 +97,21 @@ class EventQueryBuilderTest {
     }
 
     @Test
+    void dns_l7_도_type_필터로_쓸_수_있다() {
+        // 타입 화이트리스트를 두지 않고 값을 그대로 바인딩하므로 새 타입이 늘어도 조회가 막히지 않는다.
+        assertEquals("dns", builder.events(TENANT, null, "dns", null, null, 100).params().get("type"));
+        assertEquals("l7", builder.events(TENANT, null, "l7", null, null, 100).params().get("type"));
+    }
+
+    @Test
+    void 조회_컬럼에_domain_과_detail_이_들어간다() {
+        // 대시보드가 dns/l7 이벤트의 도메인과 부가정보를 보려면 조회 결과에 실려야 한다.
+        ClickHouseQuery q = builder.events(TENANT, null, null, null, null, 100);
+        assertTrue(q.sql().contains("domain"), q.sql());
+        assertTrue(q.sql().contains("detail"), q.sql());
+    }
+
+    @Test
     void 시간범위_from_to_는_ts_에_바인딩() {
         ClickHouseQuery q = builder.events(TENANT, null, null, 1000L, 2000L, 100);
         assertTrue(q.sql().contains("ts >= {from:UInt64}"), q.sql());

@@ -113,13 +113,25 @@ X-Node-Key: ...
 | 필드 | 의미 |
 |:---|:---|
 | `host` | 엔드포인트 식별자. 상관분석 키 |
-| `type` | `process` / `network` / `file` / `script` |
+| `type` | `process` / `network` / `file` / `script` / `dns` / `l7` |
 | `ts` | 발생 시각, epoch millis |
 | `process` | 프로세스명 또는 파일명. **전체 경로가 아니라 basename** |
 | `parent` | 부모 프로세스명. process/script 만 |
 | `cmdline` | 명령행. file/script 는 판정에 쓰는 전체 경로를 여기 담는다 |
-| `destIp` | 목적지 IP. network 만 |
-| `destPort` | 목적지 포트. network 만 |
+| `destIp` | 목적지 IP. network 와 l7 |
+| `destPort` | 목적지 포트. network 와 l7 |
+| `domain` | DNS 질의 이름 또는 TLS SNI. dns 와 l7 |
+| `detail` | 타입별 부가정보를 담은 JSON 문자열 |
+
+`domain` 을 `detail` 안에 넣지 않고 따로 둔 이유는 검색 때문이다. 대시보드에서 도메인으로
+찾을 수 있어야 하는데 JSON 안에 묻히면 조회가 어렵다.
+
+`detail` 은 판정에 쓰지 않고 조사 화면에서 보여줄 값만 담는다. dns 는 질의 타입과 응답 IP 목록,
+l7 은 인증서 발급자와 주체, 지문, TLS 버전 같은 것이다. 인증서 항목이 늘 때마다 컬럼을 늘리고
+서비스 셋을 같이 배포하는 비용이 이득보다 커서 JSON 한 칸으로 묶었다.
+
+**패킷 페이로드는 어떤 형태로도 보내지 않는다.** 통신 내용을 서버로 옮기는 것은 수집이 아니라
+감청이다. 패킷은 엔드포인트 메모리에서 메타데이터만 뽑고 그 자리에서 버린다.
 
 basename 추출은 에이전트가 한다. 서버가 하던 일을 옮긴 것이고, 경로 구분자가 플랫폼마다 다르니
 그 플랫폼에서 도는 쪽이 판단하는 게 맞다.

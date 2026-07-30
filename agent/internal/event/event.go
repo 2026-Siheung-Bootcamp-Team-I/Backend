@@ -5,7 +5,10 @@
 // 서버가 그 껍데기를 벗겼는데, 이제 양쪽을 다 우리가 만드니 중간 변환을 두지 않는다.
 package event
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // 이벤트 종류. detector 의 Event.TYPE_* 와 같은 문자열이어야 한다.
 const (
@@ -13,6 +16,8 @@ const (
 	TypeNetwork = "network"
 	TypeFile    = "file"
 	TypeScript  = "script"
+	TypeDNS     = "dns"
+	TypeL7      = "l7"
 )
 
 // Event 는 서버로 보내는 이벤트 한 건이다.
@@ -29,6 +34,17 @@ type Event struct {
 
 	DestIP   string `json:"destIp,omitempty"`
 	DestPort int    `json:"destPort,omitempty"`
+
+	// Domain 은 DNS 질의 이름 또는 TLS SNI 다. 검색 대상이라 별도 필드로 둔다.
+	// Detail 안에 묻으면 대시보드에서 도메인으로 조회할 수 없다.
+	Domain string `json:"domain,omitempty"`
+	// Detail 은 타입별 부가정보를 담은 JSON 문자열이다. 질의 타입, 응답 IP 목록,
+	// 인증서 발급자와 지문 같은 것이 들어간다.
+	//
+	// 필드를 하나씩 늘리지 않고 JSON 한 칸으로 받는 이유는 이 값들이 판정에 쓰이지 않고
+	// 조사 화면에서 보여줄 용도이기 때문이다. 인증서 항목이 늘 때마다 스키마를 고치고
+	// 서비스 셋을 같이 배포하는 비용이 이득보다 크다.
+	Detail string `json:"detail,omitempty"`
 }
 
 // Factory 는 호스트 이름을 쥐고 이벤트를 만든다.
@@ -83,6 +99,55 @@ func (f Factory) File(at time.Time, targetPath string) Event {
 		Process: basename(targetPath),
 		Cmdline: targetPath,
 	}
+}
+
+// DNS 는 DNS 질의 이벤트를 만든다.
+//
+// processPath 는 질의를 낸 프로세스의 실행 경로다. 알 수 없으면 비운다. Windows 는 ETW 가
+// 프로세스를 알려주지만 패킷에서 뽑을 때는 누가 낸 질의인지 알 수 없다.
+//
+// detail 에는 질의 타입과 응답 IP 목록 같은 부가정보를 넣는다.
+func (f Factory) DNS(at time.Time, processPath, domain string, detail map[string]any) Event {
+	return Event{
+		Host:    f.Host,
+		Type:    TypeDNS,
+		TS:      millis(at),
+		Process: basename(processPath),
+		Domain:  domain,
+		Detail:  encodeDetail(detail),
+	}
+}
+
+// L7 은 TLS 핸드셰이크에서 뽑은 메타데이터 이벤트를 만든다.
+//
+// domain 은 ClientHello 의 SNI 이고 인증서 정보는 detail 에 넣는다.
+// 페이로드 자체는 절대 담지 않는다. 통신 내용을 서버로 보내는 것은 수집이 아니라 감청이다.
+func (f Factory) L7(at time.Time, processPath, domain, destIP string, destPort int, detail map[string]any) Event {
+	return Event{
+		Host:     f.Host,
+		Type:     TypeL7,
+		TS:       millis(at),
+		Process:  basename(processPath),
+		DestIP:   destIP,
+		DestPort: destPort,
+		Domain:   domain,
+		Detail:   encodeDetail(detail),
+	}
+}
+
+// encodeDetail 은 부가정보를 JSON 문자열로 만든다.
+//
+// 직렬화에 실패해도 이벤트를 버리지 않고 부가정보만 비운다. 도메인과 프로세스라는 핵심은
+// 이미 별도 필드에 있으므로, 곁가지 때문에 관측 사실 자체를 잃는 쪽이 나쁘다.
+func encodeDetail(detail map[string]any) string {
+	if len(detail) == 0 {
+		return ""
+	}
+	raw, err := json.Marshal(detail)
+	if err != nil {
+		return ""
+	}
+	return string(raw)
 }
 
 func millis(at time.Time) int64 {
