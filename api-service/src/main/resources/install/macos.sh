@@ -62,8 +62,14 @@ curl -fsSL "$DOWNLOAD_BASE/$ASSET" -o "$TMP/agent" || fail "바이너리를 받�
 # 받은 것이 온전한지 본다. 끊긴 다운로드는 크기만 작고 그대로 실행돼서, 깔린 뒤에
 # "왜 안 뜨지" 로 시간을 버리게 된다.
 if curl -fsSL "$DOWNLOAD_BASE/$ASSET.sha256" -o "$TMP/want" 2>/dev/null; then
-  want="$(tr -d ' \t\n' < "$TMP/want" | cut -d'*' -f1 | tail -c 65)"
-  got="$(shasum -a 256 "$TMP/agent" | cut -d' ' -f1)"
+  # 파일 모양은 "<해시>  <파일명>" 이다. 해시는 첫 칸에 있다. 공백을 지우고 뒤에서 자르면
+  # 파일명 끝을 해시로 읽는다(실제로 그렇게 짰다가 모든 설치가 막혔다).
+  # \r 을 지우는 것은 파일이 CRLF 로 올라온 경우다.
+  want="$(awk 'NR==1 {print $1}' "$TMP/want" | tr -d '\r')"
+  got="$(shasum -a 256 "$TMP/agent" | awk '{print $1}')"
+  # 64자 16진수가 아니면 비교 자체가 무의미하다. 그걸 "일치하지 않음" 으로 뭉뚱그리면
+  # 릴리스 파일이 깨진 것과 바이너리가 바뀐 것을 구별할 수 없다.
+  [[ "$want" =~ ^[A-Fa-f0-9]{64}$ ]] || fail "$ASSET.sha256 의 모양이 예상과 다르다: $want"
   [[ "$want" == "$got" ]] || fail "받은 바이너리의 해시가 다르다 (기대 $want, 실제 $got)"
   echo "해시 확인됨."
 else
