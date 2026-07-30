@@ -333,6 +333,41 @@ level=ERROR msg="패킷 캡처를 열지 못해 dns/l7 수집을 건너뛴다" e
 
 ### macOS
 
+명령 하나로 끝낸다. 빌드부터 등록 확인까지 이어서 한다.
+
+```bash
+sudo ./agent/packaging/bootstrap-macos.sh \
+  --server edr.example.com:30443 --enroll-secret <발급받은 값>
+```
+
+시크릿을 아직 안 받았으면 대신 받아 오게 할 수 있다. 비밀번호는 인자로 받지 않고 물어본다.
+인자로 주면 `ps` 에 그대로 보이고 셸 기록에도 남는다.
+
+```bash
+sudo ./agent/packaging/bootstrap-macos.sh \
+  --server edr.example.com:30443 --email me@example.com --api-key <프론트 키>
+```
+
+`--api-key` 가 필요한 이유는 `/api/tenant` 가 `X-API-Key` 예외 경로가 아니라서다
+(`ApiKeyPolicy.EXEMPT_PREFIXES`). 반면 `/api/agent/` 는 예외라, 설치가 끝난 뒤 에이전트
+자신은 이 키 없이 `enroll_secret` 과 `node_key` 만으로 붙는다.
+
+중간에 **전체 디스크 접근 권한**에서 한 번 멈춘다. 이건 자동화가 안 된다. 애플의 TCC 는
+사람이 직접 켜거나 MDM 프로파일로만 줄 수 있다. 스크립트가 그 설정 창을 열어 주고, 켜고
+Enter 를 누르면 이어서 재시작하고 등록됐는지까지 확인한다.
+
+> 파일 선택창이 뜬 **다음에** `Cmd+Shift+G` 를 눌러야 경로 입력이 먹는다. 목록에 대고 바로
+> 누르면 안 먹는다.
+
+마지막 확인은 로그에서 `등록 완료` 줄을 찾는 것으로 한다. 30 초 안에 안 보이면 실패로
+끝내고 어디를 볼지 알려준다. `ERR_NOT_PERMITTED` 가 보이면 권한이 아직 안 켜진 것이라
+그것만 따로 짚어 준다. 이 두 줄을 보는 이유는, 프로세스가 떠 있다는 것과 서버에 붙었다는
+것이 전혀 다른 말이기 때문이다.
+
+#### 단계별로 하고 싶으면
+
+`install-macos.sh` 는 설치만 한다.
+
 ```bash
 cd agent
 go build -o packaging/edrdog-agent ./cmd/edrdog-agent
@@ -342,19 +377,13 @@ sudo ./packaging/install-macos.sh --server edr.example.com:30443 --enroll-secret
 바이너리를 `/usr/local/bin/edrdog-agent` 에 놓고, 설정을 `/etc/edrdog/config.json` 에 쓰고,
 `/Library/LaunchDaemons/com.edrdog.agent.plist` 로 등록해 부팅 시 자동 기동시킨다.
 
-**스크립트가 끝나도 아직 이벤트는 오지 않는다.** 전체 디스크 접근 권한을 사람이 직접 켜야 한다.
-
-```
-시스템 설정 > 개인정보 보호 및 보안 > 전체 디스크 접근
-  → /usr/local/bin/edrdog-agent 추가하고 켜기
-
-sudo launchctl kickstart -k system/com.edrdog.agent
-```
-
 ```bash
 sudo launchctl print system/com.edrdog.agent   # 상태
 tail -f /var/log/edrdog/agent.log              # 로그
 ```
+
+**터미널에서 직접 실행하지 마라.** LaunchDaemon 으로 돌려야 한다. 터미널에서 띄우면 TCC 주체가
+에이전트가 아니라 터미널 앱이 되어, 터미널에 권한을 준 셈이 되고 `ERR_NOT_PERMITTED` 가 난다.
 
 ### Windows
 
