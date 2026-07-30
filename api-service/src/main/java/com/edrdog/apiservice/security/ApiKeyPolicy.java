@@ -18,7 +18,9 @@ public class ApiKeyPolicy {
             "/api/me",      // 유저 개인 알림 설정도 세션 Bearer 로 인증(UserNotifyController)
             "/api/demo/",   // 발표용 데모 시연도 세션 Bearer 로 인증하고 데모 계정만 통과시킨다(DemoController)
             "/api/internal/",  // 서비스 간 조회는 별도 X-Internal-Key 로 인증(TenantController), 프론트 키와 분리
-            "/api/agent/"  // 엔드포인트 수집은 자체 enroll_secret/node_key 로 인증(AgentController), 프론트 키와 분리
+            "/api/agent/",  // 엔드포인트 수집은 자체 enroll_secret/node_key 로 인증(AgentController), 프론트 키와 분리
+            "/i/"          // 설치 스크립트 배포. 링크의 설치 토큰 자체가 인증이다(InstallController).
+                           // curl 한 줄로 받아야 해서 헤더를 붙일 수가 없다. 대신 토큰을 짧게 살린다.
     );
 
     private final String configuredKey;
