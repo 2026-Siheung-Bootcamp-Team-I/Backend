@@ -62,9 +62,9 @@ func TestCaptureFilter(t *testing.T) {
 			want:  false,
 		},
 		{
-			name:  "IPv4 TCP 80 은 거른다",
+			name:  "IPv4 TCP 80 은 통과한다. 평문 HTTP 는 목적지와 경로가 그대로 보인다",
 			frame: ipv4Frame("10.0.0.5", "93.184.216.34", tcpSegment(51000, 80, nil)),
-			want:  false,
+			want:  true,
 		},
 		{
 			name:  "IPv4 UDP 123 은 거른다",
@@ -92,9 +92,9 @@ func TestCaptureFilter(t *testing.T) {
 			want:  false,
 		},
 		{
-			name:  "IPv6 TCP 80 은 거른다",
+			name:  "IPv6 TCP 80 도 통과한다",
 			frame: ipv6Frame("fd00::5", "2606:2800:220:1::", tcpSegment(51000, 80, nil)),
-			want:  false,
+			want:  true,
 		},
 		{
 			name:  "IPv4 옵션이 붙어도 포트를 제대로 찾는다",
@@ -228,4 +228,37 @@ func tcpSegment(srcPort, dstPort int, payload []byte) segment {
 	hdr[12] = 5 << 4 // 데이터 오프셋 5워드
 	hdr[13] = 0x18   // PSH|ACK
 	return segment{proto: ipProtoTCP, bytes: append(hdr, payload...)}
+}
+
+// HTTP 평문도 잡아야 한다. TLS 만 보면 암호화되지 않은 통신을 통째로 놓친다.
+//
+// 나가는 쪽(목적지 80)과 들어오는 쪽(출발지 80)을 둘 다 받는다. TLS 와 다른 점인데,
+// 응답의 상태 코드가 조사에 쓸모가 있어서다. TLS 는 서버가 보내는 것이 인증서뿐이고
+// 그건 TLS 1.3 에서 암호화돼 어차피 못 읽는다.
+func TestCaptureFilterAcceptsHTTP(t *testing.T) {
+	vm := captureVM(t)
+
+	cases := map[string]struct {
+		frame []byte
+		want  bool
+	}{
+		"HTTP 요청 (목적지 80)": {ipv4Frame("10.0.0.2", "93.184.216.34", tcpSegment(51000, 80, nil)), true},
+		"HTTP 응답 (출발지 80)": {ipv4Frame("93.184.216.34", "10.0.0.2", tcpSegment(80, 51000, nil)), true},
+		"IPv6 요청":          {ipv6Frame("2001:db8::1", "2001:db8::2", tcpSegment(51000, 80, nil)), true},
+		"IPv6 응답":          {ipv6Frame("2001:db8::2", "2001:db8::1", tcpSegment(80, 51000, nil)), true},
+		// 무관한 포트는 그대로 걸러야 한다. 80 을 열었다고 필터가 헐거워지면 안 된다.
+		"HTTP 대체 포트 8080": {ipv4Frame("10.0.0.2", "93.184.216.34", tcpSegment(51000, 8080, nil)), false},
+		"SSH":             {ipv4Frame("10.0.0.2", "93.184.216.34", tcpSegment(51000, 22, nil)), false},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			n, err := vm.Run(tc.frame)
+			if err != nil {
+				t.Fatalf("VM: %v", err)
+			}
+			if got := n > 0; got != tc.want {
+				t.Errorf("통과 = %v, want %v", got, tc.want)
+			}
+		})
+	}
 }

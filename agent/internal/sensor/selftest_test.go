@@ -2,6 +2,8 @@ package sensor
 
 import (
 	"context"
+	"encoding/json"
+	"os"
 	"testing"
 	"time"
 
@@ -38,6 +40,56 @@ func TestSelfTestEmitsEveryEventType(t *testing.T) {
 	for _, eventType := range []string{event.TypeProcess, event.TypeScript, event.TypeNetwork, event.TypeFile, event.TypeDNS, event.TypeL7} {
 		if !seen[eventType] {
 			t.Errorf("%s 이벤트가 안 나왔다", eventType)
+		}
+	}
+}
+
+// 자체 점검은 스키마와 전송 경로가 서버 끝까지 맞는지 보는 용도다. 새로 생긴 필드가 비어
+// 있으면 그 경로는 점검되지 않는다. 값은 지어내지 않고 에이전트 자신의 것을 쓴다.
+func TestSelfTestFillsIdentifiersAndHash(t *testing.T) {
+	s := &SelfTest{Factory: event.Factory{Host: "lab"}, Interval: time.Hour, Hasher: NewFileHasher()}
+	out := make(chan event.Event, 16)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if err := s.emit(ctx, out); err != nil {
+		t.Fatalf("emit: %v", err)
+	}
+	close(out)
+
+	byType := map[string]event.Event{}
+	for e := range out {
+		byType[e.Type] = e
+	}
+
+	// 테스트 바이너리 자신의 해시라 값을 미리 알 수는 없다. 채워졌는지와 모양만 본다.
+	if sum := byType[event.TypeProcess].SHA256; len(sum) != 64 {
+		t.Errorf("process.sha256 = %q, want 64자 16진수", sum)
+	}
+	if got := byType[event.TypeFile].SHA256; got != "" {
+		t.Errorf("file.sha256 = %q, 파일 이벤트에는 붙이지 않는다", got)
+	}
+
+	pid := float64(os.Getpid())
+	cases := map[string]map[string]any{
+		event.TypeProcess: {"pid": pid, "ppid": float64(os.Getppid())},
+		event.TypeScript:  {"pid": pid, "ppid": float64(os.Getppid())},
+		event.TypeNetwork: {"pid": pid, "protocol": "tcp"},
+		event.TypeFile:    {"action": "CREATE"},
+		event.TypeDNS:     {"pid": pid, "protocol": "udp"},
+		event.TypeL7:      {"protocol": "tcp"},
+	}
+	for eventType, want := range cases {
+		detail := map[string]any{}
+		if raw := byType[eventType].Detail; raw != "" {
+			if err := json.Unmarshal([]byte(raw), &detail); err != nil {
+				t.Fatalf("%s 의 detail 이 JSON 이 아니다: %v", eventType, err)
+			}
+		}
+		for key, value := range want {
+			if detail[key] != value {
+				t.Errorf("%s detail.%s = %v, want %v", eventType, key, detail[key], value)
+			}
 		}
 	}
 }

@@ -2,6 +2,7 @@ package sensor
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -37,7 +38,7 @@ func eslExecLine(parentPath, targetPath, argsJSON string) string {
 func TestMapLineExecMakesProcessEvent(t *testing.T) {
 	line := eslExecLine("/bin/zsh", "/usr/bin/curl", `["curl","-fsSL","https://example.test/x"]`)
 
-	e, ok := MapLine(eslFactory, []byte(line), nil)
+	e, ok := MapLine(eslFactory, []byte(line), nil, nil)
 	if !ok {
 		t.Fatal("exec 줄을 이벤트로 바꾸지 못했다")
 	}
@@ -85,7 +86,7 @@ func TestMapLineExecInterpreterMakesScriptEvent(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			line := eslExecLine("/usr/libexec/launchd", c.path, `["`+c.name+`","-c","whoami"]`)
 
-			e, ok := MapLine(eslFactory, []byte(line), nil)
+			e, ok := MapLine(eslFactory, []byte(line), nil, nil)
 			if !ok {
 				t.Fatal("이벤트로 바꾸지 못했다")
 			}
@@ -107,7 +108,7 @@ func TestMapLineExecInterpreterMakesScriptEvent(t *testing.T) {
 func TestMapLineExecPutsFullPathInArgv0(t *testing.T) {
 	line := eslExecLine("/bin/bash", "/tmp/evil.sh", `["evil.sh","--quiet"]`)
 
-	e, ok := MapLine(eslFactory, []byte(line), nil)
+	e, ok := MapLine(eslFactory, []byte(line), nil, nil)
 	if !ok {
 		t.Fatal("이벤트로 바꾸지 못했다")
 	}
@@ -122,7 +123,7 @@ func TestMapLineExecPutsFullPathInArgv0(t *testing.T) {
 func TestMapLineExecWithoutArgsUsesExecutablePath(t *testing.T) {
 	line := eslExecLine("/bin/zsh", "/usr/bin/whoami", `[]`)
 
-	e, ok := MapLine(eslFactory, []byte(line), nil)
+	e, ok := MapLine(eslFactory, []byte(line), nil, nil)
 	if !ok {
 		t.Fatal("이벤트로 바꾸지 못했다")
 	}
@@ -135,7 +136,7 @@ func TestMapLineExecRedactsSecrets(t *testing.T) {
 	args := `["curl","--password","hunter2","--api-key=abcd1234","-u","lab","--token","t0k3n","--secret_key=zzz"]`
 	line := eslExecLine("/bin/zsh", "/usr/bin/curl", args)
 
-	e, ok := MapLine(eslFactory, []byte(line), nil)
+	e, ok := MapLine(eslFactory, []byte(line), nil, nil)
 	if !ok {
 		t.Fatal("이벤트로 바꾸지 못했다")
 	}
@@ -149,7 +150,7 @@ func TestMapLineExecRedactsSecrets(t *testing.T) {
 func TestMapLineExecRedactionDoesNotCascade(t *testing.T) {
 	line := eslExecLine("/bin/zsh", "/usr/bin/tool", `["tool","--token","--verbose","--quiet"]`)
 
-	e, ok := MapLine(eslFactory, []byte(line), nil)
+	e, ok := MapLine(eslFactory, []byte(line), nil, nil)
 	if !ok {
 		t.Fatal("이벤트로 바꾸지 못했다")
 	}
@@ -218,7 +219,7 @@ func TestMapLineFileEventsInsideWatchPaths(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			e, ok := MapLine(eslFactory, []byte(c.line), watch)
+			e, ok := MapLine(eslFactory, []byte(c.line), watch, nil)
 			if !ok {
 				t.Fatal("이벤트로 바꾸지 못했다")
 			}
@@ -233,6 +234,88 @@ func TestMapLineFileEventsInsideWatchPaths(t *testing.T) {
 				t.Errorf("Cmdline = %q, want %q", e.Cmdline, c.wantCmd)
 			}
 		})
+	}
+}
+
+// pid 와 ppid 는 둘 다 target 에서 나와야 한다. 우리가 보고하는 프로세스가 target 이다.
+func TestMapLineExecCarriesIdentifiers(t *testing.T) {
+	line := eslExecLine("/bin/zsh", "/usr/bin/curl", `["curl","-fsSL","https://example.test/x"]`)
+
+	e, ok := MapLine(eslFactory, []byte(line), nil, nil)
+	if !ok {
+		t.Fatal("이벤트로 바꾸지 못했다")
+	}
+	// eslExecLine 의 target 은 audit_token.pid 4242, ppid 501 이다.
+	if e.Detail != `{"pid":4242,"ppid":501}` {
+		t.Errorf("Detail = %q, want pid 4242 / ppid 501", e.Detail)
+	}
+}
+
+// exec 시점의 이미지는 커널이 이미 읽어 올린 파일이라 완성돼 있다. 그때만 해시를 붙인다.
+func TestMapLineExecCarriesSHA256(t *testing.T) {
+	content := []byte("#!/bin/sh\necho hi\n")
+	path := writeFile(t, "tool", content)
+	line := eslExecLine("/bin/zsh", path, `["tool"]`)
+
+	e, ok := MapLine(eslFactory, []byte(line), nil, NewFileHasher())
+	if !ok {
+		t.Fatal("이벤트로 바꾸지 못했다")
+	}
+	if e.SHA256 != wantSHA(content) {
+		t.Errorf("SHA256 = %q, want %q", e.SHA256, wantSHA(content))
+	}
+
+	// 해시기를 안 주면 그 자리만 빈다. 이벤트는 그대로 나가야 한다.
+	e, ok = MapLine(eslFactory, []byte(line), nil, nil)
+	if !ok || e.SHA256 != "" {
+		t.Errorf("해시기 없이 만든 이벤트 = %+v", e)
+	}
+}
+
+func TestMapLineFileEventsCarryAction(t *testing.T) {
+	watch := []string{"/Library/LaunchAgents", "/Library/LaunchDaemons"}
+
+	cases := map[string]struct {
+		line       string
+		wantAction string
+	}{
+		"create": {eslCreateLine("/Library/LaunchAgents", "com.evil.plist"), event.FileActionCreate},
+		"rename": {eslRenameLine("/tmp/staged.plist", "/Library/LaunchAgents", "com.moved.plist"), event.FileActionRename},
+		"unlink": {eslUnlinkLine("/Library/LaunchDaemons/com.gone.plist"), event.FileActionDelete},
+	}
+
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			e, ok := MapLine(eslFactory, []byte(c.line), watch, NewFileHasher())
+			if !ok {
+				t.Fatal("이벤트로 바꾸지 못했다")
+			}
+			want := `{"action":"` + c.wantAction + `"}`
+			if e.Detail != want {
+				t.Errorf("Detail = %q, want %q", e.Detail, want)
+			}
+			// 파일 이벤트에는 해시를 붙이지 않는다. 그 시점의 파일은 아직 다 안 쓰였을 수 있고,
+			// 부분 내용의 해시는 없는 것보다 나쁘다(eslFileEvent 주석).
+			if e.SHA256 != "" {
+				t.Errorf("SHA256 = %q, 파일 이벤트에는 붙이지 않는다", e.SHA256)
+			}
+		})
+	}
+}
+
+// 실제로 존재하는 파일이어도 파일 이벤트면 해시를 뜨지 않는다.
+// 부분 기록 문제 때문에 내린 판단이라 "읽을 수 있으면 붙인다" 로 미끄러지지 않아야 한다.
+func TestMapLineFileEventNeverHashesExistingFile(t *testing.T) {
+	path := writeFile(t, "com.evil.plist", []byte("<plist/>"))
+	dir, name := filepath.Split(path)
+	line := eslCreateLine(strings.TrimSuffix(dir, "/"), name)
+
+	e, ok := MapLine(eslFactory, []byte(line), []string{strings.TrimSuffix(dir, "/")}, NewFileHasher())
+	if !ok {
+		t.Fatal("이벤트로 바꾸지 못했다")
+	}
+	if e.SHA256 != "" {
+		t.Errorf("SHA256 = %q, 파일 이벤트에는 붙이지 않는다", e.SHA256)
 	}
 }
 
@@ -254,7 +337,7 @@ func TestMapLineFileEventsOutsideWatchPathsAreDropped(t *testing.T) {
 			if i == 2 {
 				w = nil
 			}
-			if _, ok := MapLine(eslFactory, []byte(c.line), w); ok {
+			if _, ok := MapLine(eslFactory, []byte(c.line), w, nil); ok {
 				t.Error("감시 대상이 아닌데 이벤트가 나왔다")
 			}
 		})
@@ -268,7 +351,7 @@ func TestMapLineCreateWithExistingFileDestination(t *testing.T) {
 		`"event":{"create":{"destination_type":0,"destination":{"existing_file":` +
 		`{"path":"/Library/LaunchAgents/com.exists.plist","path_truncated":false}}}}}`
 
-	e, ok := MapLine(eslFactory, []byte(line), []string{"/Library/LaunchAgents"})
+	e, ok := MapLine(eslFactory, []byte(line), []string{"/Library/LaunchAgents"}, nil)
 	if !ok {
 		t.Fatal("이벤트로 바꾸지 못했다")
 	}
@@ -292,7 +375,7 @@ func TestMapLineRejectsBadInput(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if _, ok := MapLine(eslFactory, []byte(c.line), []string{"/Library/LaunchAgents"}); ok {
+			if _, ok := MapLine(eslFactory, []byte(c.line), []string{"/Library/LaunchAgents"}, nil); ok {
 				t.Error("이벤트가 나오면 안 된다")
 			}
 		})
@@ -305,7 +388,7 @@ func TestMapLineWithoutTimeStillEmits(t *testing.T) {
 		`"event":{"exec":{"args":["ls"],"target":{"executable":{"path":"/bin/ls"}}}}}`
 
 	before := time.Now().UnixMilli()
-	e, ok := MapLine(eslFactory, []byte(line), nil)
+	e, ok := MapLine(eslFactory, []byte(line), nil, nil)
 	if !ok {
 		t.Fatal("이벤트로 바꾸지 못했다")
 	}
@@ -359,7 +442,7 @@ func TestMapLineFileEventUnderExpandedHome(t *testing.T) {
 	watch := ExpandWatchPaths([]string{"~/Library/LaunchAgents"})
 	line := eslCreateLine(home+"/Library/LaunchAgents", "com.user.plist")
 
-	e, ok := MapLine(eslFactory, []byte(line), watch)
+	e, ok := MapLine(eslFactory, []byte(line), watch, nil)
 	if !ok {
 		t.Fatal("확장한 감시 경로에 걸리지 않았다")
 	}

@@ -25,6 +25,8 @@ func platformSensors(factory event.Factory, cfg transport.ServerConfig, log *slo
 		WatchPaths: cfg.WatchPaths,
 		Sensors:    cfg.Sensors,
 		Logger:     log,
+		// 해시기는 이 센서만 쓴다. 실행 이미지에만 해시를 붙이기 때문이다(MapFile 주석).
+		Hasher: sensor.NewFileHasher(),
 	}
 	sensors := []runtime.Sensor{etwSensor}
 

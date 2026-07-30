@@ -29,6 +29,9 @@ const (
 
 	portDNS   = 53
 	portHTTPS = 443
+	// portHTTP 는 평문 HTTP 다. 요즘 트래픽 대부분이 HTTPS 라 양이 적고, 평문이라
+	// 목적지 호스트와 요청 경로가 그대로 보인다.
+	portHTTP = 80
 )
 
 // CaptureFilter 는 커널에 걸 BPF 프로그램을 만든다.
@@ -77,6 +80,12 @@ func CaptureFilter() ([]bpf.RawInstruction, error) {
 	a.mark("v4tcp")
 	a.emit(bpf.LoadIndirect{Off: etherHeaderLen + 2, Size: 2}) // dst port
 	a.jeq(portHTTPS, "accept")
+	a.jeq(portHTTP, "accept")
+	// HTTP 는 출발지 80 도 받는다. 응답의 상태 코드가 조사에 쓸모가 있어서다.
+	// TLS 를 나가는 쪽만 보는 것과 다른 점인데, 서버가 보내는 것은 인증서뿐이고 그건
+	// TLS 1.3 에서 암호화돼 어차피 못 읽기 때문이다.
+	a.emit(bpf.LoadIndirect{Off: etherHeaderLen + 0, Size: 2}) // src port
+	a.jeq(portHTTP, "accept")
 	a.jump("reject")
 
 	a.mark("ipv6")
@@ -95,6 +104,9 @@ func CaptureFilter() ([]bpf.RawInstruction, error) {
 	a.mark("v6tcp")
 	a.emit(bpf.LoadAbsolute{Off: etherHeaderLen + ipv6HeaderLen + 2, Size: 2})
 	a.jeq(portHTTPS, "accept")
+	a.jeq(portHTTP, "accept")
+	a.emit(bpf.LoadAbsolute{Off: etherHeaderLen + ipv6HeaderLen + 0, Size: 2})
+	a.jeq(portHTTP, "accept")
 	a.jump("reject")
 
 	// 반환값은 커널이 넘겨줄 바이트 수다. 0 이면 그 패킷은 버려진다.

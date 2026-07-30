@@ -97,9 +97,11 @@ func (s *L7Sensor) handle(frame []byte, assembler *packet.Assembler, now time.Ti
 	}
 	switch {
 	case flow.Protocol == "udp" && (flow.SrcPort == portDNS || flow.DstPort == portDNS):
-		return s.dnsEvent(payload, now)
+		return s.dnsEvent(flow, payload, now)
 	case flow.Protocol == "tcp" && flow.DstPort == portHTTPS:
 		return s.tlsEvent(flow, payload, assembler, now)
+	case flow.Protocol == "tcp" && (flow.DstPort == portHTTP || flow.SrcPort == portHTTP):
+		return s.httpEvent(flow, payload, now)
 	}
 	return event.Event{}, false
 }
@@ -119,7 +121,7 @@ func (s *L7Sensor) handle(frame []byte, assembler *packet.Assembler, now time.Ti
 // mDNSResponder 가 나오고, 그건 실제로 질의한 앱이 아니다. 틀린 프로세스를 채우면 조사하는
 // 사람이 그 값을 믿고 엉뚱한 결론을 내므로, 비워 두는 편이 낫다. 진짜 질의자는 같은 시각의
 // l7 이벤트나 network 이벤트에서 찾아야 한다.
-func (s *L7Sensor) dnsEvent(payload []byte, now time.Time) (event.Event, bool) {
+func (s *L7Sensor) dnsEvent(flow packet.Flow, payload []byte, now time.Time) (event.Event, bool) {
 	msg, ok := packet.ParseDNS(payload)
 	if !ok || !msg.IsResponse {
 		return event.Event{}, false
@@ -129,7 +131,9 @@ func (s *L7Sensor) dnsEvent(payload []byte, now time.Time) (event.Event, bool) {
 	if len(msg.Answers) > 0 {
 		detail["answers"] = msg.Answers
 	}
-	return s.Factory.DNS(now, "", msg.Domain, detail), true
+	// 프로토콜은 지어내지 않고 패킷에서 본 것을 그대로 쓴다. 이 자리에 오는 것은 UDP 뿐이지만
+	// (handle 의 분기) 관측한 값을 넘기면 나중에 TCP DNS 를 받게 돼도 저절로 맞는다.
+	return s.Factory.DNS(now, event.DNSInfo{Protocol: flow.Protocol, Domain: msg.Domain}, detail), true
 }
 
 // tlsEvent 는 ClientHello 가 완성되면 이벤트를 만든다.
@@ -155,14 +159,82 @@ func (s *L7Sensor) tlsEvent(flow packet.Flow, payload []byte, assembler *packet.
 	}
 	// 주인을 못 찾아도 이벤트는 낸다. 어느 도메인에 접속했는지는 프로세스를 몰라도 쓸모가 있다.
 
-	detail := map[string]any{}
+	detail := map[string]any{"l7Protocol": l7ProtocolTLS}
 	if hello.Version != "" {
 		detail["tlsVersion"] = hello.Version
 	}
 	if len(hello.ALPN) > 0 {
 		detail["alpn"] = hello.ALPN
 	}
-	return s.Factory.L7(now, process, hello.SNI, flow.DstIP, flow.DstPort, detail), true
+	return s.Factory.L7(now, event.L7Info{
+		ProcessPath: process,
+		Protocol:    flow.Protocol,
+		Domain:      hello.SNI,
+		DestIP:      flow.DstIP,
+		DestPort:    flow.DstPort,
+	}, detail), true
+}
+
+// l7 이벤트가 어느 프로토콜에서 나왔는지 표시하는 값.
+// 한 타입에 TLS 와 HTTP 가 같이 들어오므로 이게 없으면 조사할 때 둘을 구분할 수 없다.
+const (
+	l7ProtocolTLS  = "TLS"
+	l7ProtocolHTTP = "HTTP"
+)
+
+// httpEvent 는 평문 HTTP 에서 이벤트를 만든다.
+//
+// TLS 와 달리 응답도 받는다. 상태 코드가 조사에 쓸모가 있어서다. TLS 쪽 응답에 든 것은
+// 인증서뿐인데 그건 TLS 1.3 에서 암호화돼 어차피 못 읽는다.
+//
+// **재조립하지 않는다.** 요청 라인과 Host 는 헤더 맨 앞이라 첫 세그먼트에 거의 항상 들어온다.
+// 조립기는 TLS 전용이라(첫 바이트가 핸드셰이크인지 보고 거른다) 여기 그대로 쓸 수 없다.
+// 아주 긴 헤더가 쪼개지면 뒤쪽 값을 놓치지만 그때도 "어디에 접속했나" 는 남는다.
+//
+// 요청과 응답이 한 연결에서 둘 다 잡히면 이벤트가 두 건 나간다. 같은 값이 겹쳐 올라오는 것이
+// 아니라 서로 다른 사실(무엇을 요청했나, 서버가 뭐라 답했나)이라 그대로 둔다.
+func (s *L7Sensor) httpEvent(flow packet.Flow, payload []byte, now time.Time) (event.Event, bool) {
+	msg, ok := packet.ParseHTTP(payload)
+	if !ok {
+		return event.Event{}, false // 80 번을 쓰는 다른 프로토콜이거나 헤더가 아닌 조각이다
+	}
+	// Host 없는 요청은 어느 도메인에 갔는지 말해 주지 않는다. TLS 에서 SNI 없는 핸드셰이크를
+	// 버리는 것과 같은 이유다. 목적지 IP 는 network 이벤트에 이미 있으므로 잃는 것이 없다.
+	// 응답은 예외다. Host 헤더가 원래 없고, 이 이벤트의 값은 상태 코드다.
+	if !msg.IsResponse && msg.Host == "" {
+		return event.Event{}, false
+	}
+
+	// 프로세스는 요청을 낸 쪽에서만 찾는다. 응답 패킷의 출발지 포트는 서버 것이라
+	// 그 값으로 로컬 소켓을 뒤지면 엉뚱한 프로세스가 나오거나 아무것도 안 나온다.
+	var process string
+	if s.Owner != nil && !msg.IsResponse {
+		process = s.Owner.Lookup(flow.SrcPort, flow.DstIP, flow.DstPort)
+	}
+
+	detail := map[string]any{"l7Protocol": l7ProtocolHTTP}
+	putDetail(detail, "httpMethod", msg.Method)
+	putDetail(detail, "httpPath", msg.Path)
+	putDetail(detail, "httpUserAgent", msg.UserAgent)
+	if msg.StatusCode > 0 {
+		detail["httpStatusCode"] = msg.StatusCode
+	}
+
+	return s.Factory.L7(now, event.L7Info{
+		ProcessPath: process,
+		Protocol:    flow.Protocol,
+		// Host 헤더를 도메인 자리에 넣는다. TLS 의 SNI 와 같은 뜻이라 한 컬럼으로 조회된다.
+		Domain:   msg.Host,
+		DestIP:   flow.DstIP,
+		DestPort: flow.DstPort,
+	}, detail), true
+}
+
+// putDetail 은 빈 값이 아닌 것만 담는다. 빈 문자열이 쌓이면 조사 화면에서 걸러 낼 수 없다.
+func putDetail(detail map[string]any, key, value string) {
+	if value != "" {
+		detail[key] = value
+	}
 }
 
 func (s *L7Sensor) log() *slog.Logger {

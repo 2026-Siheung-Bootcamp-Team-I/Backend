@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -148,6 +149,10 @@ func TestL7SensorEmitsDNSResponse(t *testing.T) {
 	if detail["queryType"] != "A" {
 		t.Errorf("queryType = %v", detail["queryType"])
 	}
+	// 프로토콜은 지어낸 값이 아니라 패킷에서 본 것이다.
+	if detail["protocol"] != "udp" {
+		t.Errorf("protocol = %v, want udp", detail["protocol"])
+	}
 	answers, _ := detail["answers"].([]any)
 	if len(answers) != 2 || answers[0] != "93.184.216.34" || answers[1] != "93.184.216.35" {
 		t.Errorf("answers = %v", detail["answers"])
@@ -208,6 +213,9 @@ func TestL7SensorEmitsSNIWithProcess(t *testing.T) {
 		t.Errorf("목적지 = %s:%d", e.DestIP, e.DestPort)
 	}
 	detail := decodeDetail(t, e.Detail)
+	if detail["protocol"] != "tcp" {
+		t.Errorf("protocol = %v, want tcp", detail["protocol"])
+	}
 	if detail["tlsVersion"] != "TLS 1.3" {
 		t.Errorf("tlsVersion = %v", detail["tlsVersion"])
 	}
@@ -298,6 +306,7 @@ func TestL7SensorIgnoresUnrelatedTraffic(t *testing.T) {
 	// 필터가 커널에서 거르지만 인터페이스를 공유하는 다른 캡처가 섞여 들어올 수 있다.
 	s, src := newTestSensor(nil)
 	got := runSensor(t, s, src,
+		// Host 가 없어 어느 도메인에 갔는지 말해 주지 않는 요청. 목적지 IP 는 network 이벤트에 있다.
 		ipv4Frame(testSrcIP, testDstIP, tcpSegment(testSrcPrt, 80, []byte("GET / HTTP/1.1\r\n\r\n"))),
 		ipv4Frame(testSrcIP, testResIP, udpSegment(testSrcPrt, 123, make([]byte, 48))),
 		// 443 에서 들어오는 쪽. ServerHello 는 SNI 를 담지 않는다.
@@ -439,4 +448,100 @@ func clientHello(t *testing.T, sni string) []byte {
 		t.Fatalf("ClientHello 를 읽지 못했다: %v", err)
 	}
 	return buf[:n]
+}
+
+// 평문 HTTP 도 수집한다. TLS 만 보면 암호화되지 않은 통신을 통째로 놓친다.
+func TestL7SensorEmitsHTTPRequest(t *testing.T) {
+	owner := &fakeOwner{byPort: map[int]string{testSrcPrt: "/usr/bin/curl"}}
+	s, src := newTestSensor(owner)
+
+	req := "GET /admin/panel?token=secret123#frag HTTP/1.1\r\n" +
+		"Host: internal.example.com\r\n" +
+		"User-Agent: curl/8.4.0\r\n" +
+		"Authorization: Bearer supersecret\r\n" +
+		"Cookie: session=abc\r\n\r\n"
+	frame := ipv4Frame(testSrcIP, testDstIP, tcpSegment(testSrcPrt, 80, []byte(req)))
+
+	got := runSensor(t, s, src, frame)
+	if len(got) != 1 {
+		t.Fatalf("이벤트 %d 개: %+v", len(got), got)
+	}
+
+	e := got[0]
+	if e.Type != event.TypeL7 {
+		t.Errorf("타입 = %q, want %q", e.Type, event.TypeL7)
+	}
+	// 도메인 자리에는 Host 가 온다. TLS 의 SNI 와 같은 뜻이라 한 컬럼으로 조회된다.
+	if e.Domain != "internal.example.com" {
+		t.Errorf("도메인 = %q", e.Domain)
+	}
+	if e.Process != "curl" {
+		t.Errorf("프로세스 = %q", e.Process)
+	}
+	if e.DestPort != 80 {
+		t.Errorf("목적지 포트 = %d", e.DestPort)
+	}
+
+	detail := decodeDetail(t, e.Detail)
+	if detail["l7Protocol"] != "HTTP" {
+		t.Errorf("l7Protocol = %v, want HTTP", detail["l7Protocol"])
+	}
+	if detail["httpMethod"] != "GET" {
+		t.Errorf("httpMethod = %v", detail["httpMethod"])
+	}
+	if detail["httpUserAgent"] != "curl/8.4.0" {
+		t.Errorf("httpUserAgent = %v", detail["httpUserAgent"])
+	}
+
+	// 질의 문자열에는 토큰과 세션 값이 흔히 들어간다. 그걸 서버로 옮기면 수집이 아니라 감시다.
+	path, _ := detail["httpPath"].(string)
+	if path != "/admin/panel" {
+		t.Errorf("httpPath = %q, 질의 문자열이 떨어져야 한다", path)
+	}
+	// 자격증명 헤더는 애초에 읽지 않는다. detail 어디에도 남으면 안 된다.
+	if strings.Contains(e.Detail, "supersecret") || strings.Contains(e.Detail, "session=abc") {
+		t.Errorf("자격증명이 새어 나갔다: %s", e.Detail)
+	}
+}
+
+func TestL7SensorEmitsHTTPResponse(t *testing.T) {
+	// 응답의 상태 코드는 조사에 쓸모가 있다. 출발지 80 도 받는 이유다.
+	s, src := newTestSensor(&fakeOwner{byPort: map[int]string{}})
+	resp := "HTTP/1.1 404 Not Found\r\nContent-Type: text/html\r\n\r\n"
+	frame := ipv4Frame(testDstIP, testSrcIP, tcpSegment(80, testSrcPrt, []byte(resp)))
+
+	got := runSensor(t, s, src, frame)
+	if len(got) != 1 {
+		t.Fatalf("이벤트 %d 개: %+v", len(got), got)
+	}
+	detail := decodeDetail(t, got[0].Detail)
+	if detail["httpStatusCode"] != float64(404) {
+		t.Errorf("httpStatusCode = %v", detail["httpStatusCode"])
+	}
+}
+
+// TLS 이벤트에도 어느 프로토콜인지 표시가 있어야 HTTP 와 구분된다.
+func TestL7SensorMarksTLSProtocol(t *testing.T) {
+	s, src := newTestSensor(&fakeOwner{byPort: map[int]string{}})
+	frame := ipv4Frame(testSrcIP, testDstIP,
+		tcpSegment(testSrcPrt, 443, clientHello(t, "example.com")))
+
+	got := runSensor(t, s, src, frame)
+	if len(got) != 1 {
+		t.Fatalf("이벤트 %d 개", len(got))
+	}
+	if detail := decodeDetail(t, got[0].Detail); detail["l7Protocol"] != "TLS" {
+		t.Errorf("l7Protocol = %v, want TLS", detail["l7Protocol"])
+	}
+}
+
+// 80 번이라고 아무 바이트나 HTTP 로 보면 안 된다.
+func TestL7SensorIgnoresNonHTTPOnPort80(t *testing.T) {
+	s, src := newTestSensor(&fakeOwner{byPort: map[int]string{}})
+	frame := ipv4Frame(testSrcIP, testDstIP,
+		tcpSegment(testSrcPrt, 80, []byte{0x16, 0x03, 0x01, 0x00, 0x05, 1, 2, 3, 4, 5}))
+
+	if got := runSensor(t, s, src, frame); len(got) != 0 {
+		t.Errorf("HTTP 가 아닌데 이벤트 %d 개: %+v", len(got), got)
+	}
 }

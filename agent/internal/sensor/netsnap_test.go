@@ -148,6 +148,8 @@ func TestToEventsKeepsOnlyPublic(t *testing.T) {
 		Process:  "curl", // 전체 경로가 아니라 basename
 		DestIP:   "203.0.113.1",
 		DestPort: 443,
+		// 스냅샷은 established TCP 만 모으므로 프로토콜은 tcp 고정이다.
+		Detail: `{"pid":10,"protocol":"tcp"}`,
 	}
 	if got[0] != want {
 		t.Errorf("ToEvents[0] = %+v, want %+v", got[0], want)

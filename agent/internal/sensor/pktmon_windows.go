@@ -97,8 +97,14 @@ func OpenPktMonCapture(log *slog.Logger) (*PktMonCapture, error) {
 	if err := c.run("filter", "remove"); err != nil {
 		return nil, err
 	}
-	if err := c.run(pktMonFilterArgs(portHTTPS)...); err != nil {
-		return nil, err
+	// 포트마다 필터를 따로 건다. 하나라도 실패하면 우리가 건 것을 치우고 나간다.
+	// 반만 걸린 채로 두면 TLS 는 잡히고 HTTP 는 안 잡히는 상태가 되는데, 그게 왜 그런지
+	// 로그만 봐서는 알 수 없다.
+	for _, port := range []int{portHTTPS, portHTTP} {
+		if err := c.run(pktMonFilterArgs(port)...); err != nil {
+			c.runQuietly("filter", "remove")
+			return nil, err
+		}
 	}
 	if err := c.run(pktMonStartArgs(CaptureSnapLen, c.etlPath)...); err != nil {
 		// 필터만 남기고 나가지 않는다. 우리가 건 필터는 우리가 치운다.
@@ -171,16 +177,16 @@ func (c *PktMonCapture) deliver(userData []byte) {
 	}
 	c.stats.observe(frame)
 
-	// 나가는 쪽만 쓴다. SNI 는 ClientHello 에만 있고 그건 우리가 보내는 패킷이다.
-	// 들어오는 쪽까지 다 조립기에 넣으면 하는 일 없이 CPU 만 쓴다.
-	if pktMonInbound(frame.DirTag) {
-		c.stats.count(pktMonRejectInbound)
-		return
-	}
-
 	ethernet, reject := pktMonEthernetFrame(frame)
 	if reject != pktMonAccept {
 		c.stats.count(reject)
+		return
+	}
+
+	// 들어오는 쪽은 살릴 것만 남긴다. TLS 는 SNI 가 나가는 ClientHello 에만 있어서
+	// 들어오는 443 을 다 넘기면 하는 일 없이 CPU 만 쓴다. HTTP 응답은 상태 코드가 필요하다.
+	if pktMonInbound(frame.DirTag) && !pktMonKeepInbound(ethernet) {
+		c.stats.count(pktMonRejectInbound)
 		return
 	}
 

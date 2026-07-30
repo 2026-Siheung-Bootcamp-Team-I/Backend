@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"syscall"
@@ -31,7 +33,7 @@ func TestMapProcessDevicePath(t *testing.T) {
 		"CommandLine":     `"C:\Windows\System32\notepad.exe" C:\Users\a\memo.txt`,
 	}
 
-	got, ok := MapProcess(etwFactory, etwAt, props, fakeNamer{1000: `C:\Windows\explorer.exe`})
+	got, ok := MapProcess(etwFactory, etwAt, props, fakeNamer{1000: `C:\Windows\explorer.exe`}, nil)
 	if !ok {
 		t.Fatal("이벤트가 나오지 않았다")
 	}
@@ -43,6 +45,8 @@ func TestMapProcessDevicePath(t *testing.T) {
 		Parent:  "explorer.exe",
 		// argv0 는 명령행이 들고 있던 값이 아니라 실행 파일 경로로 바뀐다.
 		Cmdline: `\Device\HarddiskVolume4\Windows\System32\notepad.exe C:\Users\a\memo.txt`,
+		// ProcessID 와 ParentProcessID 를 그대로 옮긴다. parent 이름과 ppid 는 같은 값에서 나온다.
+		Detail: `{"pid":4242,"ppid":1000}`,
 	}
 	if got != want {
 		t.Errorf("got %+v, want %+v", got, want)
@@ -58,7 +62,7 @@ func TestMapProcessPrefersResolvedImagePath(t *testing.T) {
 		"CommandLine": `run.exe --quiet`,
 	}
 
-	got, ok := MapProcess(etwFactory, etwAt, props, fakeNamer{})
+	got, ok := MapProcess(etwFactory, etwAt, props, fakeNamer{}, nil)
 	if !ok {
 		t.Fatal("이벤트가 나오지 않았다")
 	}
@@ -115,7 +119,7 @@ func TestMapProcessPutsExecutablePathInArgv0(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			props := map[string]string{"ImageName": tc.image, "CommandLine": tc.cmd}
-			got, ok := MapProcess(etwFactory, etwAt, props, fakeNamer{})
+			got, ok := MapProcess(etwFactory, etwAt, props, fakeNamer{}, nil)
 			if !ok {
 				t.Fatal("이벤트가 나오지 않았다")
 			}
@@ -134,7 +138,7 @@ func TestMapProcessArgv0CarriesTempMarker(t *testing.T) {
 		"ImagePath":   `C:\Users\a\AppData\Local\Temp\evil.exe`,
 		"CommandLine": `evil.exe`,
 	}
-	got, ok := MapProcess(etwFactory, etwAt, props, fakeNamer{})
+	got, ok := MapProcess(etwFactory, etwAt, props, fakeNamer{}, nil)
 	if !ok {
 		t.Fatal("이벤트가 나오지 않았다")
 	}
@@ -147,7 +151,7 @@ func TestMapProcessArgv0CarriesTempMarker(t *testing.T) {
 // 전체 경로도 명령행도 못 구했으면 cmdline 은 비운다.
 // 파일명만 담아 봐야 판정에 쓸 값이 아니면서 responder 의 조치 대상만 흐려 놓는다.
 func TestMapProcessLeavesCmdlineEmptyWhenOnlyFilenameKnown(t *testing.T) {
-	got, ok := MapProcess(etwFactory, etwAt, map[string]string{"ImageName": "svchost.exe"}, fakeNamer{})
+	got, ok := MapProcess(etwFactory, etwAt, map[string]string{"ImageName": "svchost.exe"}, fakeNamer{}, nil)
 	if !ok {
 		t.Fatal("이벤트가 나오지 않았다")
 	}
@@ -179,7 +183,7 @@ func TestMapProcessImageNameWithoutPath(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, ok := MapProcess(etwFactory, etwAt, map[string]string{"ImageName": tc.image}, fakeNamer{})
+			got, ok := MapProcess(etwFactory, etwAt, map[string]string{"ImageName": tc.image}, fakeNamer{}, nil)
 			if !ok {
 				t.Fatal("이벤트가 나오지 않았다")
 			}
@@ -197,7 +201,7 @@ func TestMapProcessImageNameWithoutPath(t *testing.T) {
 // 비워 두지 않고 이미지 경로로 물러난다. detector 가 경로만으로도 판정할 수 있어야 한다.
 func TestMapProcessFallsBackToImageWhenNoCmdline(t *testing.T) {
 	image := `\Device\HarddiskVolume4\Users\a\Downloads\run.exe`
-	got, ok := MapProcess(etwFactory, etwAt, map[string]string{"ImageName": image}, fakeNamer{})
+	got, ok := MapProcess(etwFactory, etwAt, map[string]string{"ImageName": image}, fakeNamer{}, nil)
 	if !ok {
 		t.Fatal("이벤트가 나오지 않았다")
 	}
@@ -207,7 +211,7 @@ func TestMapProcessFallsBackToImageWhenNoCmdline(t *testing.T) {
 }
 
 func TestMapProcessDropsEventWithoutImage(t *testing.T) {
-	if _, ok := MapProcess(etwFactory, etwAt, map[string]string{"ProcessID": "10"}, fakeNamer{}); ok {
+	if _, ok := MapProcess(etwFactory, etwAt, map[string]string{"ProcessID": "10"}, fakeNamer{}, nil); ok {
 		t.Error("ImageName 없는 이벤트가 통과했다")
 	}
 }
@@ -247,7 +251,7 @@ func TestMapProcessParentResolution(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, ok := MapProcess(etwFactory, etwAt, tc.props, tc.namer)
+			got, ok := MapProcess(etwFactory, etwAt, tc.props, tc.namer, nil)
 			if !ok {
 				t.Fatal("이벤트가 나오지 않았다")
 			}
@@ -329,7 +333,7 @@ func TestMapProcessRedactsCmdline(t *testing.T) {
 		"ImageName":   "powershell.exe",
 		"CommandLine": `powershell.exe -EncodedCommand SQBFAFgA`,
 	}
-	got, ok := MapProcess(etwFactory, etwAt, props, fakeNamer{})
+	got, ok := MapProcess(etwFactory, etwAt, props, fakeNamer{}, nil)
 	if !ok {
 		t.Fatal("이벤트가 나오지 않았다")
 	}
@@ -352,6 +356,8 @@ func TestMapNetwork(t *testing.T) {
 		Process:  "curl.exe",
 		DestIP:   "203.0.113.7",
 		DestPort: 443,
+		// 프로토콜은 tcp 고정이다. 이 프로바이더에서 UDP 이벤트는 구독하지 않는다.
+		Detail: `{"pid":4242,"protocol":"tcp"}`,
 	}
 	if got != want {
 		t.Errorf("got %+v, want %+v", got, want)
@@ -454,7 +460,47 @@ func TestMapFile(t *testing.T) {
 			if got.Cmdline != tc.path {
 				t.Errorf("cmdline = %q, want %q", got.Cmdline, tc.path)
 			}
+			// 켜 둔 Kernel-File 이벤트가 CreateNewFile 하나뿐이라 동작은 CREATE 고정이다.
+			if got.Detail != `{"action":"CREATE"}` {
+				t.Errorf("detail = %q, want action CREATE", got.Detail)
+			}
 		})
+	}
+}
+
+// 프로세스 이벤트에는 해시를 붙이고 파일 이벤트에는 붙이지 않는다.
+// 방금 만들어진 파일은 아직 다 안 쓰였을 수 있고, 부분 내용의 해시는 없는 것보다 나쁘다.
+func TestMapProcessCarriesSHA256(t *testing.T) {
+	content := []byte("MZ fake image")
+	path := writeFile(t, "run.exe", content)
+
+	props := map[string]string{"ImageName": "run.exe", "ImagePath": path, "CommandLine": "run.exe --quiet"}
+	got, ok := MapProcess(etwFactory, etwAt, props, fakeNamer{}, NewFileHasher())
+	if !ok {
+		t.Fatal("이벤트가 나오지 않았다")
+	}
+	if got.SHA256 != wantSHA(content) {
+		t.Errorf("SHA256 = %q, want %q", got.SHA256, wantSHA(content))
+	}
+}
+
+// ImageName 으로 물러난 값은 "svchost.exe" 처럼 파일명뿐이다. 그대로 열면 에이전트의 작업
+// 디렉터리 기준 상대 경로가 되어 엉뚱한 파일의 해시가 붙는다. 그런 값은 아예 열지 않는다.
+func TestMapProcessDoesNotHashBareFileName(t *testing.T) {
+	dir := t.TempDir()
+	name := "svchost.exe"
+	if err := os.WriteFile(filepath.Join(dir, name), []byte("함정"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// 작업 디렉터리를 그 함정 파일이 있는 곳으로 옮긴다. 상대 경로로 열면 이게 잡힌다.
+	t.Chdir(dir)
+
+	got, ok := MapProcess(etwFactory, etwAt, map[string]string{"ImageName": name}, fakeNamer{}, NewFileHasher())
+	if !ok {
+		t.Fatal("이벤트가 나오지 않았다")
+	}
+	if got.SHA256 != "" {
+		t.Errorf("SHA256 = %q, 파일명만 아는 값은 열면 안 된다", got.SHA256)
 	}
 }
 
@@ -637,7 +683,20 @@ func TestDNSQueryTypeLabel(t *testing.T) {
 
 // QueryType 속성이 없으면 detail 에 빈 값을 넣지 않는다.
 func TestMapDNSOmitsUnknownDetailFields(t *testing.T) {
-	got, ok := MapDNS(etwFactory, etwAt, map[string]string{"QueryName": "example.com"}, 1, fakeNamer{})
+	props := map[string]string{"QueryName": "example.com"}
+
+	got, ok := MapDNS(etwFactory, etwAt, props, 1, fakeNamer{})
+	if !ok {
+		t.Fatal("이벤트가 나오지 않았다")
+	}
+	// pid 는 관측한 값이라 남고, 나머지는 속성이 없으니 키 자체가 없어야 한다.
+	// protocol 도 없다. DNS-Client 프로바이더는 질의가 UDP 인지 TCP 인지 알려 주지 않는다.
+	if got.Detail != `{"pid":1}` {
+		t.Errorf("detail = %q, want {\"pid\":1}", got.Detail)
+	}
+
+	// 헤더에서 PID 를 못 꺼내면 담을 것이 하나도 없다.
+	got, ok = MapDNS(etwFactory, etwAt, props, 0, fakeNamer{})
 	if !ok {
 		t.Fatal("이벤트가 나오지 않았다")
 	}
@@ -807,7 +866,7 @@ func TestPIDCacheIsBounded(t *testing.T) {
 
 // 프로바이더 버전에 따라 속성 이름 표기가 흔들려도 조용히 0건이 되면 안 된다.
 func TestPropIsCaseInsensitiveFallback(t *testing.T) {
-	got, ok := MapProcess(etwFactory, etwAt, map[string]string{"imagename": "cmd.exe", "parentprocessid": "7"}, fakeNamer{7: "explorer.exe"})
+	got, ok := MapProcess(etwFactory, etwAt, map[string]string{"imagename": "cmd.exe", "parentprocessid": "7"}, fakeNamer{7: "explorer.exe"}, nil)
 	if !ok {
 		t.Fatal("이벤트가 나오지 않았다")
 	}

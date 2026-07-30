@@ -341,3 +341,27 @@ func hasArgPair(args []string, flag, value string) bool {
 	}
 	return false
 }
+
+// 들어오는 프레임을 방향만 보고 자르면 HTTP 응답의 상태 코드를 잃는다.
+// 반대로 다 살리면 HTTPS 다운로드 트래픽까지 유저 공간으로 올라온다. 포트로 가린다.
+func TestPktMonKeepInbound(t *testing.T) {
+	cases := map[string]struct {
+		frame []byte
+		want  bool
+	}{
+		"HTTP 응답 (출발지 80)": {ipv4Frame("93.184.216.34", "10.0.0.5", tcpSegment(80, 51000, nil)), true},
+		"HTTP 요청 (목적지 80)": {ipv4Frame("10.0.0.5", "93.184.216.34", tcpSegment(51000, 80, nil)), true},
+		"TLS 응답 (출발지 443)": {ipv4Frame("93.184.216.34", "10.0.0.5", tcpSegment(443, 51000, nil)), false},
+		"DNS 응답 (UDP)":     {ipv4Frame("1.1.1.1", "10.0.0.5", udpSegment(53, 51000, nil)), false},
+		"IPv6 HTTP 응답":     {ipv6Frame("2001:db8::2", "2001:db8::1", tcpSegment(80, 51000, nil)), true},
+		"파싱 안 되는 바이트":      {[]byte{1, 2, 3}, false},
+		"빈 프레임":            {nil, false},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := pktMonKeepInbound(tc.frame); got != tc.want {
+				t.Errorf("살림 = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

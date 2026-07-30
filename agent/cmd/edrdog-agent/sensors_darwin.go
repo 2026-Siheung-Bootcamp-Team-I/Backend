@@ -24,6 +24,8 @@ func platformSensors(factory event.Factory, cfg transport.ServerConfig, log *slo
 			Factory:    factory,
 			WatchPaths: cfg.WatchPaths,
 			Logger:     log,
+			// 해시기는 이 센서만 쓴다. 실행 이미지에만 해시를 붙이기 때문이다(eslFileEvent 주석).
+			Hasher: sensor.NewFileHasher(),
 		})
 	}
 	if cfg.Enabled("network") {

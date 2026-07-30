@@ -210,7 +210,8 @@ func TestSendEventsPostsEnvelope(t *testing.T) {
 	c := enrolled(t, s)
 
 	f := event.Factory{Host: "mac-1"}
-	err := c.SendEvents(context.Background(), []event.Event{f.Process(time.Unix(1, 0), "/bin/sh", "sh", "bash")})
+	e := f.Process(time.Unix(1, 0), event.ProcessInfo{Path: "/bin/sh", Cmdline: "sh", Parent: "bash"})
+	err := c.SendEvents(context.Background(), []event.Event{e})
 	if err != nil {
 		t.Fatalf("SendEvents: %v", err)
 	}

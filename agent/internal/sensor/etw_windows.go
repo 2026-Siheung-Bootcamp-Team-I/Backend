@@ -128,6 +128,8 @@ type ETWSensor struct {
 	Sensors map[string]bool
 	// Logger 가 비면 slog.Default() 를 쓴다.
 	Logger *slog.Logger
+	// Hasher 가 있으면 프로세스 이벤트에 실행 이미지의 sha256 을 붙인다. nil 이면 붙이지 않는다.
+	Hasher *FileHasher
 
 	// PktMon 이 있으면 패킷 캡처 프로바이더를 같은 세션에 붙이고 프레임을 이쪽으로 넘긴다.
 	// nil 이면 캡처를 못 열었다는 뜻이라 프로바이더도 켜지 않는다.
@@ -401,7 +403,7 @@ func (s *ETWSensor) convert(raw *etw.Event, guids map[string]string) (event.Even
 			s.starts.Add(1)
 			props := properties(raw)
 			s.enrichProcess(props)
-			return MapProcess(s.Factory, at, props, procInfo)
+			return MapProcess(s.Factory, at, props, procInfo, s.Hasher)
 		case eventProcessStop:
 			// 종료는 이벤트로 내보내지 않는다. 서버 스키마에 해당 타입이 없다. 세기만 한다.
 			s.stops.Add(1)
@@ -479,6 +481,12 @@ func (s *ETWSensor) reportHealth() {
 
 	if s.PktMon != nil {
 		s.PktMon.ReportHealth()
+	}
+	if s.Hasher != nil {
+		// 해시가 전부 비어 있을 때 원인이 권한 부족인지 크기 상한인지 로그만 보고 가려야 한다.
+		h := s.Hasher.Stats()
+		s.logger().Info("실행 파일 해시 상태",
+			"hashed", h.Hashed, "cached", h.Cached, "failed", h.Failed, "tooBig", h.TooBig)
 	}
 	if s.Flows != nil {
 		// 이 비율이 Windows 쪽 프로세스 귀속이 실제로 먹는지를 말해 준다. 낮으면 연결

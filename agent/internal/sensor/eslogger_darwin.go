@@ -34,6 +34,10 @@ const (
 
 	// eslStderrKeep 은 오류 메시지에 붙일 stderr 마지막 줄 수다.
 	eslStderrKeep = 5
+
+	// eslHashHealthInterval 은 해시 집계를 로그로 남기는 주기다.
+	// ETW 센서의 etwHealthInterval 과 같은 값으로 맞춰 두 플랫폼의 로그가 같은 리듬으로 나오게 한다.
+	eslHashHealthInterval = time.Minute
 )
 
 // ESLoggerSensor 는 /usr/bin/eslogger 를 자식 프로세스로 띄워 EndpointSecurity 이벤트를 읽는다.
@@ -48,6 +52,8 @@ type ESLoggerSensor struct {
 	ESLoggerPath string
 	// Logger 가 비면 slog.Default() 를 쓴다.
 	Logger *slog.Logger
+	// Hasher 가 있으면 exec 이벤트에 실행 이미지의 sha256 을 붙인다. nil 이면 붙이지 않는다.
+	Hasher *FileHasher
 }
 
 // Name 은 센서 이름이다.
@@ -66,6 +72,12 @@ func (s *ESLoggerSensor) Run(ctx context.Context, out chan<- event.Event) error 
 	watch := ExpandWatchPaths(s.WatchPaths)
 	log := s.logger()
 	log.Info("eslogger 센서 시작", "path", binPath, "events", eslEventTypes, "watchPaths", watch)
+
+	// 해시 집계를 주기적으로 남긴다. 해시가 전부 비어 있을 때 그 원인이 권한 부족인지 크기
+	// 상한인지 로그만 보고 가릴 수 있어야 한다. ctx 가 끝나면 같이 멈춘다.
+	if s.Hasher != nil {
+		go s.reportHashHealth(ctx)
+	}
 
 	backoff := eslMinBackoff
 	healthy := false
@@ -160,7 +172,7 @@ func (s *ESLoggerSensor) pump(ctx context.Context, stdout io.Reader, watch []str
 	lines := 0
 	for scanner.Scan() {
 		lines++
-		e, ok := MapLine(s.Factory, scanner.Bytes(), watch)
+		e, ok := MapLine(s.Factory, scanner.Bytes(), watch, s.Hasher)
 		if !ok {
 			continue
 		}
@@ -171,6 +183,23 @@ func (s *ESLoggerSensor) pump(ctx context.Context, stdout io.Reader, watch []str
 		}
 	}
 	return lines, scanner.Err()
+}
+
+// reportHashHealth 는 해시 집계를 주기마다 로그로 남긴다.
+func (s *ESLoggerSensor) reportHashHealth(ctx context.Context) {
+	ticker := time.NewTicker(eslHashHealthInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			h := s.Hasher.Stats()
+			s.logger().Info("실행 파일 해시 상태",
+				"hashed", h.Hashed, "cached", h.Cached, "failed", h.Failed, "tooBig", h.TooBig)
+		}
+	}
 }
 
 func (s *ESLoggerSensor) logger() *slog.Logger {

@@ -116,13 +116,22 @@ func IsPublic(ip string) bool {
 }
 
 // ToEvents 는 새 연결을 서버로 보낼 이벤트로 바꾼다. 공인 IP 인 것만 남긴다.
+//
+// 프로토콜은 tcp 로 고정한다. 스냅샷이 established TCP 소켓만 모으기 때문이다(snapshot 참고).
+// UDP 는 목적지가 정해지지 않아 애초에 담기지 않는다.
 func ToEvents(f event.Factory, at time.Time, conns []Conn) []event.Event {
 	var events []event.Event
 	for _, c := range conns {
 		if !IsPublic(c.RemoteIP) {
 			continue
 		}
-		events = append(events, f.Network(at, c.Path, c.RemoteIP, c.RemotePort))
+		events = append(events, f.Network(at, event.NetworkInfo{
+			ProcessPath: c.Path,
+			PID:         c.PID,
+			Protocol:    event.ProtocolTCP,
+			DestIP:      c.RemoteIP,
+			DestPort:    c.RemotePort,
+		}))
 	}
 	return events
 }

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strconv"
 	"sync/atomic"
+
+	"github.com/2026-Siheung-Bootcamp-Team-I/Backend/agent/internal/packet"
 )
 
 // 이 파일에는 빌드 태그가 없다.
@@ -219,6 +221,22 @@ func pktMonEthernetFrame(f pktMonFrame) ([]byte, pktMonReject) {
 	return nil, pktMonRejectLinkType
 }
 
+// pktMonKeepInbound 는 들어오는 프레임을 살릴지 본다.
+//
+// TLS 는 나가는 ClientHello 만 쓰므로 들어오는 443 프레임은 하는 일 없이 CPU 만 쓴다.
+// 반면 HTTP 는 응답의 상태 코드가 조사에 쓸모가 있어서 들어오는 쪽도 필요하다.
+// 그래서 방향만 보고 자르지 않고 포트까지 본다.
+//
+// 여기서 헤더를 한 번 더 훑는 비용이 들지만, 살릴 것만 골라 뒤 단계로 넘기는 편이 싸다.
+// 커널 필터가 방향을 가리지 못해서 이 판단이 유저 공간에 남았다(pktMonFilterArgs 주석 참고).
+func pktMonKeepInbound(frame []byte) bool {
+	flow, _, ok := packet.Parse(frame, packet.LinkEthernet)
+	if !ok {
+		return false
+	}
+	return flow.Protocol == "tcp" && (flow.SrcPort == portHTTP || flow.DstPort == portHTTP)
+}
+
 // pktMonEtherTypeOf 는 IP 헤더 첫 바이트의 버전으로 EtherType 을 정한다.
 func pktMonEtherTypeOf(ip []byte) (uint16, bool) {
 	if len(ip) == 0 {
@@ -293,10 +311,13 @@ const pktMonFilterName = "EDRdog-TLS"
 // pktMonFilterArgs 는 커널 필터를 다는 명령의 인자다.
 //
 // 필터를 안 걸면 그 기기를 지나는 모든 패킷이 ETW 로 올라온다. macOS 쪽에서 BPF 필터가
-// 하는 일과 목적이 같다. TCP 이면서 포트가 443 인 것만 통과시킨다.
+// 하는 일과 목적이 같다. TCP 이면서 우리가 보는 포트인 것만 통과시킨다.
 //
-// -p 는 출발지와 목적지를 가리지 않는다(문서에 명시돼 있다). 그래서 서버가 보내온 443
-// 패킷도 함께 올라오는데, 그건 pktMonInbound 로 걸러 낸다.
+// **포트마다 따로 걸어야 한다.** 필터 하나는 포트를 하나만 받는다.
+//
+// -p 는 출발지와 목적지를 가리지 않는다(문서에 명시돼 있다). 방향을 가리는 조건도 없다.
+// 그래서 서버가 보내온 패킷도 함께 올라오고, 그중 무엇을 살릴지는 pktMonKeepInbound 가
+// 정한다. macOS 는 BPF 로 방향까지 커널에서 거르므로 그 판단이 유저 공간에 없다.
 func pktMonFilterArgs(port int) []string {
 	return []string{"filter", "add", pktMonFilterName, "-t", "TCP", "-p", strconv.Itoa(port)}
 }

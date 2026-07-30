@@ -111,6 +111,7 @@ func (c *pidCache) clock() time.Time {
 // ETW 속성 이름. 매니페스트 정의와 같아야 한다.
 const (
 	propImageName       = "ImageName"
+	propProcessID       = "ProcessID"
 	propParentProcessID = "ParentProcessID"
 	propPID             = "PID"
 	propDestAddr        = "daddr"
@@ -138,7 +139,9 @@ const (
 //
 // 그 조회는 실패할 수 있다. 프로세스가 이미 죽었거나 권한이 모자란 경우다. 그때는 파일명만
 // 남은 ImageName 으로 물러나되 이벤트 자체는 내보낸다. 실행 사실을 통째로 잃는 쪽이 더 나쁘다.
-func MapProcess(f event.Factory, at time.Time, props map[string]string, namer ProcessNamer) (event.Event, bool) {
+//
+// hasher 는 실행 이미지의 sha256 을 구한다. nil 이면 해시를 붙이지 않는다.
+func MapProcess(f event.Factory, at time.Time, props map[string]string, namer ProcessNamer, hasher *FileHasher) (event.Event, bool) {
 	// 전체 경로를 알면 그쪽을 쓴다. detector 의 R2/R3 룰이 경로에서 \temp\ 같은 표식을 찾으므로
 	// 파일명만으로는 판정이 서지 않는다.
 	exe := prop(props, propImagePath)
@@ -161,16 +164,37 @@ func MapProcess(f event.Factory, at time.Time, props map[string]string, namer Pr
 	// 아니면서 responder 의 조치 대상만 이름으로 흐려 놓는다.
 	cmdline = redactSecrets(cmdline)
 
+	ppid, _ := parsePID(prop(props, propParentProcessID))
 	parent := ""
-	if ppid, ok := parsePID(prop(props, propParentProcessID)); ok && namer != nil {
+	if ppid > 0 && namer != nil {
 		parent = baseName(namer.Name(ppid))
 	}
+	pid, _ := parsePID(prop(props, propProcessID))
 
+	info := event.ProcessInfo{
+		Path:    exe,
+		Cmdline: cmdline,
+		Parent:  parent,
+		PID:     pid,
+		PPID:    ppid,
+		// 전체 경로를 아는 경우에만 해시를 뜬다. ImageName 으로 물러난 값은 "svchost.exe" 처럼
+		// 파일명뿐이라 그대로 열면 에이전트의 작업 디렉터리 기준 상대 경로가 된다. 그러면 엉뚱한
+		// 파일의 해시가 붙거나(같은 이름이 있으면) 매번 실패한다. 둘 다 틀린 값이다.
+		SHA256: hashFullPath(hasher, exe),
+	}
 	// 인터프리터는 script 로 낸다. detector 가 script 타입에만 T1059 룰을 건다.
 	if isInterpreter(exe) {
-		return f.Script(at, exe, cmdline, parent), true
+		return f.Script(at, info), true
 	}
-	return f.Process(at, exe, cmdline, parent), true
+	return f.Process(at, info), true
+}
+
+// hashFullPath 는 전체 경로일 때만 해시를 구한다. 파일명만 아는 값은 열지 않는다.
+func hashFullPath(hasher *FileHasher, path string) string {
+	if !hasPathSeparator(path) {
+		return ""
+	}
+	return hasher.Hash(path)
 }
 
 // MapNetwork 는 TCP 연결시도 속성 맵을 네트워크 이벤트로 바꾼다.
@@ -186,8 +210,9 @@ func MapNetwork(f event.Factory, at time.Time, props map[string]string, namer Pr
 		return event.Event{}, false
 	}
 
+	pid, _ := parsePID(prop(props, propPID))
 	path := ""
-	if pid, ok := parsePID(prop(props, propPID)); ok && namer != nil {
+	if pid > 0 && namer != nil {
 		path = namer.Name(pid)
 	}
 
@@ -202,7 +227,15 @@ func MapNetwork(f event.Factory, at time.Time, props map[string]string, namer Pr
 	if port < 0 || port > 65535 {
 		port = 0
 	}
-	return f.Network(at, path, dest, port), true
+	// 프로토콜은 tcp 로 고정한다. 이 함수는 Kernel-Network 의 TCP 연결시도(12/28)만 받고
+	// UDP 이벤트는 구독조차 하지 않는다(etw_windows.go 의 프로바이더 spec).
+	return f.Network(at, event.NetworkInfo{
+		ProcessPath: path,
+		PID:         pid,
+		Protocol:    event.ProtocolTCP,
+		DestIP:      dest,
+		DestPort:    port,
+	}), true
 }
 
 // MapFile 은 CreateNewFile 속성 맵을 파일 이벤트로 바꾼다.
@@ -210,12 +243,19 @@ func MapNetwork(f event.Factory, at time.Time, props map[string]string, namer Pr
 // Kernel-File 은 볼륨이 엄청나므로 감시 대상 경로로 시작하는 것만 통과시킨다.
 // watchPaths 가 비면 아무것도 내보내지 않는다. 기준이 없는 상태에서 전부 흘리면 버퍼가
 // 파일 이벤트로 가득 차 정작 중요한 이벤트가 밀려난다.
+//
+// 동작은 CREATE 로 고정한다. 우리가 켜 둔 Kernel-File 이벤트가 CreateNewFile(30) 하나뿐이라
+// 여기에 오는 것은 전부 새 파일 생성이다. 삭제와 이름 변경을 켜려면 MapFile 이 FilePath 도
+// 읽어야 하고, 그때 동작도 같이 갈라야 한다(etw_windows.go 의 프로바이더 주석).
+//
+// 해시는 붙이지 않는다. 이유는 eslFileEvent 주석에 적은 것과 같다. 방금 만들어진 파일은
+// 아직 다 쓰이지 않았을 수 있고, 그 상태의 해시는 없는 것보다 나쁘다.
 func MapFile(f event.Factory, at time.Time, props map[string]string, watchPaths []string) (event.Event, bool) {
 	path := prop(props, propFileName)
 	if path == "" || !underWatchPaths(path, watchPaths) {
 		return event.Event{}, false
 	}
-	return f.File(at, path), true
+	return f.File(at, event.FileInfo{Path: path, Action: event.FileActionCreate}), true
 }
 
 // MapDNS 는 DNS-Client 질의완료(3008) 속성 맵을 dns 이벤트로 바꾼다.
@@ -254,7 +294,9 @@ func MapDNS(f event.Factory, at time.Time, props map[string]string, pid int, nam
 	if status, err := strconv.Atoi(prop(props, propQueryStatus)); err == nil {
 		detail["status"] = status
 	}
-	return f.DNS(at, path, domain, detail), true
+	// Protocol 을 비워 둔다. DNS-Client 프로바이더는 질의가 UDP 로 나갔는지 TCP 로 나갔는지
+	// 알려 주지 않는다. 대개 UDP 라고 지어 넣으면 조사하는 사람이 그 값을 관측 결과로 믿는다.
+	return f.DNS(at, event.DNSInfo{ProcessPath: path, PID: pid, Domain: domain}, detail), true
 }
 
 // normalizeDNSName 은 질의 이름을 집계할 수 있는 모양으로 맞춘다.

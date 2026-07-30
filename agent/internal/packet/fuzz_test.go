@@ -2,6 +2,7 @@ package packet
 
 import (
 	"crypto/tls"
+	"strings"
 	"testing"
 	"time"
 
@@ -22,6 +23,7 @@ func FuzzParse(f *testing.F) {
 	f.Add(ipv6(protoTCP, "2001:db8::1", "2001:db8::2", tcp(52000, 443, nil, clientHello(f, &tls.Config{ServerName: "example.com"}))), false)
 	f.Add(clientHello(f, &tls.Config{ServerName: "example.com"}), false)
 	f.Add(dnsQuery(f, "www.example.com.", dnsmessage.TypeA), false)
+	f.Add(ipv4(protoTCP, "192.0.2.1", "203.0.113.1", nil, tcp(51000, 80, nil, request("GET /a?b=c HTTP/1.1", "Host: example.com", "User-Agent: curl/8.4.0"))), false)
 	f.Add([]byte{}, false)
 
 	f.Fuzz(func(t *testing.T, data []byte, ethernetLink bool) {
@@ -33,6 +35,7 @@ func FuzzParse(f *testing.F) {
 		// 프레임 자체를 상위 파서에 그대로 먹인다. 캡처가 어긋나 엉뚱한 바이트가 들어오는 경우다.
 		ParseDNS(data)
 		ParseClientHello(data)
+		ParseHTTP(data)
 
 		// 조립기는 상태를 들고 이어 붙이는 코드라 더 위험하다. 조각난 입력을 그대로 먹인다.
 		asm := NewAssembler()
@@ -52,7 +55,59 @@ func FuzzParse(f *testing.F) {
 		// 실제 경로: 벗겨 낸 페이로드가 그대로 다음 파서로 간다.
 		ParseDNS(payload)
 		ParseClientHello(payload)
+		ParseHTTP(payload)
 		asm.Push(flow, payload, time.Unix(1785400000, 0))
+	})
+}
+
+// FuzzParseHTTP 는 임의 바이트를 HTTP 파서에 먹여 계약이 깨지는지 본다.
+//
+// 따로 두는 이유는 panic 말고도 지켜야 할 것이 있기 때문이다. 이 파서는 텍스트를 다뤄서
+// 길이 검사가 틀려도 panic 대신 이상한 값이 조용히 새어 나온다. 질의 문자열이 경로에 남거나
+// 상한을 넘긴 값이 통과하는 쪽이 더 있을 법한 실패라, true 를 준 결과를 매번 검사한다.
+func FuzzParseHTTP(f *testing.F) {
+	f.Add(request("GET /a?token=secret#frag HTTP/1.1", "Host: example.com", "User-Agent: curl/8.4.0"))
+	f.Add(request("POST /login HTTP/1.1", "Host: a.example.com", "Authorization: Bearer x", "Cookie: s=1"))
+	f.Add([]byte("HTTP/1.1 404 Not Found\r\nServer: nginx\r\n\r\n"))
+	f.Add([]byte("GET /truncated HTTP/1.1\r\nHost: exam"))
+	f.Add(clientHello(f, &tls.Config{ServerName: "example.com"}))
+	f.Add([]byte{})
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		msg, ok := ParseHTTP(data)
+		if !ok {
+			if msg != (HTTPMessage{}) {
+				t.Fatalf("false 인데 값이 찼다: %+v", msg)
+			}
+			return
+		}
+
+		if msg.IsResponse {
+			if msg.StatusCode < 100 || msg.StatusCode > 599 {
+				t.Fatalf("상태 코드가 %d 다", msg.StatusCode)
+			}
+			if msg.Method != "" || msg.Path != "" || msg.Host != "" || msg.UserAgent != "" {
+				t.Fatalf("응답인데 요청 값이 찼다: %+v", msg)
+			}
+			return
+		}
+
+		if !isKnownMethod([]byte(msg.Method)) {
+			t.Fatalf("메서드가 %q 다", msg.Method)
+		}
+		if msg.StatusCode != 0 {
+			t.Fatalf("요청인데 상태 코드가 %d 다", msg.StatusCode)
+		}
+		// 질의 문자열은 어떤 입력에서도 남으면 안 된다. 여기 토큰과 세션 ID 가 들어 있다.
+		if strings.ContainsAny(msg.Path, "?#") {
+			t.Fatalf("경로에 질의나 프래그먼트가 남았다: %q", msg.Path)
+		}
+		if len(msg.Path) > httpMaxPath || len(msg.Host) > httpMaxHost || len(msg.UserAgent) > httpMaxUserAgent {
+			t.Fatalf("상한을 넘겼다: %+v", msg)
+		}
+		if msg.Host != strings.ToLower(msg.Host) {
+			t.Fatalf("Host 가 낮춰지지 않았다: %q", msg.Host)
+		}
 	})
 }
 

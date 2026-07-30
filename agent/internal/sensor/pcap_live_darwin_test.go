@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net"
+	"net/http"
 	"os"
 	"strconv"
 	"testing"
@@ -59,6 +60,12 @@ import (
 
 // liveHosts 는 트래픽을 낼 대상이다. 여러 개를 쓰는 이유는 한 곳이 죽어 있어도 검증이 되게 하려는 것이다.
 var liveHosts = []string{"example.com", "www.cloudflare.com", "go.dev"}
+
+// liveHTTPHost 는 평문 HTTP 로 접속할 대상이다.
+//
+// 요즘은 대부분 HTTPS 로 넘겨 버리는데, 그 넘김(301) 자체가 평문 요청과 응답이라 우리가
+// 확인하려는 것은 그대로 잡힌다. 오히려 상태 코드까지 같이 검증된다.
+const liveHTTPHost = "example.com"
 
 func TestLiveCapture(t *testing.T) {
 	if os.Getenv("EDRDOG_LIVE") == "" {
@@ -191,12 +198,31 @@ func TestLiveCapture(t *testing.T) {
 		t.Error("l7 이벤트에 프로세스가 하나도 안 붙었다. ProcOwner 의 libproc 조회를 의심해라")
 	}
 	t.Logf("프로세스가 붙은 l7 이벤트: %d/%d", withProcess, len(l7Events))
+
+	// 4. 평문 HTTP. TLS 만 확인하면 포트 80 경로가 도는지 알 수 없다.
+	if want.httpHost != "" {
+		var httpEvents []event.Event
+		for _, e := range l7Events {
+			if d := liveDetail(t, e); d["l7Protocol"] == "HTTP" {
+				httpEvents = append(httpEvents, e)
+			}
+		}
+		if len(httpEvents) == 0 {
+			t.Errorf("HTTP 이벤트가 0건이다. BPF 필터의 포트 80 판정이나 ParseHTTP 배선을 의심해라 (%s 에 요청했다)", want.httpHost)
+		}
+		for _, e := range httpEvents {
+			d := liveDetail(t, e)
+			t.Logf("HTTP: host=%q method=%v path=%v status=%v process=%q",
+				e.Domain, d["httpMethod"], d["httpPath"], d["httpStatusCode"], e.Process)
+		}
+	}
 }
 
 // liveProbe 는 테스트가 실제로 낸 트래픽이다. 이 값과 잡힌 이벤트를 맞춰 본다.
 type liveProbe struct {
 	dnsName  string   // 질의한 이름
 	sniHosts []string // 접속에 성공한 호스트
+	httpHost string   // 평문 HTTP 로 접속한 호스트. 실패했으면 빈 값
 }
 
 // generateLiveTraffic 은 확인에 쓸 DNS 질의와 TLS 접속을 낸다.
@@ -229,6 +255,14 @@ func generateLiveTraffic(t *testing.T, log *slog.Logger) liveProbe {
 		conn.Close()
 		probe.sniHosts = append(probe.sniHosts, host)
 	}
+
+	// 평문 HTTP 도 한 번 낸다. TLS 만 확인하면 포트 80 경로가 도는지 알 수 없다.
+	if resp, err := (&http.Client{Timeout: 5 * time.Second}).Get("http://" + liveHTTPHost + "/"); err != nil {
+		log.Warn("HTTP 요청 실패. 그 확인은 건너뛴다", "host", liveHTTPHost, "err", err)
+	} else {
+		resp.Body.Close()
+		probe.httpHost = liveHTTPHost
+	}
 	return probe
 }
 
@@ -252,4 +286,18 @@ func anyDomain(events []event.Event, domain string) bool {
 		}
 	}
 	return false
+}
+
+// liveDetail 은 이벤트의 detail JSON 을 푼다. 못 풀면 빈 맵이라 호출부가 nil 검사를 안 해도 된다.
+func liveDetail(t *testing.T, e event.Event) map[string]any {
+	t.Helper()
+	if e.Detail == "" {
+		return map[string]any{}
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(e.Detail), &out); err != nil {
+		t.Errorf("detail 이 JSON 이 아니다: %v (%s)", err, e.Detail)
+		return map[string]any{}
+	}
+	return out
 }

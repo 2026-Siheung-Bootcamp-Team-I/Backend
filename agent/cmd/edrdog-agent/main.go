@@ -153,7 +153,12 @@ func runAgent(ctx context.Context, opts options, log *slog.Logger) error {
 // 가장 찾기 어려운 고장이었다. 뜨지 않는 편이 낫다.
 func buildSensors(factory event.Factory, serverCfg transport.ServerConfig, opts options, log *slog.Logger) ([]runtime.Sensor, error) {
 	if opts.selfTest {
-		return []runtime.Sensor{&sensor.SelfTest{Factory: factory, Interval: opts.selfTestInterval}}, nil
+		return []runtime.Sensor{&sensor.SelfTest{
+			Factory:  factory,
+			Interval: opts.selfTestInterval,
+			// 해시기를 붙여 두면 자체 점검이 sha256 경로까지 확인해 준다.
+			Hasher: sensor.NewFileHasher(),
+		}}, nil
 	}
 	sensors := platformSensors(factory, serverCfg, log)
 	if len(sensors) == 0 {

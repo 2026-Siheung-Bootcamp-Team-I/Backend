@@ -26,9 +26,19 @@ type eslLine struct {
 	} `json:"event"`
 }
 
-// eslProcess 는 es_process_t 다. 실행 파일 경로만 쓴다.
+// eslProcess 는 es_process_t 다. 실행 파일 경로와 식별자만 쓴다.
+//
+// PID 가 audit_token 안에 있는 것은 es_process_t 에 pid 필드가 따로 없기 때문이다.
+// 커널이 프로세스를 audit token 으로 식별하고, eslogger 는 그것을 풀어 pid 로 찍어 준다.
 type eslProcess struct {
-	Executable eslFile `json:"executable"`
+	Executable eslFile       `json:"executable"`
+	AuditToken eslAuditToken `json:"audit_token"`
+	PPID       int           `json:"ppid"`
+}
+
+// eslAuditToken 은 audit_token_t 에서 우리가 쓰는 값이다. 나머지(euid, asid 등)는 무시한다.
+type eslAuditToken struct {
+	PID int `json:"pid"`
 }
 
 // eslFile 은 es_file_t 다.
@@ -88,7 +98,9 @@ var eslSecretNames = []string{"password", "passwd", "token", "secret", "apikey",
 //
 // 바꿀 수 없는 줄(깨진 JSON, 구독하지 않은 종류, watchPaths 밖의 파일)은 false 를 돌려준다.
 // 한 줄이 이상하다고 센서가 멈추면 안 되므로 여기서는 어떤 입력에도 panic 하지 않는다.
-func MapLine(f event.Factory, line []byte, watchPaths []string) (event.Event, bool) {
+//
+// hasher 는 실행 이미지의 sha256 을 구한다. nil 이면 해시를 붙이지 않는다.
+func MapLine(f event.Factory, line []byte, watchPaths []string, hasher *FileHasher) (event.Event, bool) {
 	var l eslLine
 	if err := json.Unmarshal(line, &l); err != nil {
 		return event.Event{}, false
@@ -97,43 +109,64 @@ func MapLine(f event.Factory, line []byte, watchPaths []string) (event.Event, bo
 
 	switch {
 	case l.Event.Exec != nil:
-		return eslExecEvent(f, at, l)
+		return eslExecEvent(f, at, l, hasher)
 	case l.Event.Create != nil:
-		return eslFileEvent(f, at, watchPaths, l.Event.Create.Destination.paths())
+		return eslFileEvent(f, at, watchPaths, l.Event.Create.Destination.paths(), event.FileActionCreate)
 	case l.Event.Rename != nil:
 		// 감시 경로로 옮겨 오는 쪽이 주된 관심사이므로 목적지를 먼저 본다.
 		// 감시 경로 밖으로 빠져나간 경우도 놓치지 않도록 원본을 뒤에 둔다.
 		r := l.Event.Rename
-		return eslFileEvent(f, at, watchPaths, append(r.Destination.paths(), r.Source.Path))
+		return eslFileEvent(f, at, watchPaths, append(r.Destination.paths(), r.Source.Path), event.FileActionRename)
 	case l.Event.Unlink != nil:
-		return eslFileEvent(f, at, watchPaths, []string{l.Event.Unlink.Target.Path})
+		return eslFileEvent(f, at, watchPaths, []string{l.Event.Unlink.Target.Path}, event.FileActionDelete)
 	}
 	return event.Event{}, false
 }
 
 // eslExecEvent 는 exec 이벤트를 process 또는 script 이벤트로 만든다.
-func eslExecEvent(f event.Factory, at time.Time, l eslLine) (event.Event, bool) {
-	execPath := l.Event.Exec.Target.Executable.Path
+//
+// pid 와 ppid 는 둘 다 target 에서 뽑는다. 우리가 보고하는 프로세스가 target(새 이미지를 올린
+// 쪽)이므로 그 프로세스 자신의 식별자여야 짝이 맞는다. 바깥 message.process 는 exec 를 호출한
+// 쪽이라 이름만 parent 로 쓴다.
+//
+// sha256 은 여기서만 붙인다. exec 시점의 이미지는 커널이 이미 읽어 올린 파일이라 반드시
+// 완성돼 있다. 파일 이벤트에는 붙이지 않는 이유가 eslFileEvent 에 있다.
+func eslExecEvent(f event.Factory, at time.Time, l eslLine, hasher *FileHasher) (event.Event, bool) {
+	target := l.Event.Exec.Target
+	execPath := target.Executable.Path
 	if execPath == "" {
 		return event.Event{}, false
 	}
-	cmdline := eslCmdline(execPath, l.Event.Exec.Args)
-	parent := eslBase(l.Process.Executable.Path)
 
-	if eslIsInterpreter(eslBase(execPath)) {
-		return f.Script(at, execPath, cmdline, parent), true
+	info := event.ProcessInfo{
+		Path:    execPath,
+		Cmdline: eslCmdline(execPath, l.Event.Exec.Args),
+		Parent:  eslBase(l.Process.Executable.Path),
+		PID:     target.AuditToken.PID,
+		PPID:    target.PPID,
+		SHA256:  hasher.Hash(execPath),
 	}
-	return f.Process(at, execPath, cmdline, parent), true
+	if eslIsInterpreter(eslBase(execPath)) {
+		return f.Script(at, info), true
+	}
+	return f.Process(at, info), true
 }
 
 // eslFileEvent 는 후보 경로 중 감시 대상에 드는 첫 번째 것으로 파일 이벤트를 만든다.
 //
 // 감시 경로로 거르는 이유는 양이다. create/rename/unlink 는 평범한 맥에서 초당 수백 건이 나오고
 // 그걸 다 올리면 서버가 감당하지 못한다.
-func eslFileEvent(f event.Factory, at time.Time, watchPaths, candidates []string) (event.Event, bool) {
+//
+// **해시를 붙이지 않는다.** create 는 파일이 만들어진 순간에 오는 이벤트라 그때 읽으면 아직
+// 다 안 쓰인 내용의 해시가 나온다. 그 값은 알려진 악성코드 해시와 영원히 맞지 않으면서
+// "해시를 확인했다" 는 착각을 주므로 없는 것보다 나쁘다. delete 는 파일이 이미 없고,
+// rename 도 원본이 계속 쓰이는 중일 수 있어 사정이 같다. 자동실행 경로에 놓이는 파일은
+// 대개 작고 한 번에 쓰이지만, "대개" 를 근거로 틀린 값을 보낼 수는 없다.
+// 실행되는 순간에는 exec 이벤트가 그 파일의 해시를 완성된 상태로 실어 보낸다.
+func eslFileEvent(f event.Factory, at time.Time, watchPaths, candidates []string, action string) (event.Event, bool) {
 	for _, p := range candidates {
 		if eslUnderWatch(p, watchPaths) {
-			return f.File(at, p), true
+			return f.File(at, event.FileInfo{Path: p, Action: action}), true
 		}
 	}
 	return event.Event{}, false
