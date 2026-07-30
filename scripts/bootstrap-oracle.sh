@@ -38,6 +38,7 @@ GHCR_IMAGE_BASE="${GHCR_IMAGE_BASE:-ghcr.io/edrdog/backend}"
 # 때문에 중간에서 TLS 를 다시 종단하면 등록 단계에서 실패한다.
 AGENT_PORT=30443
 API_NODEPORT=30084
+KAFKA_UI_NODEPORT=30901
 PORTAINER_NODEPORT=30777
 
 fail() { echo "오류: $*" >&2; exit 1; }
@@ -154,10 +155,15 @@ if ! command -v caddy >/dev/null 2>&1; then
 fi
 
 # 도메인 블록 안에서 벗은 reverse_proxy 와 handle 은 섞을 수 없다. 처음부터 전부 감싼다.
+#
+# Caddy 는 인증을 하지 않는다. 운영 UI 세 개가 각자 자기 로그인을 갖고 있고, 그 계정은
+# Infisical 이 넣는다(Kafka UI 는 AUTH_TYPE=LOGIN_FORM, Swagger 는 api-service 의
+# SwaggerAuthFilter, Portainer 는 자체 로그인). 여기서 또 막으면 비번이 두 군데로 갈라지고,
+# Infisical 에서 비번을 바꿔도 호스트의 이 파일은 그대로라 반영이 안 된다.
 cat > /etc/caddy/Caddyfile <<EOF
 $DOMAIN {
 	handle /kafka-ui* {
-		reverse_proxy localhost:30901
+		reverse_proxy localhost:$KAFKA_UI_NODEPORT
 	}
 	handle {
 		reverse_proxy localhost:$API_NODEPORT
@@ -287,14 +293,25 @@ cat <<EOF
    CD 가 arm64 를 포함해 이미지를 올리고, 서비스 매니페스트 apply 와 롤아웃까지 한다.
    Deployment 가 없으면 CD 가 알아서 apply 하므로 여기서 손으로 할 것은 없다.
 
-3) Portainer 관리자 계정을 만든다 (https://portainer.$DOMAIN)
+3) Infisical 에 운영 UI 계정을 넣는다 (prod 환경)
+     KAFKA_UI_USER / KAFKA_UI_PASSWORD              <- Kafka UI 로그인
+     EDRDOG_SWAGGER_USER / EDRDOG_SWAGGER_PASSWORD  <- Swagger 로그인
+   넣은 뒤 edrdog-secrets 를 다시 만든다(위 7단계의 명령). 그리고:
+     kubectl -n $NS rollout restart deploy/kafka-ui
+   kafka-ui 는 이 키가 없으면 파드가 뜨지 않는다. 인증이 꺼진 채로 떠 있으면
+   토픽 메시지가 그대로 공개돼서, 멈추는 편이 낫다고 보고 일부러 그렇게 뒀다.
+   Swagger 는 비번이 없으면 열리는 게 아니라 닫힌다.
+
+4) Portainer 관리자 계정을 만든다 (https://portainer.$DOMAIN)
    파드가 뜨고 5분 안에 안 만들면 Portainer 가 스스로 잠근다. 그때는 아래로 다시 연다.
      kubectl -n portainer rollout restart deploy/portainer
    이 계정은 cluster-admin 이라 edrdog 네임스페이스의 Secret 까지 다 보인다. 비번을 세게 건다.
 
-4) 확인
+5) 확인
    kubectl -n $NS get pods
    curl -sS https://$DOMAIN/actuator/health
+   curl -sS -o /dev/null -w '%{http_code}\n' https://$DOMAIN/kafka-ui/          # -> 302 (로그인으로)
+   curl -sS -o /dev/null -w '%{http_code}\n' https://$DOMAIN/swagger-ui.html    # -> 401
    openssl s_client -connect $DOMAIN:$AGENT_PORT </dev/null 2>/dev/null | head -3
 
 kubectl 을 그냥 쓰려면:

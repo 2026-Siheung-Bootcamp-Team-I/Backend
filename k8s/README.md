@@ -153,11 +153,23 @@ sudo kubectl -n edrdog logs deploy/api-service | grep 'GeoIP DB 로드'
 
 배포서버 전용이다. 셋 다 Caddy 뒤에 있고 NodePort 를 방화벽에 열지 않으므로 Caddy 를 통해서만 들어간다.
 
-| 대상 | 주소 | 인증 | NodePort |
-|---|---|---|---|
-| Portainer | `https://portainer.<도메인>` | Portainer 자체 로그인 | 30777 |
-| Kafka UI | `https://<도메인>/kafka-ui` | 없음 | 30901 |
-| Swagger | `https://<도메인>/swagger-ui.html` | 없음 | (api 30084) |
+| 대상 | 주소 | 인증 | Infisical 키 | NodePort |
+|---|---|---|---|---|
+| Portainer | `https://portainer.<도메인>` | 자체 로그인 | (첫 접속에서 직접 생성) | 30777 |
+| Kafka UI | `https://<도메인>/kafka-ui` | 자체 로그인 폼 | `KAFKA_UI_USER` / `KAFKA_UI_PASSWORD` | 30901 |
+| Swagger | `https://<도메인>/swagger-ui.html` | Basic (`SwaggerAuthFilter`) | `EDRDOG_SWAGGER_USER` / `EDRDOG_SWAGGER_PASSWORD` | (api 30084) |
+
+**Caddy 는 인증을 하지 않는다.** 셋 다 자기 안에서 막고 계정은 `edrdog-secrets` 에서 받는다. Caddy 에
+basic auth 를 걸면 비번이 Infisical 과 호스트 파일 두 군데로 갈라지고, Infisical 에서 바꿔도 호스트의
+Caddyfile 은 그대로라 반영되지 않는다.
+
+- **Kafka UI 는 키가 없으면 파드가 뜨지 않는다** (`secretKeyRef` 에 `optional` 을 안 줬다). 인증이 꺼진 채로
+  멀쩡히 떠 있는 것보다 멈추는 편이 낫다. 키를 넣은 뒤 `kubectl -n edrdog rollout restart deploy/kafka-ui`.
+  `/kafka-ui/actuator/health` 는 로그인 없이 200 이라 readinessProbe 는 그대로 통과한다.
+- **Swagger 는 비번이 없으면 열리는 게 아니라 닫힌다.** `application.yml` 에 기본값을 두지 않았다.
+  레포에 박아 두면 그게 곧 공개 비번이라서다. 로컬에서 보려면 `EDRDOG_SWAGGER_PASSWORD` 를 넣고 띄운다.
+- Swagger 가 `ApiKeyPolicy` 의 인증 예외로 남아 있는 건 그대로다. 브라우저로 여는 화면이라 `X-API-Key`
+  헤더를 붙일 수가 없어서, API 키 대신 Basic 으로 막는다.
 
 ### Portainer
 
