@@ -16,12 +16,14 @@
 #   4. Caddy 를 깔고 도메인 블록을 쓴다
 #   5. 에이전트 수집용 키스토어를 만들어 agent-tls Secret 으로 넣는다
 #   6. GHCR 이미지를 받을 자격증명을 넣는다
-#   7. 인프라 매니페스트를 apply 한다
+#   7. edrdog-secrets 를 넣는다 (Infisical 에 로그인돼 있으면)
+#   8. 인프라 매니페스트를 apply 한다
 #
 # 안 하는 일(사람이 해야 한다):
 #   - 오라클 콘솔의 보안 목록(Security List) 에 80/443/30443 을 여는 것.
 #     인스턴스 밖의 설정이라 여기서 건드릴 수 없다. 아래에서 다시 알려준다.
-#   - 서비스 매니페스트 apply. 이미지가 GHCR 에 올라간 뒤에 해야 한다(맨 아래 안내).
+#   - Infisical 로그인. 로그인돼 있으면 edrdog-secrets 를 자동으로 넣고, 아니면 무엇이
+#     안 뜨는지 알려준다.
 set -euo pipefail
 
 DOMAIN="${DOMAIN:-edrdog-api.duckdns.org}"
@@ -48,7 +50,7 @@ done
 
 # 여기서 안 짚으면 나중에 파드가 exec format error 로만 죽는다.
 ARCH="$(uname -m)"
-step "0/7 확인 (arch=$ARCH)"
+step "0/8 확인 (arch=$ARCH)"
 case "$ARCH" in
   aarch64) echo "  Ampere A1(arm64) 이다. 이미지가 arm64 를 포함해야 한다." ;;
   x86_64)  echo "  x86_64 다." ;;
@@ -58,7 +60,7 @@ esac
 # --- 1. 호스트 방화벽 ---------------------------------------------------------
 # 오라클 이미지는 INPUT 사슬 끝에 REJECT 가 박힌 채로 나온다. 콘솔의 보안 목록만 열고
 # 여기를 안 열면 밖에서는 그냥 타임아웃으로 보인다. 원인을 짚기 가장 어려운 자리다.
-step "1/7 호스트 방화벽을 연다"
+step "1/8 호스트 방화벽을 연다"
 open_port() {
   local port=$1 proto=${2:-tcp}
   if command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state >/dev/null 2>&1; then
@@ -88,7 +90,7 @@ else
 fi
 
 # --- 2. k3s -------------------------------------------------------------------
-step "2/7 k3s"
+step "2/8 k3s"
 # traefik 을 끄고 깐다. k3s 는 기본으로 traefik 을 깔고 그게 호스트 80/443 을 잡는데,
 # 그러면 Caddy 가 "address already in use" 로 못 뜬다. 우리는 Caddy 로 프록시한다.
 if command -v k3s >/dev/null 2>&1; then
@@ -108,7 +110,7 @@ kubectl get nodes >/dev/null || fail "k3s 가 응답하지 않는다"
 kubectl create namespace "$NS" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
 # --- 3. DuckDNS ---------------------------------------------------------------
-step "3/7 DuckDNS ($DOMAIN)"
+step "3/8 DuckDNS ($DOMAIN)"
 duck_update() {
   curl -sS "https://www.duckdns.org/update?domains=$DUCKDNS_SUBDOMAIN&token=$DUCKDNS_TOKEN&ip="
 }
@@ -126,7 +128,7 @@ echo '*/5 * * * * root /usr/local/bin/duckdns-update' > /etc/cron.d/duckdns
 echo "  5분마다 갱신하도록 걸었다."
 
 # --- 4. Caddy -----------------------------------------------------------------
-step "4/7 Caddy"
+step "4/8 Caddy"
 # 80 을 다른 웹서버가 잡고 있으면 Caddy 가 "address already in use" 로 못 뜬다.
 # 실제 인스턴스에 nginx 가 올라와 있었다. 그 상태로는 아래 restart 가 조용히 실패한다.
 for other in nginx apache2 httpd; do
@@ -167,7 +169,7 @@ echo "  $DOMAIN -> localhost:$API_NODEPORT"
 
 # --- 5. 에이전트 수집 TLS -----------------------------------------------------
 # 에이전트가 호스트명을 SAN 과 대조한다. 도메인을 바꾸면 여기도 다시 만들어야 한다.
-step "5/7 agent-tls"
+step "5/8 agent-tls"
 command -v keytool >/dev/null 2>&1 || {
   if command -v apt-get >/dev/null 2>&1; then
     DEBIAN_FRONTEND=noninteractive apt-get install -y openjdk-21-jre-headless >/dev/null
@@ -195,7 +197,7 @@ echo "  SAN=dns:$DOMAIN"
 
 # --- 6. GHCR 자격증명 ---------------------------------------------------------
 # GHCR 패키지는 기본이 비공개다. 이게 없으면 파드가 ImagePullBackOff 로 멈춘다.
-step "6/7 GHCR 자격증명"
+step "6/8 GHCR 자격증명"
 kubectl -n "$NS" delete secret ghcr --ignore-not-found >/dev/null
 kubectl -n "$NS" create secret docker-registry ghcr \
   --docker-server=ghcr.io \
@@ -206,8 +208,26 @@ kubectl -n "$NS" patch serviceaccount default \
   -p '{"imagePullSecrets":[{"name":"ghcr"}]}' >/dev/null
 echo "  default 서비스어카운트에 붙였다."
 
-# --- 7. 인프라 매니페스트 -----------------------------------------------------
-step "7/7 인프라 매니페스트"
+# --- 7. edrdog-secrets --------------------------------------------------------
+# api / collector / responder 가 envFrom 으로 이걸 요구한다. 없으면 셋 다
+# CreateContainerConfigError 로 멈춘다. 그런데 alert / detector / archiver 는 참조하지 않아
+# 멀쩡히 뜬다. 절반만 도는 그 모습이 원인을 짚기 가장 어렵다. 실제로 여기서 배포가 막혔다.
+step "7/8 edrdog-secrets"
+if kubectl -n "$NS" get secret edrdog-secrets >/dev/null 2>&1; then
+  echo "  이미 있다."
+elif command -v infisical >/dev/null 2>&1 && infisical export --env=prod --format=dotenv >/dev/null 2>&1; then
+  infisical export --env=prod --format=dotenv \
+    | kubectl -n "$NS" create secret generic edrdog-secrets --from-env-file=/dev/stdin \
+        --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  echo "  Infisical 에서 받아 넣었다."
+else
+  # 여기서 끝내지 않는다. 나머지는 다 해 놓고 무엇이 안 되는지만 정확히 알려주는 편이 낫다.
+  MISSING_SECRET=1
+  echo "  못 만들었다. api / collector / responder 가 뜨지 않는다." >&2
+fi
+
+# --- 8. 인프라 매니페스트 -----------------------------------------------------
+step "8/8 인프라 매니페스트"
 if [[ -d "$REPO_DIR/.git" ]]; then
   git -C "$REPO_DIR" fetch --quiet origin main || true
   for f in k8s/00-namespace.yaml k8s/mysql.yaml k8s/kafka.yaml k8s/clickhouse.yaml \
@@ -217,6 +237,29 @@ if [[ -d "$REPO_DIR/.git" ]]; then
 else
   echo "  $REPO_DIR 에 레포 클론이 없어 건너뛴다." >&2
   echo "  git clone https://github.com/EDRdog/Backend.git $REPO_DIR 뒤에 다시 돌려라." >&2
+fi
+
+if [[ "${MISSING_SECRET:-0}" == "1" ]]; then
+  cat >&2 <<EOF
+
+먼저 할 것: edrdog-secrets 가 없다.
+
+  이게 없으면 api / collector / responder 가 안 뜬다. alert / detector / archiver 는
+  참조하지 않아 멀쩡히 뜨므로, 절반만 도는 모습이 된다.
+
+  서버에서 Infisical 에 로그인한 뒤 이 스크립트를 다시 돌리면 자동으로 만든다.
+
+    curl -1sLf 'https://artifacts-cli.infisical.com/setup.deb.sh' | sudo -E bash
+    sudo apt-get update -qq && sudo apt-get install -y infisical
+    infisical login --interactive
+    cd ~ && infisical init
+
+  직접 넣으려면(있으면 갱신, 없으면 생성):
+
+    infisical export --env=prod --format=dotenv \\
+      | kubectl -n $NS create secret generic edrdog-secrets --from-env-file=/dev/stdin \\
+          --dry-run=client -o yaml | kubectl apply -f -
+EOF
 fi
 
 cat <<EOF
@@ -229,16 +272,11 @@ cat <<EOF
      0.0.0.0/0  TCP  443
      0.0.0.0/0  TCP  $AGENT_PORT      <- 에이전트가 붙는 포트
 
-2) 이미지를 GHCR 에 올린다
-   레포를 옮기면서 패키지가 따라오지 않아 지금 $GHCR_IMAGE_BASE 는 비어 있다.
-   main 에 푸시하면 CD 가 빌드해서 올린다. arm64 를 포함해 올라간다.
+2) main 에 푸시한다
+   CD 가 arm64 를 포함해 이미지를 올리고, 서비스 매니페스트 apply 와 롤아웃까지 한다.
+   Deployment 가 없으면 CD 가 알아서 apply 하므로 여기서 손으로 할 것은 없다.
 
-3) 서비스 매니페스트를 apply 한다 (이미지가 올라간 뒤에)
-   for f in k8s/{detector,responder,archiver,api,alert,collector}-service.yaml; do
-     git -C $REPO_DIR show "FETCH_HEAD:\$f" | kubectl apply -f -
-   done
-
-4) 확인
+3) 확인
    kubectl -n $NS get pods
    curl -sS https://$DOMAIN/actuator/health
    openssl s_client -connect $DOMAIN:$AGENT_PORT </dev/null 2>/dev/null | head -3
