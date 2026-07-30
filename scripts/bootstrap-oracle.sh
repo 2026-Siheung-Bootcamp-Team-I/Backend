@@ -3,8 +3,11 @@
 #
 # 새로 만든 인스턴스에서 한 번 돌린다. 여러 번 돌려도 안전하다(같은 것을 덮어쓴다).
 #
-#   sudo DUCKDNS_TOKEN=... GHCR_USER=... GHCR_TOKEN=... \
+#   sudo env DUCKDNS_TOKEN=... GHCR_USER=... GHCR_TOKEN=... \
 #     AGENT_TLS_KEYSTORE_PASSWORD=... ./scripts/bootstrap-oracle.sh
+#
+# env 를 끼우는 이유: sudo VAR=값 명령 으로 쓰면 sudoers 의 NOPASSWD 가 적용되지 않아
+# 비밀번호를 묻는다. 오라클 Ubuntu 이미지는 그 계정에 비밀번호가 없어서 답할 수가 없다.
 #
 # 하는 일:
 #   1. 호스트 방화벽을 연다 (오라클은 이걸 안 하면 콘솔에서 열어도 막힌다)
