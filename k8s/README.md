@@ -49,7 +49,7 @@ curl "http://localhost:3000/api/datasources/proxy/uid/loki/loki/api/v1/label/ser
 ## 종료
 
 ```bash
-kind delete cluster --name edrdog    # 클러스터째 삭제 (데이터 emptyDir 라 함께 소멸)
+kind delete cluster --name edrdog    # 클러스터째 삭제 (PVC 도 노드 안에 있어 함께 소멸)
 ```
 
 ## 에이전트 수집 포트 (api-service 8443 / NodePort 30443)
@@ -216,7 +216,10 @@ Machine Identity 자격증명 Secret 생성 1회, `kubectl apply -f k8s/infisica
 
 ## 메모
 
-- 개발용이라 **영속성 없음**(emptyDir). 파드 재시작 시 데이터 소멸.
+- **MySQL·ClickHouse 는 PVC 를 쓴다.** 파드가 갈려도 가입 계정과 이벤트 이력이 남는다.
+  볼륨이 없던 때는 노드 재부팅이나 OOM 한 번에 계정이 전부 사라져 로그인이 안 됐다.
+  PVC 가 `ReadWriteOnce` 라 둘 다 `strategy: Recreate` 다. 롤링으로 두면 새 파드가 볼륨을 못 잡는다.
+- **Kafka 는 영속성이 없다.** 남는 게 아직 소비 안 된 메시지뿐이고 토픽은 init Job 이 다시 만든다.
 - ClickHouse `edrdog.events` **테이블은 archiver 부팅 시 자동 생성**(`CREATE TABLE IF NOT EXISTS`). 여기선 `edrdog` DB 만 준비.
 - watchdog 클러스터와 호스트 포트(9092/8123/9000)가 겹치므로 **동시 실행 불가**.
 - `extraPortMappings` 는 **클러스터 생성 시에만** 반영된다. 이미 만들어 둔 클러스터에 3000/4317/4318 을 뚫으려면

@@ -1,5 +1,20 @@
-# MySQL — 회원가입/로그인용 유저·조직 저장. 개발용, 영속성 없음(emptyDir 없음).
+# MySQL — 회원가입/로그인용 유저·조직 저장.
 #   TCP 3306 -> host localhost:3306 (HTTP 아님)
+#
+# 볼륨이 없으면 파드가 갈릴 때마다 가입한 계정이 전부 사라진다. 배포를 안 건드려도
+# 노드 재부팅이나 OOM 한 번이면 로그인이 안 되는 상태가 된다.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mysql
+  namespace: edrdog
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -7,6 +22,9 @@ metadata:
   namespace: edrdog
 spec:
   replicas: 1
+  # RWO 라 롤링으로 두면 새 파드가 볼륨을 못 잡고 매달린다.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: mysql
@@ -43,6 +61,13 @@ spec:
               memory: 512Mi
             limits:
               memory: 1Gi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/mysql
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: mysql
 ---
 apiVersion: v1
 kind: Service
