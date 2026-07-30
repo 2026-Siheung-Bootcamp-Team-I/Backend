@@ -106,6 +106,20 @@ var etwProviders = []etwProvider{
 	{sensor: "dns", spec: "Microsoft-Windows-DNS-Client:0xff:3008"},
 }
 
+// pktMonProvider 는 패킷 캡처용 프로바이더다. 위 목록과 달리 따로 두는 이유가 두 가지다.
+//
+// 첫째, 켤 조건이 다르다. 나머지는 센서 스위치만 보면 되지만 이것은 pktmon 캡처가 실제로
+// 열렸을 때만 켜야 한다. 드라이버가 안 돌면 프로바이더만 붙고 이벤트는 0건이라, 그 상태를
+// 로그에서 "켰다" 로 보이게 두면 원인을 찾는 사람을 속인다.
+//
+// 둘째, 이름을 코드로 만든다. keyword 0x10 을 손으로 적어 두면 그 숫자가 무엇인지 아는
+// 곳(pktmon.go)과 쓰는 곳이 갈라진다.
+//
+// **같은 세션에 넣는다.** 별도 세션도 되지만 그러면 버퍼 풀과 플러시 주기가 따로 놀아
+// 연결 이벤트와 패킷의 도착 순서가 더 흔들린다. 프로세스 귀속이 그 순서에 달려 있어서
+// 순서가 덜 흔들리는 쪽이 낫다. 타임스탬프 기준계가 하나로 통일되는 것도 같은 이유다.
+const sensorL7 = "l7"
+
 // ETWSensor 는 ETW 실시간 세션에서 프로세스/네트워크/파일 이벤트를 받는다.
 type ETWSensor struct {
 	Factory    event.Factory
@@ -114,6 +128,13 @@ type ETWSensor struct {
 	Sensors map[string]bool
 	// Logger 가 비면 slog.Default() 를 쓴다.
 	Logger *slog.Logger
+
+	// PktMon 이 있으면 패킷 캡처 프로바이더를 같은 세션에 붙이고 프레임을 이쪽으로 넘긴다.
+	// nil 이면 캡처를 못 열었다는 뜻이라 프로바이더도 켜지 않는다.
+	PktMon *PktMonCapture
+	// Flows 가 있으면 연결 이벤트가 알려 준 프로세스를 여기에 기억해 둔다.
+	// L7Sensor 가 같은 것을 들고 있다가 SNI 에 이어 붙인다.
+	Flows *FlowOwners
 
 	// ProcessStart 와 ProcessStop 을 따로 센다. 둘의 비율이 진단 근거다(위 프로바이더 주석 참고).
 	starts atomic.Uint64
@@ -153,8 +174,15 @@ func (s *ETWSensor) Run(ctx context.Context, out chan<- event.Event) error {
 	}
 	s.logger().Info("ETW 세션 시작", "session", etwSessionName, "providers", sortedKeys(guids))
 
+	// 캡처는 세션이 끝나면 같이 끝내야 한다. 안 그러면 L7 센서가 오지 않을 프레임을 계속
+	// 기다리고, 밖에서는 그게 "조용히 0건" 으로 보인다.
+	if s.PktMon != nil {
+		defer s.PktMon.Close()
+	}
+
 	consumer := etw.NewRealTimeConsumer(ctx)
 	consumer.FromSessions(session)
+	s.hookCallbacks(consumer, guids)
 	if err := consumer.Start(); err != nil {
 		return fmt.Errorf("ETW 트레이스를 열지 못했다: %w", err)
 	}
@@ -200,7 +228,98 @@ func (s *ETWSensor) enableProviders(session *etw.RealTimeSession) (map[string]st
 		}
 		guids[p.sensor] = provider.GUID
 	}
+
+	// 패킷 캡처 프로바이더는 캡처가 실제로 열렸을 때만 켠다.
+	if s.PktMon != nil {
+		spec := pktMonProviderSpec()
+		provider, err := etw.ParseProvider(spec)
+		if err != nil {
+			return nil, fmt.Errorf("pktmon 프로바이더를 찾지 못했다(%s): %w", spec, err)
+		}
+		if err := session.EnableProvider(provider); err != nil {
+			return nil, fmt.Errorf("pktmon 프로바이더를 켜지 못했다(%s): %w", spec, err)
+		}
+		guids[sensorL7] = provider.GUID
+	}
 	return guids, nil
+}
+
+// hookCallbacks 는 소비자에 우리 처리를 끼워 넣는다.
+//
+// 둘 다 ETW 콜백 스레드에서 도는 자리를 고른 것이 핵심이다. 프레임은 EventRecordCallback 에서,
+// 연결 기억은 EventCallback 에서 받는데 이 둘은 같은 스레드에서 배달 순서 그대로 불린다.
+// 만약 연결 기억을 forward 고루틴(즉 consumer.Events 를 읽는 쪽)에서 했다면, ETW 가 순서를
+// 지켜 보내 줘도 우리 고루틴 둘이 그 순서를 다시 흐트러뜨린다. 프로세스 귀속이 순서에
+// 달려 있어서 그 한 겹은 우리가 없앨 수 있는 만큼 없애 둔다.
+func (s *ETWSensor) hookCallbacks(consumer *etw.Consumer, guids map[string]string) {
+	if s.PktMon != nil {
+		consumer.EventRecordCallback = func(er *etw.EventRecord) bool {
+			return s.handleRecord(er, guids[sensorL7])
+		}
+	}
+	if s.Flows != nil {
+		forward := consumer.EventCallback
+		consumer.EventCallback = func(e *etw.Event) error {
+			s.rememberFlow(e, guids["network"])
+			return forward(e)
+		}
+	}
+}
+
+// handleRecord 는 원시 이벤트를 먼저 본다. 패킷 이벤트면 여기서 처리하고 끝낸다.
+//
+// 라이브러리의 일반 경로를 태우지 않는 이유는 프레임 바이트 때문이다. 그 경로는 TDH 로
+// 모든 속성을 문자열로 렌더링하는데, 2KB 짜리 이진 페이로드를 패킷마다 문자열로 만드는 것은
+// 비싸고 그 문자열 형식이 문서로 보장되지도 않는다. 원본 바이트를 그대로 읽는 편이 싸고 확실하다.
+func (s *ETWSensor) handleRecord(er *etw.EventRecord, pktMonGUID string) bool {
+	if er == nil || er.EventHeader.EventDescriptor.Id != eventPktMonPacket {
+		return true
+	}
+	if !sameGUID(er.EventHeader.ProviderId.String(), pktMonGUID) {
+		return true
+	}
+	if er.UserData != 0 && er.UserDataLength > 0 {
+		s.PktMon.deliver(copyEventUserData(er.UserData, int(er.UserDataLength)))
+	}
+	// false 는 "이 이벤트는 더 처리하지 마라" 다.
+	return false
+}
+
+// copyEventUserData 는 ETW 이벤트의 원시 payload 를 Go 슬라이스로 복사해 온다.
+//
+// 주소가 uintptr 로 온다. 이걸 unsafe.Pointer 로 바꿔 슬라이스를 뜨는 것이 짧지만 go vet 의
+// unsafeptr 검사에 걸린다. 그 검사는 근거가 있다. uintptr 은 GC 가 추적하지 않는 값이라
+// 가리키는 대상이 Go 힙에 있으면 그 사이 옮겨져 엉뚱한 곳을 읽게 된다. 여기 주소는 ETW 가
+// 잡아 둔 버퍼라 실제로는 그렇지 않지만, 검사를 피해 가는 표현을 써서 조용히 넘기면 나중에
+// 이 자리를 보는 사람이 "왜 여기는 괜찮은가" 를 다시 세울 수 없다.
+//
+// 그래서 주소를 포인터로 바꾸지 않고, 주소를 인자로 받는 RtlMoveMemory 로 복사한다.
+// 하는 일은 memmove 하나이고, 패킷마다 한 번 부르는 값은 어차피 복사해야 하는 바이트다.
+func copyEventUserData(addr uintptr, n int) []byte {
+	buf := make([]byte, n)
+	procRtlMoveMemory.Call(uintptr(unsafe.Pointer(&buf[0])), addr, uintptr(n))
+	// 복사가 끝날 때까지 목적지가 살아 있어야 한다. 인자로 넘긴 uintptr 만으로는
+	// 컴파일러가 buf 를 살아 있다고 보지 않는다.
+	runtime.KeepAlive(buf)
+	return buf
+}
+
+// rememberFlow 는 연결 이벤트가 알려 준 프로세스를 캐시에 넣는다.
+//
+// 시각은 이벤트에 실려 온 것이 아니라 지금 시각을 쓴다. 만료를 재는 쪽(Lookup)이 time.Now 를
+// 보기 때문이다. 두 시계를 섞으면 어느 한쪽이 조금만 어긋나도 항목이 태어나자마자 만료되거나
+// 만료돼야 할 것이 남는데, 그 어긋남은 실기기에서만 드러난다.
+func (s *ETWSensor) rememberFlow(raw *etw.Event, networkGUID string) {
+	if raw == nil {
+		return
+	}
+	if id := raw.System.EventID; id != eventTCPConnectV4 && id != eventTCPConnectV6 {
+		return
+	}
+	if !sameGUID(raw.System.Provider.Guid, networkGUID) {
+		return
+	}
+	RememberNetworkFlow(s.Flows, properties(raw), procInfo, time.Now())
 }
 
 // sensorEnabled 는 그 센서를 켤지 본다. 설정을 아직 못 받았으면 전부 켠다.
@@ -337,6 +456,16 @@ func (s *ETWSensor) reportHealth() {
 		return
 	}
 	s.logger().Info("ETW 수집 상태", "processStart", starts, "processStop", stops)
+
+	if s.PktMon != nil {
+		s.PktMon.ReportHealth()
+	}
+	if s.Flows != nil {
+		// 이 비율이 Windows 쪽 프로세스 귀속이 실제로 먹는지를 말해 준다. 낮으면 연결
+		// 이벤트가 안 오는 것인지 도착 순서가 뒤집힌 것인지 따로 파야 한다.
+		hits, misses := s.Flows.Stats()
+		s.logger().Info("SNI 프로세스 귀속 상태", "hit", hits, "miss", misses, "cached", s.Flows.Size())
+	}
 }
 
 // properties 는 파싱된 속성을 문자열 맵 하나로 모은다.
@@ -462,5 +591,7 @@ var (
 	kernel32                       = syscall.NewLazyDLL("kernel32.dll")
 	ntdll                          = syscall.NewLazyDLL("ntdll.dll")
 	procQueryFullProcessImageNameW = kernel32.NewProc("QueryFullProcessImageNameW")
-	procNtQueryInformationProcess  = ntdll.NewProc("NtQueryInformationProcess")
+	// RtlMoveMemory 는 kernel32 가 내보내는 memmove 다. copyEventUserData 가 쓴다.
+	procRtlMoveMemory             = kernel32.NewProc("RtlMoveMemory")
+	procNtQueryInformationProcess = ntdll.NewProc("NtQueryInformationProcess")
 )

@@ -115,6 +115,7 @@ const (
 	propPID             = "PID"
 	propDestAddr        = "daddr"
 	propDestPort        = "dport"
+	propSrcPort         = "sport"
 	propFileName        = "FileName"
 	propQueryName       = "QueryName"
 	propQueryType       = "QueryType"
