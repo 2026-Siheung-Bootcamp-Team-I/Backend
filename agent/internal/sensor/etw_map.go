@@ -27,6 +27,10 @@ import (
 //   - Microsoft-Windows-Kernel-Network TCP 연결시도(12=IPv4, 28=IPv6): PID, size, daddr, saddr, dport, sport
 //     PID 가 실려 오는 것이 이 수집기의 전제다. Zeek 는 패킷만 봐서 이걸 못 했다.
 //   - Microsoft-Windows-Kernel-File NameCreate(10)/DeletePath(26)/RenamePath(27)/CreateNewFile(30): FileName
+//   - Microsoft-Windows-DNS-Client 질의발신(3006): QueryName, QueryType, QueryOptions, ServerList, ...
+//     질의완료(3008): QueryName, QueryType, QueryOptions, QueryStatus, QueryResults
+//     둘 다 payload 에 PID 가 없다. ClientPID 는 3010 계열에만 있어서 배선이 이벤트 헤더의
+//     ProcessID 를 대신 넘긴다.
 
 // ProcessNamer 는 PID 로 그 프로세스의 이름 또는 이미지 경로를 찾는다.
 //
@@ -112,6 +116,10 @@ const (
 	propDestAddr        = "daddr"
 	propDestPort        = "dport"
 	propFileName        = "FileName"
+	propQueryName       = "QueryName"
+	propQueryType       = "QueryType"
+	propQueryStatus     = "QueryStatus"
+	propQueryResults    = "QueryResults"
 
 	// 아래 둘은 매니페스트에 없다. ProcessStart 에는 전체 경로도 명령행도 실려 오지 않아
 	// 배선(etw_windows.go)이 살아 있는 프로세스를 조회해 같은 맵에 채워 넣는다.
@@ -207,6 +215,142 @@ func MapFile(f event.Factory, at time.Time, props map[string]string, watchPaths 
 		return event.Event{}, false
 	}
 	return f.File(at, path), true
+}
+
+// MapDNS 는 DNS-Client 질의완료(3008) 속성 맵을 dns 이벤트로 바꾼다.
+//
+// pid 는 배선이 이벤트 헤더에서 꺼내 넘긴다. 3006/3008 payload 에는 PID 가 없기 때문이다.
+// 해석에 실패해도 이벤트는 내보낸다. 어떤 도메인이 조회됐는지가 이 이벤트의 본체이고,
+// 프로세스는 곁가지다.
+//
+// detector 는 DNS 를 판정에 쓰지 않는다. 조사 화면에서 "이 호스트가 어디를 찾았나" 를 보는
+// 용도라, 집계에 방해가 되는 표기 흔들림(후행 점, 대소문자)과 양만 많은 역방향 조회를 여기서
+// 정리한다.
+func MapDNS(f event.Factory, at time.Time, props map[string]string, pid int, namer ProcessNamer) (event.Event, bool) {
+	domain := normalizeDNSName(prop(props, propQueryName))
+	if domain == "" {
+		// 도메인 없는 DNS 이벤트는 조사에 쓸 데가 없다.
+		return event.Event{}, false
+	}
+	// 역방향 조회는 IP 를 이름으로 바꾸는 질의라 "어디에 접속했나" 와 무관한데 양은 많다.
+	if isReverseDNSName(domain) {
+		return event.Event{}, false
+	}
+
+	path := ""
+	if pid > 0 && namer != nil {
+		path = namer.Name(pid)
+	}
+
+	detail := make(map[string]any, 3)
+	if queryType := dnsQueryTypeLabel(prop(props, propQueryType)); queryType != "" {
+		detail["queryType"] = queryType
+	}
+	if answers := parseDNSAnswers(prop(props, propQueryResults)); len(answers) > 0 {
+		detail["answers"] = answers
+	}
+	// 0 도 담는다. 성공한 질의라는 사실이 실패와 구분되어야 조사에서 쓸모가 있다.
+	if status, err := strconv.Atoi(prop(props, propQueryStatus)); err == nil {
+		detail["status"] = status
+	}
+	return f.DNS(at, path, domain, detail), true
+}
+
+// normalizeDNSName 은 질의 이름을 집계할 수 있는 모양으로 맞춘다.
+//
+// 후행 점을 떼는 이유는 DNS 이름이 "example.com." 처럼 루트 점을 달고 오는 경우가 있어서다.
+// 그대로 두면 대시보드에서 같은 도메인이 둘로 갈린다. 소문자로 맞추는 이유도 같다. DNS 는
+// 대소문자를 구분하지 않는데 표기를 그대로 두면 "Example.COM" 과 "example.com" 이 따로 센다.
+func normalizeDNSName(raw string) string {
+	return strings.ToLower(strings.TrimRight(strings.TrimSpace(raw), "."))
+}
+
+// isReverseDNSName 은 IP 를 이름으로 되짚는 질의인지 본다.
+func isReverseDNSName(name string) bool {
+	return hasDNSSuffix(name, "in-addr.arpa") || hasDNSSuffix(name, "ip6.arpa")
+}
+
+// hasDNSSuffix 는 이름이 그 영역에 속하는지 본다. 라벨 경계에서만 맞는다고 본다.
+// 단순 접미어 비교를 하면 "notin-addr.arpa" 같은 이름까지 걸린다.
+func hasDNSSuffix(name, suffix string) bool {
+	return name == suffix || strings.HasSuffix(name, "."+suffix)
+}
+
+// dnsQueryTypeNames 는 자주 보는 레코드 종류다. 여기 없는 번호는 숫자 그대로 남긴다.
+// 표를 다 채우는 것이 목적이 아니라 조사 화면에서 흔한 값이 읽히게 하는 것이 목적이다.
+var dnsQueryTypeNames = map[int]string{
+	1:   "A",
+	2:   "NS",
+	5:   "CNAME",
+	6:   "SOA",
+	12:  "PTR",
+	15:  "MX",
+	16:  "TXT",
+	28:  "AAAA",
+	33:  "SRV",
+	64:  "SVCB",
+	65:  "HTTPS",
+	255: "ANY",
+}
+
+// dnsQueryTypeLabel 은 숫자로 오는 QueryType 을 이름으로 바꾼다.
+// 모르는 번호는 지어내지 않고 원래 값을 그대로 둔다. 틀린 이름을 붙이는 쪽이 나쁘다.
+func dnsQueryTypeLabel(raw string) string {
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		return raw
+	}
+	if name, ok := dnsQueryTypeNames[n]; ok {
+		return name
+	}
+	return raw
+}
+
+// parseDNSAnswers 는 QueryResults 를 응답 값 목록으로 쪼갠다.
+//
+// 구분자가 세미콜론이라고 알려져 있으나 실기기로 확인하지 못했다. 잘못 짚으면 응답 전체가
+// 한 덩어리 문자열로 남는데, 그건 틀린 값이 아니라 쓸 수 없는 값이다. 그래서 세미콜론과
+// 쉼표를 모두 구분자로 본다. 둘 다 응답 값 안에는 나오지 않으므로 둘 다 봐도 손해가 없다.
+func parseDNSAnswers(raw string) []string {
+	fields := strings.FieldsFunc(raw, func(r rune) bool { return r == ';' || r == ',' })
+	answers := make([]string, 0, len(fields))
+	for _, field := range fields {
+		if v := stripDNSResultPrefix(field); v != "" {
+			answers = append(answers, v)
+		}
+	}
+	if len(answers) == 0 {
+		return nil
+	}
+	return answers
+}
+
+// stripDNSResultPrefix 는 "type: 5 alias.example.com" 처럼 값 앞에 붙는 레코드 종류를 뗀다.
+//
+// 그 번호는 detail 의 queryType 과 겹치는 값이라 남겨 봐야 응답 IP 를 그대로 쓰지 못하게만 한다.
+// 번호 뒤에 공백이 없으면 값의 일부로 보고 손대지 않는다. "93.184.216.34" 의 앞자리를 번호로
+// 잘못 읽어 ".184.216.34" 를 남기는 사고를 막는다.
+func stripDNSResultPrefix(token string) string {
+	v := strings.TrimSpace(token)
+
+	const prefix = "type:"
+	if len(v) < len(prefix) || !strings.EqualFold(v[:len(prefix)], prefix) {
+		return v
+	}
+	v = strings.TrimSpace(v[len(prefix):])
+
+	digits := 0
+	for digits < len(v) && v[digits] >= '0' && v[digits] <= '9' {
+		digits++
+	}
+	if digits == 0 || digits == len(v) {
+		// 번호만 있고 값이 없으면 담을 것이 없다.
+		return v[digits:]
+	}
+	if v[digits] != ' ' && v[digits] != '\t' {
+		return v
+	}
+	return strings.TrimSpace(v[digits:])
 }
 
 // prop 은 속성을 꺼낸다. 정확한 이름으로 먼저 찾고 없으면 대소문자를 무시하고 한 번 더 찾는다.

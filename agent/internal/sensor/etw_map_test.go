@@ -1,8 +1,10 @@
 package sensor
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"syscall"
 	"testing"
@@ -462,6 +464,269 @@ func TestMapFileDropsEverythingWithoutWatchPaths(t *testing.T) {
 		if _, ok := MapFile(etwFactory, etwAt, map[string]string{"FileName": `C:\Users\a\x.txt`}, watch); ok {
 			t.Errorf("watch=%v 인데 이벤트가 나왔다", watch)
 		}
+	}
+}
+
+// dnsDetail 은 이벤트의 detail JSON 을 풀어 준다. detail 은 문자열로 실려 나가므로
+// 값 하나를 보려면 매번 풀어야 한다.
+func dnsDetail(t *testing.T, e event.Event) map[string]any {
+	t.Helper()
+	if e.Detail == "" {
+		return nil
+	}
+	var detail map[string]any
+	if err := json.Unmarshal([]byte(e.Detail), &detail); err != nil {
+		t.Fatalf("detail 이 JSON 이 아니다: %v (%q)", err, e.Detail)
+	}
+	return detail
+}
+
+// 질의 완료(3008) 속성 맵이 그대로 dns 이벤트가 되는지 본다.
+func TestMapDNS(t *testing.T) {
+	props := map[string]string{
+		"QueryName":    "api.example.com",
+		"QueryType":    "1",
+		"QueryOptions": "0",
+		"QueryStatus":  "0",
+		"QueryResults": "203.0.113.9;203.0.113.10;",
+	}
+
+	got, ok := MapDNS(etwFactory, etwAt, props, 4242, fakeNamer{4242: `C:\Program Files\browser\chrome.exe`})
+	if !ok {
+		t.Fatal("이벤트가 나오지 않았다")
+	}
+	if got.Type != event.TypeDNS || got.Host != "lab-win" || got.TS != 1785341400000 {
+		t.Errorf("got %+v", got)
+	}
+	if got.Process != "chrome.exe" {
+		t.Errorf("process = %q, want chrome.exe", got.Process)
+	}
+	// 도메인은 검색 대상이라 별도 필드다. detail 안에 묻으면 조회가 안 된다.
+	if got.Domain != "api.example.com" {
+		t.Errorf("domain = %q", got.Domain)
+	}
+
+	detail := dnsDetail(t, got)
+	if detail["queryType"] != "A" {
+		t.Errorf("detail.queryType = %v, want A", detail["queryType"])
+	}
+	if detail["status"] != float64(0) {
+		t.Errorf("detail.status = %v, want 0", detail["status"])
+	}
+	want := []any{"203.0.113.9", "203.0.113.10"}
+	if !reflect.DeepEqual(detail["answers"], want) {
+		t.Errorf("detail.answers = %v, want %v", detail["answers"], want)
+	}
+}
+
+// 같은 도메인이 표기 때문에 둘로 갈리면 대시보드 집계가 못 쓰게 된다.
+func TestMapDNSNormalizesQueryName(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"후행 루트 점을 뗀다", "example.com.", "example.com"},
+		{"점이 여러 개라도 뗀다", "example.com..", "example.com"},
+		{"소문자로 맞춘다", "Example.COM", "example.com"},
+		{"둘 다 적용된다", "  API.Example.COM.  ", "api.example.com"},
+		{"이미 정규형이면 그대로", "example.com", "example.com"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := MapDNS(etwFactory, etwAt, map[string]string{"QueryName": tc.in}, 1, fakeNamer{})
+			if !ok {
+				t.Fatal("이벤트가 나오지 않았다")
+			}
+			if got.Domain != tc.want {
+				t.Errorf("domain = %q, want %q", got.Domain, tc.want)
+			}
+		})
+	}
+}
+
+// 도메인 없는 DNS 이벤트는 조사에 쓸 데가 없다.
+func TestMapDNSDropsEventWithoutQueryName(t *testing.T) {
+	for _, props := range []map[string]string{
+		{"QueryType": "1", "QueryStatus": "0"},
+		{"QueryName": "", "QueryType": "1"},
+		{"QueryName": "   ", "QueryType": "1"},
+		{"QueryName": ".", "QueryType": "1"},
+	} {
+		if _, ok := MapDNS(etwFactory, etwAt, props, 1, fakeNamer{1: "a.exe"}); ok {
+			t.Errorf("%v 가 통과했다", props)
+		}
+	}
+}
+
+// 역방향 조회는 IP 를 이름으로 되짚는 질의라 "어디에 접속했나" 와 무관한데 양만 많다.
+func TestMapDNSDropsReverseLookups(t *testing.T) {
+	dropped := []string{
+		"7.113.0.203.in-addr.arpa",
+		"7.113.0.203.IN-ADDR.ARPA.",
+		"1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.8.b.d.0.1.0.0.2.ip6.arpa",
+		"in-addr.arpa",
+		"ip6.arpa",
+	}
+	for _, name := range dropped {
+		if _, ok := MapDNS(etwFactory, etwAt, map[string]string{"QueryName": name}, 1, fakeNamer{1: "a.exe"}); ok {
+			t.Errorf("%q 가 통과했다", name)
+		}
+	}
+
+	// 이름만 비슷한 정상 도메인까지 버리면 안 된다.
+	kept := []string{"notin-addr.arpa", "example.com", "arpa.example.com"}
+	for _, name := range kept {
+		if _, ok := MapDNS(etwFactory, etwAt, map[string]string{"QueryName": name}, 1, fakeNamer{1: "a.exe"}); !ok {
+			t.Errorf("%q 가 걸러졌다", name)
+		}
+	}
+}
+
+// PID 해석에 실패해도 어떤 도메인을 찾았는지는 남겨야 한다. 프로세스는 곁가지다.
+func TestMapDNSKeepsEventWhenPIDUnresolved(t *testing.T) {
+	cases := []struct {
+		name  string
+		pid   int
+		namer ProcessNamer
+	}{
+		{"표에 없는 PID", 999, fakeNamer{}},
+		{"헤더에 PID 가 없다", 0, fakeNamer{0: "a.exe"}},
+		{"해석기가 없다", 4242, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			props := map[string]string{"QueryName": "example.com", "QueryType": "1"}
+			got, ok := MapDNS(etwFactory, etwAt, props, tc.pid, tc.namer)
+			if !ok {
+				t.Fatal("이벤트가 나오지 않았다")
+			}
+			if got.Process != "" {
+				t.Errorf("process = %q, want 빈 값", got.Process)
+			}
+			if got.Domain != "example.com" {
+				t.Errorf("domain = %q", got.Domain)
+			}
+		})
+	}
+}
+
+// 모르는 번호에 이름을 지어 붙이면 조사하는 사람이 그 이름을 믿는다. 숫자 그대로 두는 편이 낫다.
+func TestDNSQueryTypeLabel(t *testing.T) {
+	tests := []struct {
+		in   string
+		want string
+	}{
+		{"1", "A"},
+		{"28", "AAAA"},
+		{"5", "CNAME"},
+		{"12", "PTR"},
+		{"65", "HTTPS"},
+		{"255", "ANY"},
+		{"99", "99"},     // 표에 없는 번호는 그대로
+		{"", ""},         // 속성이 없으면 빈 값
+		{"A", "A"},       // 이미 이름으로 오면 그대로
+		{"0x1c", "0x1c"}, // 십진수가 아니면 손대지 않는다
+	}
+	for _, tc := range tests {
+		if got := dnsQueryTypeLabel(tc.in); got != tc.want {
+			t.Errorf("dnsQueryTypeLabel(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// QueryType 속성이 없으면 detail 에 빈 값을 넣지 않는다.
+func TestMapDNSOmitsUnknownDetailFields(t *testing.T) {
+	got, ok := MapDNS(etwFactory, etwAt, map[string]string{"QueryName": "example.com"}, 1, fakeNamer{})
+	if !ok {
+		t.Fatal("이벤트가 나오지 않았다")
+	}
+	if got.Detail != "" {
+		t.Errorf("detail = %q, want 빈 값", got.Detail)
+	}
+}
+
+// 응답 파싱은 구분자를 확인하지 못한 채로 만들었다. 여러 모양을 다 받아야 한다.
+func TestParseDNSAnswers(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want []string
+	}{
+		{"세미콜론", "203.0.113.9;203.0.113.10", []string{"203.0.113.9", "203.0.113.10"}},
+		{"세미콜론이 끝에 붙어도 빈 값이 안 생긴다", "203.0.113.9;", []string{"203.0.113.9"}},
+		{"쉼표", "203.0.113.9,203.0.113.10", []string{"203.0.113.9", "203.0.113.10"}},
+		{"둘이 섞여도 된다", "203.0.113.9;203.0.113.10,203.0.113.11", []string{"203.0.113.9", "203.0.113.10", "203.0.113.11"}},
+		{"빈 토큰은 버린다", ";;203.0.113.9;;;203.0.113.10;;", []string{"203.0.113.9", "203.0.113.10"}},
+		{"공백만 있는 토큰도 버린다", "203.0.113.9;   ;203.0.113.10", []string{"203.0.113.9", "203.0.113.10"}},
+		{"양옆 공백을 턴다", " 203.0.113.9 ; 203.0.113.10 ", []string{"203.0.113.9", "203.0.113.10"}},
+		{"레코드 종류 접두어를 뗀다", "type: 5 alias.example.com;type: 1 203.0.113.9", []string{"alias.example.com", "203.0.113.9"}},
+		{"접두어에 공백이 없어도 뗀다", "type:5 alias.example.com", []string{"alias.example.com"}},
+		{"대소문자가 달라도 뗀다", "TYPE: 1 203.0.113.9", []string{"203.0.113.9"}},
+		{"번호만 있고 값이 없으면 버린다", "type: 5;203.0.113.9", []string{"203.0.113.9"}},
+		{"IPv6 의 콜론은 구분자가 아니다", "2001:db8::1;2001:db8::2", []string{"2001:db8::1", "2001:db8::2"}},
+		{"접두어가 없으면 그대로", "alias.example.com", []string{"alias.example.com"}},
+		{"빈 문자열", "", nil},
+		{"구분자만", ";;,,", nil},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := parseDNSAnswers(tc.in); !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("parseDNSAnswers(%q) = %v, want %v", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+// 값의 앞자리를 레코드 번호로 잘못 읽으면 응답 IP 가 조용히 망가진다.
+func TestStripDNSResultPrefixKeepsValueThatStartsWithDigits(t *testing.T) {
+	if got := stripDNSResultPrefix("93.184.216.34"); got != "93.184.216.34" {
+		t.Errorf("got %q", got)
+	}
+	if got := stripDNSResultPrefix("type:93.184.216.34"); got != "93.184.216.34" {
+		t.Errorf("got %q, 번호 뒤에 공백이 없으면 값의 일부다", got)
+	}
+}
+
+// 실패한 질의도 이벤트로 남는다. 3006 대신 3008 을 고른 근거가 이것이다.
+func TestMapDNSKeepsFailedQuery(t *testing.T) {
+	props := map[string]string{
+		"QueryName":    "nx.example.com.",
+		"QueryType":    "28",
+		"QueryStatus":  "9003", // DNS_ERROR_RCODE_NAME_ERROR
+		"QueryResults": "",
+	}
+	got, ok := MapDNS(etwFactory, etwAt, props, 4242, fakeNamer{4242: `C:\Windows\System32\nslookup.exe`})
+	if !ok {
+		t.Fatal("이벤트가 나오지 않았다")
+	}
+	if got.Domain != "nx.example.com" {
+		t.Errorf("domain = %q", got.Domain)
+	}
+	detail := dnsDetail(t, got)
+	if detail["status"] != float64(9003) {
+		t.Errorf("detail.status = %v, want 9003", detail["status"])
+	}
+	if _, has := detail["answers"]; has {
+		t.Errorf("응답이 없는데 answers 가 실렸다: %v", detail["answers"])
+	}
+	if detail["queryType"] != "AAAA" {
+		t.Errorf("detail.queryType = %v, want AAAA", detail["queryType"])
+	}
+}
+
+// 프로바이더 버전에 따라 속성 이름 표기가 흔들려도 DNS 가 조용히 0건이 되면 안 된다.
+func TestMapDNSPropIsCaseInsensitive(t *testing.T) {
+	props := map[string]string{"queryname": "Example.COM.", "querytype": "1", "queryresults": "203.0.113.9"}
+	got, ok := MapDNS(etwFactory, etwAt, props, 1, fakeNamer{1: "a.exe"})
+	if !ok {
+		t.Fatal("이벤트가 나오지 않았다")
+	}
+	if got.Domain != "example.com" {
+		t.Errorf("domain = %q", got.Domain)
+	}
+	if detail := dnsDetail(t, got); detail["queryType"] != "A" {
+		t.Errorf("detail.queryType = %v", detail["queryType"])
 	}
 }
 

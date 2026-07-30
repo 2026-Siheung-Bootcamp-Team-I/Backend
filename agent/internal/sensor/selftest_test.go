@@ -21,7 +21,7 @@ func TestSelfTestEmitsEveryEventType(t *testing.T) {
 	}()
 
 	seen := map[string]bool{}
-	for i := 0; i < 4; i++ {
+	for i := 0; i < 6; i++ {
 		select {
 		case e := <-out:
 			seen[e.Type] = true
@@ -35,7 +35,7 @@ func TestSelfTestEmitsEveryEventType(t *testing.T) {
 	cancel()
 	<-done
 
-	for _, eventType := range []string{event.TypeProcess, event.TypeScript, event.TypeNetwork, event.TypeFile} {
+	for _, eventType := range []string{event.TypeProcess, event.TypeScript, event.TypeNetwork, event.TypeFile, event.TypeDNS, event.TypeL7} {
 		if !seen[eventType] {
 			t.Errorf("%s 이벤트가 안 나왔다", eventType)
 		}

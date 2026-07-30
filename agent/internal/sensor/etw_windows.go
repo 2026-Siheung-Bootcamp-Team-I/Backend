@@ -48,6 +48,8 @@ const (
 	eventTCPConnectV6 = 28 // Kernel-Network TCP 연결 시도(IPv6). IPv4 ID + 16 이다
 
 	eventCreateNewFile = 30 // Kernel-File CreateNewFile
+
+	eventDNSQueryCompleted = 3008 // DNS-Client 질의 완료. 3006(질의 발신)은 받지 않는다
 )
 
 // etwProvider 는 센서 스위치 하나와 그에 맞는 프로바이더 설정이다.
@@ -88,9 +90,20 @@ var etwProviders = []etwProvider{
 	// 삭제와 이름 변경까지 보려면 MapFile 이 FilePath 도 읽게 고친 뒤에 켜야 한다.
 	{sensor: "file", spec: "Microsoft-Windows-Kernel-File:0xff:30:0x1000"},
 
-	// dns 센서는 여기에 없다. Microsoft-Windows-DNS-Client 는 3006(질의)과 3008(응답)을 주는데
-	// 서버 스키마에 dns 타입이 없다. network 로 억지로 내보내려면 목적지 IP 와 포트를 지어내야
-	// 하는데, 질의는 연결이 아니다. 스키마를 바꾸지 않기로 했으므로 이번 범위에서 뺐다.
+	// DNS 는 질의 완료(3008)만 받는다.
+	//
+	// 3006(질의 발신)과 둘 다 받으면 같은 질의가 이벤트 두 건이 되어 대시보드에서 질의 수가
+	// 두 배로 보인다. 하나만 골라야 하는데 3008 을 고른 이유는 응답 IP(QueryResults)와
+	// 상태(QueryStatus)가 여기에만 실려 오기 때문이다. detector 는 DNS 를 판정에 쓰지 않고
+	// 이 이벤트는 조사 화면용인데, 조사에서 필요한 것은 "무엇을 물었나" 보다 "무엇으로 풀렸나" 다.
+	// 3006 의 장점인 "응답을 못 받은 질의도 남는다" 도 크게 잃지 않는다. 실패한 질의는 3008 이
+	// 실패 상태를 달고 올라오기 때문이다.
+	//
+	// keyword 를 적지 않는다. 이 프로바이더의 3006/3008 은 매니페스트 keyword 가 0 이라
+	// MatchAnyKeyword 와 무관하게 세션에 기록된다. 그런 상태에서 값을 지어내 적어 두면 나중에
+	// 그 값이 수집 조건인 것처럼 읽힌다. EVENT_ENABLE_PROPERTY_IGNORE_KEYWORD_0 을 켜면
+	// keyword 0 인 이벤트가 통째로 막히므로 그것도 켜지 않는다(라이브러리 기본값이 꺼짐이다).
+	{sensor: "dns", spec: "Microsoft-Windows-DNS-Client:0xff:3008"},
 }
 
 // ETWSensor 는 ETW 실시간 세션에서 프로세스/네트워크/파일 이벤트를 받는다.
@@ -263,6 +276,20 @@ func (s *ETWSensor) convert(raw *etw.Event, guids map[string]string) (event.Even
 	case sameGUID(guid, guids["file"]):
 		if id == eventCreateNewFile {
 			return MapFile(s.Factory, at, properties(raw), s.WatchPaths)
+		}
+
+	case sameGUID(guid, guids["dns"]):
+		if id == eventDNSQueryCompleted {
+			// PID 는 헤더에서 꺼낸다. 3006/3008 payload 에는 PID 가 없다.
+			// ClientPID 속성은 3010/3011/3020 의 v1 이상에만 있고, 그 이벤트들은 캐시 조회라
+			// 우리가 받는 질의 완료와 짝이 맞지 않는다.
+			//
+			// 헤더 PID 를 클라이언트 PID 로 보는 것은 이 이벤트를 dnsapi.dll 이 질의를 낸
+			// 프로세스 안에서 기록하기 때문이다. 다만 1차 문서로 확인한 사실이 아니다.
+			// 실기기에서 브라우저로 접속해 보고 process 가 그 브라우저로 나오는지,
+			// 아니면 전부 svchost.exe(dnscache 서비스)로 나오는지 확인해야 한다.
+			// 후자라면 이 프로바이더로는 프로세스를 알 수 없다는 뜻이다.
+			return MapDNS(s.Factory, at, properties(raw), int(raw.System.Execution.ProcessID), procInfo)
 		}
 	}
 	return event.Event{}, false

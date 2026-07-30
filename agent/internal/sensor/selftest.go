@@ -50,6 +50,14 @@ func (s *SelfTest) emit(ctx context.Context, out chan<- event.Event) error {
 		s.Factory.Script(now, "/bin/sh", "sh /tmp/selftest.sh", "edrdog-agent"),
 		s.Factory.Network(now, "/usr/bin/selftest", "203.0.113.1", 443),
 		s.Factory.File(now, "/tmp/edrdog-selftest.txt"),
+		s.Factory.DNS(now, "/usr/bin/selftest", "selftest.example.com", map[string]any{
+			"queryType": "A",
+			"answers":   []string{"203.0.113.1"},
+		}),
+		s.Factory.L7(now, "/usr/bin/selftest", "selftest.example.com", "203.0.113.1", 443, map[string]any{
+			"issuer":     "CN=EDRdog Selftest CA",
+			"selfSigned": true,
+		}),
 	}
 	for _, e := range batch {
 		select {
