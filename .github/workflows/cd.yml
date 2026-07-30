@@ -136,16 +136,21 @@ jobs:
           echo "~/Backend 클론이 없어 모니터링 매니페스트 apply 를 건너뛴다" >&2
           fi
 
-          # Deployment 가 아직 없는 모듈(새로 추가된 서비스)은 건너뛴다.
-          # set -e 라 없는 deployment 에 set image 를 하면 나머지 배포까지 통째로 죽는다.
-          # 새 서비스는 서버에서 k8s/<모듈>.yaml 을 한 번 apply 한 뒤부터 이 루프가 관리한다.
+          # Deployment 가 없으면(빈 클러스터, 새로 추가된 서비스) 매니페스트를 먼저 apply 한다.
+          # 있으면 apply 하지 않는다. image 가 :latest 로 되돌아갔다가 아래 set image 로 다시
+          # :sha 가 되면서 롤아웃이 두 번 돌기 때문이다.
           DEPLOYED=""
           for m in $MODULES; do
-          if sudo kubectl -n "$NS" get deploy "$m" >/dev/null 2>&1; then
-          DEPLOYED="$DEPLOYED $m"
+          if ! sudo kubectl -n "$NS" get deploy "$m" >/dev/null 2>&1; then
+          if [ -d ~/Backend/.git ]; then
+          echo "deployment/$m 없음 → k8s/$m.yaml 을 apply 한다" >&2
+          git -C ~/Backend show "FETCH_HEAD:k8s/$m.yaml" | sudo kubectl apply -f -
           else
-          echo "deployment/$m 없음 → 건너뜀. k8s/$m.yaml 을 서버에서 먼저 apply 할 것" >&2
+          echo "deployment/$m 없음. ~/Backend 클론이 없어 apply 도 못 한다" >&2
+          continue
           fi
+          fi
+          DEPLOYED="$DEPLOYED $m"
           done
 
           for m in $DEPLOYED; do
