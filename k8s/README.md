@@ -149,6 +149,46 @@ sudo kubectl -n edrdog logs deploy/api-service | grep 'GeoIP DB 로드'
 4번이 `GeoIP DB 로드(파일)` 이면 성공이다. `(클래스패스)` 면 볼륨의 파일을 못 읽어 jar 번들로
 넘어간 것이고, 그 상태로 mmdb 없는 이미지가 배포되면 지도가 빈다.
 
+## 운영 UI (Portainer / Kafka UI / Swagger)
+
+배포서버 전용이다. 셋 다 Caddy 뒤에 있고 NodePort 를 방화벽에 열지 않으므로 Caddy 를 통해서만 들어간다.
+
+| 대상 | 주소 | 인증 | Infisical 키 | NodePort |
+|---|---|---|---|---|
+| Portainer | `https://portainer.<도메인>` | 자체 로그인 (`admin`) | `PORTAINER_ADMIN_PASSWORD` | 30777 |
+| Kafka UI | `https://<도메인>/kafka-ui` | 자체 로그인 폼 | `KAFKA_UI_USER` / `KAFKA_UI_PASSWORD` | 30901 |
+| Swagger | `https://<도메인>/swagger-ui.html` | Basic (`SwaggerAuthFilter`) | `EDRDOG_SWAGGER_USER` / `EDRDOG_SWAGGER_PASSWORD` | (api 30084) |
+
+**Caddy 는 인증을 하지 않는다.** 셋 다 자기 안에서 막고 계정은 `edrdog-secrets` 에서 받는다. Caddy 에
+basic auth 를 걸면 비번이 Infisical 과 호스트 파일 두 군데로 갈라지고, Infisical 에서 바꿔도 호스트의
+Caddyfile 은 그대로라 반영되지 않는다.
+
+- **Kafka UI 와 Portainer 는 키가 없으면 파드가 뜨지 않는다** (`optional` 을 안 줬다). 인증이 꺼진 채로
+  멀쩡히 떠 있는 것보다 멈추는 편이 낫다. 키를 넣은 뒤
+  `kubectl -n edrdog rollout restart deploy/kafka-ui deploy/portainer`.
+  `/kafka-ui/actuator/health` 는 로그인 없이 200 이라 readinessProbe 는 그대로 통과한다.
+- **Swagger 는 비번이 없으면 열리는 게 아니라 닫힌다.** `application.yml` 에 기본값을 두지 않았다.
+  레포에 박아 두면 그게 곧 공개 비번이라서다. 로컬에서 보려면 `EDRDOG_SWAGGER_PASSWORD` 를 넣고 띄운다.
+- Swagger 가 `ApiKeyPolicy` 의 인증 예외로 남아 있는 건 그대로다. 브라우저로 여는 화면이라 `X-API-Key`
+  헤더를 붙일 수가 없어서, API 키 대신 Basic 으로 막는다.
+
+### Portainer
+
+`k8s/portainer.yaml`. `admin` / `PORTAINER_ADMIN_PASSWORD` 로 로그인한다. 계정은 `--admin-password-file` 로
+파드가 뜨면서 자동 생성되므로 사람이 먼저 접속할 필요가 없다(원래는 5분 안에 안 만들면 스스로 잠근다).
+
+- **`PORTAINER_ADMIN_PASSWORD` 는 첫 기동에만 먹는다.** Portainer 가 자기 DB(PVC)에 복사하기 때문에,
+  계정이 생긴 뒤 Infisical 값을 바꿔도 비번은 안 바뀐다. 바꾸려면 Portainer UI 에서 바꾸거나 PVC 를 지운다.
+  Kafka UI·Swagger 와 달리 Infisical 이 계속 진짜 소스인 구조가 아니다.
+- 네임스페이스가 `portainer` 가 아니라 `edrdog` 인 이유: k8s Secret 은 네임스페이스를 넘지 못한다.
+  `edrdog-secrets` 를 마운트하려면 같은 네임스페이스여야 한다.
+- 이 계정은 `cluster-admin` 이라 `edrdog` 의 Secret(API 키, DB 비번)까지 전부 보인다. 비번을 세게 잡는다.
+- 서브패스(`/portainer`)가 아니라 서브도메인인 이유: 서브패스로 서비스하려면 `--base-url` 과 프록시의
+  prefix strip 이 정확히 한 번씩 맞아야 하고, 어긋나면 화면은 뜨는데 로그인이 안 된다.
+- `--trusted-origins` 가 없으면 Caddy 뒤에서 로그인할 때 `Origin invalid` 로 막힌다. 도메인을 바꾸면
+  매니페스트의 이 값도 같이 바꿔야 한다.
+- 계정과 설정은 PVC 에 있다(k3s `local-path`). 지우면 다음 기동에서 Infisical 값으로 다시 만들어진다.
+
 ## 시크릿 (Infisical)
 
 매니페스트에 평문으로 박혀 있던 값(`DB_PASSWORD`, `CLICKHOUSE_PASSWORD` 등)을 Infisical 로 옮긴다.

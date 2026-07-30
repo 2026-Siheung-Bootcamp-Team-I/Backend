@@ -31,6 +31,20 @@ spec:
               value: "kafka.edrdog.svc.cluster.local:9094"
             - name: SERVER_SERVLET_CONTEXT_PATH
               value: "/kafka-ui"
+            # 없으면 주소만 알아도 토픽 메시지(수집 원본)를 읽고 produce·토픽 삭제까지 된다.
+            - name: AUTH_TYPE
+              value: "LOGIN_FORM"
+            # optional 을 주지 않는다. 키가 없으면 인증이 꺼진 채로 뜨는 대신 파드가 멈춘다.
+            - name: SPRING_SECURITY_USER_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: edrdog-secrets
+                  key: KAFKA_UI_USER
+            - name: SPRING_SECURITY_USER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: edrdog-secrets
+                  key: KAFKA_UI_PASSWORD
             - name: JAVA_OPTS
               value: "-Xms128M -Xmx512M"
           readinessProbe:

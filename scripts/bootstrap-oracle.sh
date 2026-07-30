@@ -38,6 +38,8 @@ GHCR_IMAGE_BASE="${GHCR_IMAGE_BASE:-ghcr.io/edrdog/backend}"
 # 때문에 중간에서 TLS 를 다시 종단하면 등록 단계에서 실패한다.
 AGENT_PORT=30443
 API_NODEPORT=30084
+KAFKA_UI_NODEPORT=30901
+PORTAINER_NODEPORT=30777
 
 fail() { echo "오류: $*" >&2; exit 1; }
 step() { echo; echo "== $*"; }
@@ -153,19 +155,34 @@ if ! command -v caddy >/dev/null 2>&1; then
 fi
 
 # 도메인 블록 안에서 벗은 reverse_proxy 와 handle 은 섞을 수 없다. 처음부터 전부 감싼다.
+#
+# Caddy 는 인증을 하지 않는다. 운영 UI 세 개가 각자 자기 로그인을 갖고 있고, 그 계정은
+# Infisical 이 넣는다(Kafka UI 는 AUTH_TYPE=LOGIN_FORM, Swagger 는 api-service 의
+# SwaggerAuthFilter, Portainer 는 자체 로그인). 여기서 또 막으면 비번이 두 군데로 갈라지고,
+# Infisical 에서 비번을 바꿔도 호스트의 이 파일은 그대로라 반영이 안 된다.
 cat > /etc/caddy/Caddyfile <<EOF
 $DOMAIN {
 	handle /kafka-ui* {
-		reverse_proxy localhost:30901
+		reverse_proxy localhost:$KAFKA_UI_NODEPORT
 	}
 	handle {
 		reverse_proxy localhost:$API_NODEPORT
 	}
 }
+
+# Portainer. DuckDNS 는 하위 도메인이 전부 같은 IP 로 오므로 레코드를 따로 만들 필요가 없고,
+# Caddy 가 이 이름으로 인증서를 알아서 받는다(80 이 열려 있어야 받는다).
+portainer.$DOMAIN {
+	reverse_proxy localhost:$PORTAINER_NODEPORT
+}
 EOF
+# 설정이 틀리면 reload 가 조용히 실패하고 사이트가 옛 설정으로 남거나 죽는다. 여기서 잡는다.
+caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1 \
+  || fail "Caddyfile 이 잘못됐다: caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile"
 systemctl enable --now caddy >/dev/null 2>&1 || true
 systemctl reload caddy 2>/dev/null || systemctl restart caddy
 echo "  $DOMAIN -> localhost:$API_NODEPORT"
+echo "  portainer.$DOMAIN -> localhost:$PORTAINER_NODEPORT"
 
 # --- 5. 에이전트 수집 TLS -----------------------------------------------------
 # 에이전트가 호스트명을 SAN 과 대조한다. 도메인을 바꾸면 여기도 다시 만들어야 한다.
@@ -231,7 +248,7 @@ step "8/8 인프라 매니페스트"
 if [[ -d "$REPO_DIR/.git" ]]; then
   git -C "$REPO_DIR" fetch --quiet origin main || true
   for f in k8s/00-namespace.yaml k8s/mysql.yaml k8s/kafka.yaml k8s/clickhouse.yaml \
-           k8s/otel-lgtm.yaml k8s/alloy.yaml k8s/kafka-ui.yaml; do
+           k8s/otel-lgtm.yaml k8s/alloy.yaml k8s/kafka-ui.yaml k8s/portainer.yaml; do
     git -C "$REPO_DIR" show "FETCH_HEAD:$f" | kubectl apply -f - >/dev/null && echo "  $f"
   done
 else
@@ -276,10 +293,27 @@ cat <<EOF
    CD 가 arm64 를 포함해 이미지를 올리고, 서비스 매니페스트 apply 와 롤아웃까지 한다.
    Deployment 가 없으면 CD 가 알아서 apply 하므로 여기서 손으로 할 것은 없다.
 
-3) 확인
+3) Infisical 에 운영 UI 계정을 넣는다 (prod 환경)
+     KAFKA_UI_USER / KAFKA_UI_PASSWORD              <- Kafka UI 로그인
+     EDRDOG_SWAGGER_USER / EDRDOG_SWAGGER_PASSWORD  <- Swagger 로그인
+     PORTAINER_ADMIN_PASSWORD                       <- Portainer 관리자 (아이디는 admin 고정)
+   넣은 뒤 edrdog-secrets 를 다시 만든다(위 7단계의 명령). 그리고:
+     kubectl -n $NS rollout restart deploy/kafka-ui deploy/portainer
+   kafka-ui 와 portainer 는 이 키가 없으면 파드가 뜨지 않는다. 인증이 꺼진 채로 떠 있으면
+   토픽 메시지가 그대로 공개돼서, 멈추는 편이 낫다고 보고 일부러 그렇게 뒀다.
+   Swagger 는 비번이 없으면 열리는 게 아니라 닫힌다.
+   PORTAINER_ADMIN_PASSWORD 는 첫 기동에만 먹는다. 계정이 생긴 뒤에 바꾸려면 Portainer UI 에서 바꾼다.
+
+4) 확인
    kubectl -n $NS get pods
    curl -sS https://$DOMAIN/actuator/health
+   curl -sS -o /dev/null -w '%{http_code}\n' https://$DOMAIN/kafka-ui/          # -> 302 (로그인으로)
+   curl -sS -o /dev/null -w '%{http_code}\n' https://$DOMAIN/swagger-ui.html    # -> 401
+   curl -sS -o /dev/null -w '%{http_code}\n' https://portainer.$DOMAIN/api/users/admin/check  # -> 204 (계정 생성됨)
    openssl s_client -connect $DOMAIN:$AGENT_PORT </dev/null 2>/dev/null | head -3
+
+   Portainer 는 admin / PORTAINER_ADMIN_PASSWORD 로 로그인한다.
+   이 계정은 cluster-admin 이라 edrdog 의 Secret 까지 다 보인다. 비번을 세게 잡는다.
 
 kubectl 을 그냥 쓰려면:
    echo 'export KUBECONFIG=/etc/rancher/k3s/k3s.yaml' >> ~/.bashrc

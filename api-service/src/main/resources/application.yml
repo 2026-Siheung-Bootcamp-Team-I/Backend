@@ -46,6 +46,10 @@ edrdog:
       key-alias: ${AGENT_TLS_KEY_ALIAS:agent}
   api:
     key: ${EDRDOG_API_KEY:dev-api-key}   # 프론트가 X-API-Key 헤더로 보낼 값 (운영은 환경변수로 주입)
+  swagger:                               # Swagger 를 가리는 Basic 계정 (운영은 Infisical 주입)
+    user: ${EDRDOG_SWAGGER_USER:admin}
+    # 기본값을 두지 않는다. 레포에 박으면 그게 곧 공개 비번이다. 없으면 Swagger 는 닫힌다.
+    password: ${EDRDOG_SWAGGER_PASSWORD:}
   install:
     # 설치 링크(/i/<토큰>). 사용자가 키를 손으로 다루지 않게 하려고 둔 경로다.
     # 링크의 앞부분. 대시보드가 보여줄 명령줄을 서버가 조립하는 데 쓴다.
