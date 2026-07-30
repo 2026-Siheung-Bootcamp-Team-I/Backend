@@ -198,6 +198,85 @@ class RawEventMapperTest {
         assertNull(map(raw).orElseThrow().domain());
     }
 
+    // --- sha256 형식 검증 ---
+
+    @Test
+    void sha256_이_64자리_16진수면_그대로_통과한다() {
+        String raw = """
+                {
+                  "host": "lab-mac",
+                  "type": "process",
+                  "ts": 1785341400000,
+                  "process": "evil.exe",
+                  "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                }
+                """;
+
+        assertEquals("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                map(raw).orElseThrow().sha256());
+    }
+
+    @Test
+    void sha256_이_대문자로_오면_소문자로_정규화한다() {
+        // 같은 파일의 해시가 대소문자 때문에 둘로 보이면 해시 조회가 갈린다.
+        String raw = """
+                {
+                  "host": "lab-mac",
+                  "type": "file",
+                  "ts": 1785341400000,
+                  "process": "a.bin",
+                  "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+                }
+                """;
+
+        assertEquals("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                map(raw).orElseThrow().sha256());
+    }
+
+    @Test
+    void sha256_길이가_다르면_떨어뜨린다() {
+        // 잘린 해시나 md5/sha1 이 섞여 들어오면 해시 조회 결과가 오염된다. 이벤트는 살리고 필드만 버린다.
+        String raw = """
+                {
+                  "host": "lab-mac",
+                  "type": "process",
+                  "ts": 1785341400000,
+                  "process": "evil.exe",
+                  "sha256": "e3b0c44298fc1c14"
+                }
+                """;
+
+        Event e = map(raw).orElseThrow();
+
+        assertNull(e.sha256());
+        assertEquals("evil.exe", e.process());
+    }
+
+    @Test
+    void sha256_이_16진수가_아니면_떨어뜨린다() {
+        String raw = """
+                {
+                  "host": "lab-mac",
+                  "type": "process",
+                  "ts": 1785341400000,
+                  "process": "evil.exe",
+                  "sha256": "zzzzc44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                }
+                """;
+
+        assertNull(map(raw).orElseThrow().sha256());
+    }
+
+    @Test
+    void sha256_이_없으면_null_로_흐른다() {
+        // 해시를 못 구하는 이벤트(network 등)가 대부분이다. 없다고 버리지 않는다.
+        String raw = """
+                { "host": "lab-mac", "type": "network", "ts": 1785341400000, "destIp": "10.0.0.9" }
+                """;
+
+        assertNull(map(raw).orElseThrow().sha256());
+    }
+
     @Test
     void tenantId_가_없으면_null_로_흐른다() {
         String raw = """

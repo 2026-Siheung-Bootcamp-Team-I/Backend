@@ -47,7 +47,8 @@ public class ClickHouseWriter {
      */
     private static final List<String> ADDED_COLUMNS = List.of(
             "domain String",
-            "detail String"
+            "detail String",
+            "sha256 String"
     );
 
     /** 부팅 시 events 테이블 생성 (개발용: 매 기동마다 IF NOT EXISTS). */
@@ -66,6 +67,7 @@ public class ClickHouseWriter {
                     dest_port UInt16,
                     domain String,
                     detail String,
+                    sha256 String,
                     ingested_at DateTime64(3) DEFAULT now64(3)
                 ) ENGINE = MergeTree
                 ORDER BY (tenant_id, host, ts)

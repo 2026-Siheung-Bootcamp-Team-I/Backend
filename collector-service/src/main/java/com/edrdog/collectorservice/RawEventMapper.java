@@ -4,7 +4,9 @@ import com.edrdog.collectorservice.dto.Event;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import java.util.Locale;
 import java.util.Optional;
+import java.util.regex.Pattern;
 
 /**
  * 에이전트가 보낸 이벤트 JSON 1건을 검증해 {@link Event} 로 통과시키는 검증 경계.
@@ -24,6 +26,7 @@ import java.util.Optional;
  *   <li>{@code network} 인데 {@code destIp} 가 비었으면 스킵</li>
  *   <li>{@code dns}/{@code l7} 인데 {@code domain} 이 비었으면 스킵. 도메인이 없으면 어느 이름을 물어봤는지
  *       모르니 남겨도 조사에 쓸 수 없다(network 가 destIp 없으면 버리는 것과 같은 이유다)</li>
+ *   <li>{@code sha256} 이 64자리 16진수가 아니면 그 필드만 빈 값으로 떨어뜨린다(이벤트는 살린다)</li>
  * </ul>
  *
  * <p>그 외에는 값을 그대로 옮긴다. basename 추출, 타입 추측, 시각 변환 같은 변환은 하지 않는다.
@@ -36,6 +39,9 @@ public final class RawEventMapper {
      * 100_000_000_000L 을 밀리초로 보면 1973년 근방이라, 현실적인 이벤트 시각이 이보다 작을 수 없다.
      */
     private static final long MIN_PLAUSIBLE_MILLIS = 100_000_000_000L;
+
+    /** SHA-256 은 32바이트라 16진수 표기로 정확히 64자리다. 길이가 다르면 다른 알고리즘이거나 잘린 값이다. */
+    private static final Pattern SHA256_PATTERN = Pattern.compile("[0-9a-fA-F]{64}");
 
     private RawEventMapper() {
     }
@@ -90,6 +96,7 @@ public final class RawEventMapper {
                 intValue(root, "destPort"),
                 domain,
                 text(root, "detail"),
+                normalizeSha256(text(root, "sha256")),
                 text(root, "tenantId")));
     }
 
@@ -105,6 +112,23 @@ public final class RawEventMapper {
     /** dns/l7 은 도메인이 핵심 값이다. 그게 없으면 남겨도 조사에 쓸 수 없어 버린다. */
     private static boolean needsDomain(String type) {
         return Event.TYPE_DNS.equals(type) || Event.TYPE_L7.equals(type);
+    }
+
+    /**
+     * sha256 을 소문자 64자리 16진수로 정규화한다. 그 형태가 아니면 null 로 떨어뜨린다.
+     *
+     * <p>이 컬럼은 "이 해시가 우리 조직 어딘가에 있었나" 를 묻는 검색 대상이다. 엔드포인트가 보낸 값을
+     * 그대로 믿고 넣으면 잘린 해시나 다른 알고리즘 값이 섞여 조회 결과가 오염된다. 이벤트 자체는
+     * 버리지 않는다. 해시가 틀렸다고 프로세스 실행 기록까지 날리면 손해가 더 크다.
+     *
+     * <p>대문자로 와도 소문자로 맞춘다. 같은 해시가 대소문자 때문에 둘로 보이면 조회가 갈린다.
+     */
+    private static String normalizeSha256(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String trimmed = raw.trim();
+        return SHA256_PATTERN.matcher(trimmed).matches() ? trimmed.toLowerCase(Locale.ROOT) : null;
     }
 
     private static String text(JsonNode node, String field) {

@@ -17,6 +17,9 @@ package com.edrdog.detectorservice.dto;
  * @param detail    타입별 부가정보를 담은 JSON 문자열. dns 는 질의 타입/응답 IP 목록, l7 은 인증서
  *                  발급자·주체·지문과 TLS 버전 같은 값. 판정에 쓰는 값이 아니라 조사 화면에서 보여줄
  *                  값이라, 필드 하나가 늘 때마다 스키마를 고치지 않도록 JSON 한 칸으로 묶는다.
+ * @param sha256    파일 해시. process/script 는 실행된 파일의 해시, file 은 그 파일의 해시.
+ *                  "이 악성코드 해시가 우리 조직 어딘가에 있었나" 를 묻는 조회 대상이라 detail 에
+ *                  묻지 않고 별도 필드로 둔다. 소문자 64자리 16진수, 없으면 빈 값.
  * @param tenantId  조직(tenant) 식별자 — 멀티테넌시 격리 태그. 판정에는 쓰지 않고 태그로만 흐른다.
  */
 public record Event(
@@ -30,6 +33,7 @@ public record Event(
         int destPort,
         String domain,
         String detail,
+        String sha256,
         String tenantId
 ) {
     public static final String TYPE_PROCESS = "process";

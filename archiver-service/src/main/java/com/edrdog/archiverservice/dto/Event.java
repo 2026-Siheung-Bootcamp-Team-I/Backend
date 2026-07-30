@@ -15,6 +15,8 @@ package com.edrdog.archiverservice.dto;
  * @param domain    DNS 질의 이름(dns) 또는 TLS SNI(l7). 조회 화면에서 검색 대상이라 별도 컬럼으로 적재한다.
  * @param detail    타입별 부가정보 JSON 문자열. dns 는 질의 타입/응답 IP, l7 은 인증서 발급자·주체·지문 등.
  *                  조사용 표시 값이라 컬럼을 늘리지 않고 JSON 한 칸에 담는다.
+ * @param sha256    파일 해시. process/script 는 실행된 파일의 해시, file 은 그 파일의 해시.
+ *                  해시로 찾는 조회 대상이라 별도 컬럼으로 적재한다. 소문자 64자리 16진수.
  * @param tenantId  조직(tenant) 식별자 — 멀티테넌시 격리 태그
  */
 public record Event(
@@ -28,6 +30,7 @@ public record Event(
         int destPort,
         String domain,
         String detail,
+        String sha256,
         String tenantId
 ) {
 }

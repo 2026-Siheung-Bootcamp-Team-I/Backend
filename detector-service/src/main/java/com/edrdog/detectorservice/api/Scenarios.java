@@ -77,21 +77,21 @@ public final class Scenarios {
     }
 
     private static Event process(String host, long ts, String proc, String parent, String cmdline, String tenantId) {
-        return new Event(host, Event.TYPE_PROCESS, ts, proc, parent, cmdline, null, 0, null, null, tenantId);
+        return new Event(host, Event.TYPE_PROCESS, ts, proc, parent, cmdline, null, 0, null, null, null, tenantId);
     }
 
     private static Event network(String host, long ts, String destIp, int destPort, String tenantId) {
-        return new Event(host, Event.TYPE_NETWORK, ts, null, null, null, destIp, destPort, null, null, tenantId);
+        return new Event(host, Event.TYPE_NETWORK, ts, null, null, null, destIp, destPort, null, null, null, tenantId);
     }
 
     /** script 이벤트: cmdline 에 판정용 전체 경로를 담는다(process 는 인터프리터 basename). */
     private static Event script(String host, long ts, String proc, String fullCmdline, String tenantId) {
         return new Event(host, Event.TYPE_SCRIPT, ts, proc, "explorer.exe", fullCmdline, null, 0,
-                null, null, tenantId);
+                null, null, null, tenantId);
     }
 
     /** file 이벤트: cmdline 에 판정용 전체 경로를 담는다(process 는 파일명 basename). */
     private static Event file(String host, long ts, String name, String fullPath, String tenantId) {
-        return new Event(host, Event.TYPE_FILE, ts, name, null, fullPath, null, 0, null, null, tenantId);
+        return new Event(host, Event.TYPE_FILE, ts, name, null, fullPath, null, 0, null, null, null, tenantId);
     }
 }
