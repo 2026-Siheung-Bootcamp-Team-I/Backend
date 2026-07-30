@@ -23,6 +23,20 @@ public class ApiKeyPolicy {
                            // curl 한 줄로 받아야 해서 헤더를 붙일 수가 없다. 대신 토큰을 짧게 살린다.
     );
 
+    /**
+     * 정확히 이 경로일 때만 예외인 것들.
+     *
+     * <p>접두어로 두지 않는 이유는 {@code /api/tenant} 아래에 enroll secret 과 webhook 이 같이
+     * 있어서다. 접두어로 열면 그 둘까지 딸려 열린다. 설치 링크는 만료되지만 enroll secret 은
+     * 테넌트당 하나에 만료가 없어서, 한 번 새면 되돌릴 방법이 마땅치 않다.
+     */
+    private static final List<String> EXEMPT_PATHS = List.of(
+            // 대시보드(또는 그 대신 쓰는 스크립트)가 부르고 Bearer 로 이미 인증한다. API 키까지
+            // 요구하면 기기 하나 추가하려고 사람이 키 두 개를 손에 쥐어야 한다. 설치하는 사람에게서
+            // 키를 없애 놓고 만드는 사람에게 남겨 두면 절반만 한 것이다.
+            "/api/tenant/install-link"
+    );
+
     private final String configuredKey;
 
     public ApiKeyPolicy(String configuredKey) {
@@ -41,7 +55,7 @@ public class ApiKeyPolicy {
 
     /** 헬스체크·Swagger 등 인증 없이 열어두는 경로. */
     public boolean isExempt(String path) {
-        return EXEMPT_PREFIXES.stream().anyMatch(path::startsWith);
+        return EXEMPT_PATHS.contains(path) || EXEMPT_PREFIXES.stream().anyMatch(path::startsWith);
     }
 
     /** 제공된 키가 설정 키와 정확히 일치하면 통과. null/빈 값은 거부. */
