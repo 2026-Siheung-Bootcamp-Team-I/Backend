@@ -75,6 +75,7 @@ static owner_row edrdog_socket_owner(int pid, int fd) {
 import "C"
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -237,13 +238,13 @@ func (c *BPFCapture) emit(frame []byte) {
 // 첫 장만 읽고 말면 나머지를 전부 잃고, 다음 패킷 위치 계산을 틀리면 두 번째부터 헤더가
 // 어긋나 전부 쓰레기가 된다. 이 함수가 이 파일에서 가장 틀리기 쉬운 곳이다.
 func splitBPFBuffer(buf []byte, emit func([]byte)) {
-	for off := 0; off+unix.SizeofBpfHdr <= len(buf); {
-		hdr := (*unix.BpfHdr)(unsafe.Pointer(&buf[off]))
-		hdrLen, capLen := int(hdr.Hdrlen), int(hdr.Caplen)
+	for off := 0; off+bpfHdrFieldsLen <= len(buf); {
+		hdrLen := int(binary.LittleEndian.Uint16(buf[off+bpfHdrLenOffset:]))
+		capLen := int(binary.LittleEndian.Uint32(buf[off+bpfCapLenOffset:]))
 
 		start := off + hdrLen
 		end := start + capLen
-		if hdrLen < unix.SizeofBpfHdr || capLen < 0 || end > len(buf) {
+		if hdrLen < bpfHdrFieldsLen || capLen < 0 || end > len(buf) {
 			// 커널이 담은 방식과 우리가 읽는 방식이 어긋났다. 남은 바이트는 믿을 수 없다.
 			return
 		}
@@ -256,6 +257,22 @@ func splitBPFBuffer(buf []byte, emit func([]byte)) {
 		off += bpfWordAlign(hdrLen + capLen)
 	}
 }
+
+// bpf_hdr 의 필드 위치와 길이.
+//
+// Go 의 unix.BpfHdr 을 그대로 캐스팅해 쓰지 않는 이유가 있다. 그 구조체는 뒤에 패딩이 붙어
+// 20 바이트인데, 커널이 bh_hdrlen 에 적어 보내는 값은 18 이다.
+// (offsetof(bh_hdrlen) + sizeof(bh_hdrlen) = 16 + 2)
+//
+// 이 둘을 견주면 실기기에서 모든 패킷이 버려진다. 실제로 그렇게 만들었다가 캡처가 열리고
+// 필터도 맞는데 이벤트가 0 건인 상태를 만났다. 오류도 로그도 없어서 원인을 찾는 데 오래 걸렸다.
+// 필드를 직접 읽으면 구조체 패딩이 끼어들 자리가 없다.
+const (
+	bpfCapLenOffset = 8
+	bpfHdrLenOffset = 16
+	// bpfHdrFieldsLen 은 헤더 필드를 다 읽는 데 필요한 바이트다. 커널이 보고하는 최소 hdrlen 이기도 하다.
+	bpfHdrFieldsLen = bpfHdrLenOffset + 2
+)
 
 // bpfWordAlign 은 다음 패킷이 시작하는 위치로 올림한다.
 // macOS 의 BPF_ALIGNMENT 는 int32_t 크기인 4 다. 8 로 잘못 맞추면 패킷 경계가 어긋난다.

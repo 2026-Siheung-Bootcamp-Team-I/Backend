@@ -283,3 +283,52 @@ func TestDefaultInterface(t *testing.T) {
 	}
 	t.Logf("기본 인터페이스 = %s", name)
 }
+
+// kernelBpfRecord 는 실기기 macOS 커널이 담는 그대로 레코드를 만든다.
+//
+// bpfRecord 와 다른 점은 bh_hdrlen 하나뿐인데 그게 핵심이다. 커널은
+// offsetof(bh_hdrlen) + sizeof(bh_hdrlen) = 18 을 보낸다. Go 의 unix.BpfHdr 은 뒤에 패딩이
+// 붙어 20 이다. 이 둘을 견주는 코드를 두면 실기기에서 모든 패킷이 버려지는데, 픽스처를 20 으로
+// 만들면 그 사실이 테스트에 안 드러난다. 실제로 그렇게 통과해 놓고 현장에서 0 건이 났다.
+func kernelBpfRecord(frame []byte) []byte {
+	const kernelHdrLen = 18 // 커널이 보고하는 값
+
+	hdr := make([]byte, unix.SizeofBpfHdr)
+	binary.LittleEndian.PutUint32(hdr[0:], 1785400000)
+	binary.LittleEndian.PutUint32(hdr[4:], 0)
+	binary.LittleEndian.PutUint32(hdr[8:], uint32(len(frame)))
+	binary.LittleEndian.PutUint32(hdr[12:], uint32(len(frame)))
+	binary.LittleEndian.PutUint16(hdr[16:], kernelHdrLen)
+
+	// 커널은 bh_hdrlen 뒤부터 곧바로 프레임을 놓는다. 여기서도 18 바이트만 헤더로 쓴다.
+	rec := append(hdr[:kernelHdrLen], frame...)
+	for len(rec)%4 != 0 {
+		rec = append(rec, 0)
+	}
+	return rec
+}
+
+// 실기기 커널이 보내는 헤더 길이로도 패킷이 나와야 한다.
+func TestSplitBPFBufferAcceptsKernelHeaderLen(t *testing.T) {
+	frames := [][]byte{
+		[]byte("first-frame-payload"),
+		[]byte("second"),
+		[]byte("third-one-longer-than-the-others"),
+	}
+	var buf []byte
+	for _, f := range frames {
+		buf = append(buf, kernelBpfRecord(f)...)
+	}
+
+	var got [][]byte
+	splitBPFBuffer(buf, func(f []byte) { got = append(got, f) })
+
+	if len(got) != len(frames) {
+		t.Fatalf("프레임 %d 장이 나왔다. want %d. 커널이 보고하는 bh_hdrlen(18)을 거부하고 있다", len(got), len(frames))
+	}
+	for i := range frames {
+		if string(got[i]) != string(frames[i]) {
+			t.Errorf("[%d] = %q, want %q", i, got[i], frames[i])
+		}
+	}
+}
