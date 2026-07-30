@@ -328,10 +328,60 @@ level=ERROR msg="패킷 캡처를 열지 못해 dns/l7 수집을 건너뛴다" e
 
 ## 설치
 
-두 스크립트 모두 서버에서 인증서를 직접 받아 저장한다. 관리자가 PEM 파일을 따로 전달할 필요가 없다.
-여러 번 실행해도 안전하다.
+**설치하는 사람은 키를 다루지 않는다.** 관리자가 대시보드에서 설치 링크를 만들면 붙여넣을 한 줄이
+나온다. 서버 주소도 enroll secret 도 그 링크가 내려주는 스크립트에 이미 들어 있다.
 
-### macOS
+키를 사람 손에 쥐여 주면 채팅방에 붙고 스크린샷에 남는다. 그래서 링크 쪽이 편의만의 문제가 아니다.
+
+```bash
+# 관리자: 링크 발급 (로그인 토큰 필요)
+curl -X POST https://edr.example.com/api/tenant/install-link \
+  -H "Authorization: Bearer <로그인 토큰>" -H "X-API-Key: <프론트 키>"
+```
+
+```json
+{
+  "token": "...",
+  "expiresAt": "2026-08-01T00:00:00Z",
+  "macosCommand": "curl -fsSL https://edr.example.com/i/AbC123 | sudo bash",
+  "windowsCommand": "irm https://edr.example.com/i/AbC123.ps1 | iex"
+}
+```
+
+명령줄은 서버가 조립해서 준다. 대시보드가 문자열을 이어 붙이게 두면 주소나 경로가 바뀔 때마다
+프론트도 같이 고쳐야 하고, 둘이 어긋나면 사용자가 붙여넣은 명령이 조용히 틀린 곳을 가리킨다.
+
+설치하는 사람은 그 한 줄만 붙여넣는다.
+
+```bash
+curl -fsSL https://edr.example.com/i/AbC123 | sudo bash   # macOS
+irm https://edr.example.com/i/AbC123.ps1 | iex            # Windows (관리자 PowerShell)
+```
+
+`/i/**` 는 인증 없이 연다(`ApiKeyPolicy`). 토큰 자체가 인증이다. `curl` 한 줄로 받아야 해서 헤더를
+붙일 수가 없다. 대신 토큰을 짧게 살린다(기본 24시간, `INSTALL_TOKEN_TTL_HOURS`). 여러 대에 쓸 수
+있으므로 실습실이나 팀 노트북을 한 번에 까는 데는 지장이 없다. enroll secret 을 그대로 링크에 싣지
+않는 이유가 이것이다. enroll secret 은 테넌트당 하나이고 만료가 없어서, 한 번 새면 그 뒤로 아무나
+그 테넌트에 에이전트를 붙일 수 있다.
+
+바이너리는 GitHub Releases 에서 받는다(`.github/workflows/agent-release.yml` 이 태그를 밀 때 올린다).
+받은 뒤 `.sha256` 과 대조한다. 끊긴 다운로드는 크기만 작고 그대로 설치돼서, 깔린 뒤에 "왜 안 뜨지"
+로 시간을 버리게 된다.
+
+서버에 설정해야 하는 값은 셋이다.
+
+| 키 | 뜻 |
+|---|---|
+| `INSTALL_PUBLIC_BASE` | 링크 앞부분. 브라우저가 API 를 부르는 주소와 같다 |
+| `INSTALL_AGENT_SERVER` | 에이전트가 붙을 `host:port`. 위와 다를 수 있다(에이전트는 별도 TLS 포트로 붙는다) |
+| `INSTALL_DOWNLOAD_BASE` | 바이너리를 받는 곳. 기본은 GitHub Releases 최신판 |
+
+### 소스에서 직접 깔기
+
+아래는 개발용 경로다. 릴리스가 없는 브랜치를 시험할 때 쓴다. 서버에서 인증서를 직접 받아 저장하는
+것은 위와 같고, 여러 번 실행해도 안전하다.
+
+#### macOS
 
 명령 하나로 끝낸다. 빌드부터 등록 확인까지 이어서 한다.
 
@@ -364,7 +414,7 @@ Enter 를 누르면 이어서 재시작하고 등록됐는지까지 확인한다
 그것만 따로 짚어 준다. 이 두 줄을 보는 이유는, 프로세스가 떠 있다는 것과 서버에 붙었다는
 것이 전혀 다른 말이기 때문이다.
 
-#### 단계별로 하고 싶으면
+##### 단계별로 하고 싶으면
 
 `install-macos.sh` 는 설치만 한다.
 
@@ -385,7 +435,7 @@ tail -f /var/log/edrdog/agent.log              # 로그
 **터미널에서 직접 실행하지 마라.** LaunchDaemon 으로 돌려야 한다. 터미널에서 띄우면 TCC 주체가
 에이전트가 아니라 터미널 앱이 되어, 터미널에 권한을 준 셈이 되고 `ERR_NOT_PERMITTED` 가 난다.
 
-### Windows
+#### Windows
 
 > 이 절차는 **실제 Windows 기기에서 검증되지 않았다.** 아래 `Windows 실기기 검증 절차` 를 같이 봐라.
 
