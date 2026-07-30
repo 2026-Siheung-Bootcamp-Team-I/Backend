@@ -296,23 +296,24 @@ cat <<EOF
 3) Infisical 에 운영 UI 계정을 넣는다 (prod 환경)
      KAFKA_UI_USER / KAFKA_UI_PASSWORD              <- Kafka UI 로그인
      EDRDOG_SWAGGER_USER / EDRDOG_SWAGGER_PASSWORD  <- Swagger 로그인
+     PORTAINER_ADMIN_PASSWORD                       <- Portainer 관리자 (아이디는 admin 고정)
    넣은 뒤 edrdog-secrets 를 다시 만든다(위 7단계의 명령). 그리고:
-     kubectl -n $NS rollout restart deploy/kafka-ui
-   kafka-ui 는 이 키가 없으면 파드가 뜨지 않는다. 인증이 꺼진 채로 떠 있으면
+     kubectl -n $NS rollout restart deploy/kafka-ui deploy/portainer
+   kafka-ui 와 portainer 는 이 키가 없으면 파드가 뜨지 않는다. 인증이 꺼진 채로 떠 있으면
    토픽 메시지가 그대로 공개돼서, 멈추는 편이 낫다고 보고 일부러 그렇게 뒀다.
    Swagger 는 비번이 없으면 열리는 게 아니라 닫힌다.
+   PORTAINER_ADMIN_PASSWORD 는 첫 기동에만 먹는다. 계정이 생긴 뒤에 바꾸려면 Portainer UI 에서 바꾼다.
 
-4) Portainer 관리자 계정을 만든다 (https://portainer.$DOMAIN)
-   파드가 뜨고 5분 안에 안 만들면 Portainer 가 스스로 잠근다. 그때는 아래로 다시 연다.
-     kubectl -n portainer rollout restart deploy/portainer
-   이 계정은 cluster-admin 이라 edrdog 네임스페이스의 Secret 까지 다 보인다. 비번을 세게 건다.
-
-5) 확인
+4) 확인
    kubectl -n $NS get pods
    curl -sS https://$DOMAIN/actuator/health
    curl -sS -o /dev/null -w '%{http_code}\n' https://$DOMAIN/kafka-ui/          # -> 302 (로그인으로)
    curl -sS -o /dev/null -w '%{http_code}\n' https://$DOMAIN/swagger-ui.html    # -> 401
+   curl -sS -o /dev/null -w '%{http_code}\n' https://portainer.$DOMAIN/api/users/admin/check  # -> 204 (계정 생성됨)
    openssl s_client -connect $DOMAIN:$AGENT_PORT </dev/null 2>/dev/null | head -3
+
+   Portainer 는 admin / PORTAINER_ADMIN_PASSWORD 로 로그인한다.
+   이 계정은 cluster-admin 이라 edrdog 의 Secret 까지 다 보인다. 비번을 세게 잡는다.
 
 kubectl 을 그냥 쓰려면:
    echo 'export KUBECONFIG=/etc/rancher/k3s/k3s.yaml' >> ~/.bashrc

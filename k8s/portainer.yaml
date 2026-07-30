@@ -2,28 +2,18 @@
 # 배포서버에서는 Caddy 가 https://portainer.<도메인> 으로 프록시한다.
 #   Caddyfile 예:  portainer.edrdog-api.duckdns.org { reverse_proxy localhost:30777 }
 #
-# 서브패스(/portainer)가 아니라 서브도메인인 이유: Portainer 를 서브패스로 서비스하려면
-# --base-url 과 프록시의 prefix strip 이 정확히 한 번씩만 맞아야 하고, 어긋나면 화면은 뜨는데
-# 로그인이 안 된다(자산 경로가 /portainer/portainer/ 로 겹친다). DuckDNS 는 하위 도메인이
-# 전부 같은 IP 로 오므로 서브도메인이 공짜다.
+# 서브도메인인 이유: 서브패스로 서비스하려면 --base-url 과 프록시의 prefix strip 이 정확히 한 번씩
+# 맞아야 하고, 어긋나면 화면은 뜨는데 로그인이 안 된다. DuckDNS 는 하위 도메인이 전부 같은 IP 로 온다.
 #
-# 첫 접속에서 관리자 계정을 만든다. 파드가 뜨고 5분 안에 안 만들면 Portainer 가 스스로 잠그고,
-# 그때는 파드를 재시작해야 다시 열린다.
-#   kubectl -n portainer rollout restart deploy/portainer
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: portainer
----
+# 네임스페이스가 edrdog 인 이유: k8s Secret 은 네임스페이스를 넘지 못한다. 관리자 비번을
+# edrdog-secrets 에서 받으려면 같은 네임스페이스에 있어야 한다.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: portainer
-  namespace: portainer
+  namespace: edrdog
 ---
-# Portainer 가 k8s 를 관리하려면 cluster-admin 이 필요하다(공식 매니페스트도 같다).
-# 즉 이 UI 에 로그인한 사람은 edrdog 네임스페이스의 Secret(Infisical 이 동기화한 API 키,
-# DB 비번)까지 전부 읽을 수 있다. 첫 접속 때 관리자 비번을 세게 걸어야 한다.
+# 공식 매니페스트와 같다. 이 UI 에 로그인한 사람은 edrdog 의 Secret 도 전부 읽을 수 있다.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
@@ -35,15 +25,14 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: portainer
-    namespace: portainer
+    namespace: edrdog
 ---
-# 계정과 설정이 여기 들어간다. emptyDir 로 두면 파드가 재시작될 때마다 관리자 계정을
-# 처음부터 다시 만들어야 한다. k3s 는 local-path 가 기본 StorageClass 라 그대로 바인딩된다.
+# 계정과 설정이 여기 들어간다. emptyDir 면 재시작마다 계정이 초기화된다.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: portainer
-  namespace: portainer
+  namespace: edrdog
 spec:
   accessModes:
     - ReadWriteOnce
@@ -55,7 +44,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: portainer
-  namespace: portainer
+  namespace: edrdog
   labels:
     app: portainer
 spec:
@@ -79,15 +68,21 @@ spec:
           args:
             # Caddy 가 TLS 를 끊고 평문으로 넘기므로 9000(HTTP)으로 받는다.
             - --http-enabled
-            # 이게 없으면 Caddy 뒤에서 로그인할 때 "Origin invalid" 로 막힌다.
-            # Portainer 가 보는 요청은 http 인데 브라우저가 보낸 Origin 은 https 라서다.
+            # 없으면 Caddy 뒤에서 로그인이 Origin invalid 로 막힌다(요청은 http, Origin 은 https).
             - --trusted-origins=portainer.edrdog-api.duckdns.org
+            # 첫 기동에만 먹는다. 계정이 생긴 뒤 Infisical 값을 바꿔도 비번은 안 바뀐다.
+            # 대신 5분 안에 사람이 계정을 만들어야 하는 잠금이 사라진다.
+            # /run/secrets/portainer 는 쓰지 않는다. Portainer 가 거기를 DB 암호화 키 파일로 먼저 읽는다.
+            - --admin-password-file=/etc/portainer/admin-password
           ports:
             - containerPort: 9000
             - containerPort: 9443
           volumeMounts:
             - name: data
               mountPath: /data
+            - name: admin-password
+              mountPath: /etc/portainer
+              readOnly: true
           readinessProbe:
             httpGet:
               path: /
@@ -112,15 +107,20 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: portainer
+        # optional 을 주지 않는다. 키가 없으면 비번 없이 뜨는 대신 파드가 멈춘다.
+        - name: admin-password
+          secret:
+            secretName: edrdog-secrets
+            items:
+              - key: PORTAINER_ADMIN_PASSWORD
+                path: admin-password
 ---
-# NodePort 30777 — 호스트에서 도는 Caddy 가 localhost:30777 로 프록시한다.
-# 오라클 보안 목록과 호스트 방화벽에 30777 을 열지 않으므로 외부에서 직접은 못 들어오고
-# Caddy(=basic auth 없이 Portainer 자체 로그인) 경유만 가능하다.
+# NodePort 30777 — Caddy 가 localhost:30777 로 프록시한다. 방화벽에 열지 않으므로 직접은 못 들어온다.
 apiVersion: v1
 kind: Service
 metadata:
   name: portainer
-  namespace: portainer
+  namespace: edrdog
   labels:
     app: portainer
 spec:

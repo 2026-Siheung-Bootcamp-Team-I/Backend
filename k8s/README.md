@@ -155,7 +155,7 @@ sudo kubectl -n edrdog logs deploy/api-service | grep 'GeoIP DB 로드'
 
 | 대상 | 주소 | 인증 | Infisical 키 | NodePort |
 |---|---|---|---|---|
-| Portainer | `https://portainer.<도메인>` | 자체 로그인 | (첫 접속에서 직접 생성) | 30777 |
+| Portainer | `https://portainer.<도메인>` | 자체 로그인 (`admin`) | `PORTAINER_ADMIN_PASSWORD` | 30777 |
 | Kafka UI | `https://<도메인>/kafka-ui` | 자체 로그인 폼 | `KAFKA_UI_USER` / `KAFKA_UI_PASSWORD` | 30901 |
 | Swagger | `https://<도메인>/swagger-ui.html` | Basic (`SwaggerAuthFilter`) | `EDRDOG_SWAGGER_USER` / `EDRDOG_SWAGGER_PASSWORD` | (api 30084) |
 
@@ -163,8 +163,9 @@ sudo kubectl -n edrdog logs deploy/api-service | grep 'GeoIP DB 로드'
 basic auth 를 걸면 비번이 Infisical 과 호스트 파일 두 군데로 갈라지고, Infisical 에서 바꿔도 호스트의
 Caddyfile 은 그대로라 반영되지 않는다.
 
-- **Kafka UI 는 키가 없으면 파드가 뜨지 않는다** (`secretKeyRef` 에 `optional` 을 안 줬다). 인증이 꺼진 채로
-  멀쩡히 떠 있는 것보다 멈추는 편이 낫다. 키를 넣은 뒤 `kubectl -n edrdog rollout restart deploy/kafka-ui`.
+- **Kafka UI 와 Portainer 는 키가 없으면 파드가 뜨지 않는다** (`optional` 을 안 줬다). 인증이 꺼진 채로
+  멀쩡히 떠 있는 것보다 멈추는 편이 낫다. 키를 넣은 뒤
+  `kubectl -n edrdog rollout restart deploy/kafka-ui deploy/portainer`.
   `/kafka-ui/actuator/health` 는 로그인 없이 200 이라 readinessProbe 는 그대로 통과한다.
 - **Swagger 는 비번이 없으면 열리는 게 아니라 닫힌다.** `application.yml` 에 기본값을 두지 않았다.
   레포에 박아 두면 그게 곧 공개 비번이라서다. 로컬에서 보려면 `EDRDOG_SWAGGER_PASSWORD` 를 넣고 띄운다.
@@ -173,20 +174,20 @@ Caddyfile 은 그대로라 반영되지 않는다.
 
 ### Portainer
 
-`k8s/portainer.yaml`. 첫 접속에서 관리자 계정을 만든다. **파드가 뜨고 5분 안에 안 만들면 스스로 잠근다.**
+`k8s/portainer.yaml`. `admin` / `PORTAINER_ADMIN_PASSWORD` 로 로그인한다. 계정은 `--admin-password-file` 로
+파드가 뜨면서 자동 생성되므로 사람이 먼저 접속할 필요가 없다(원래는 5분 안에 안 만들면 스스로 잠근다).
 
-```bash
-sudo kubectl -n portainer rollout restart deploy/portainer   # 잠겼을 때 다시 여는 법
-```
-
-- 이 계정은 `cluster-admin` 이라 `edrdog` 네임스페이스의 Secret(Infisical 이 동기화한 API 키, DB 비번)까지
-  전부 보인다. 비번을 세게 건다.
+- **`PORTAINER_ADMIN_PASSWORD` 는 첫 기동에만 먹는다.** Portainer 가 자기 DB(PVC)에 복사하기 때문에,
+  계정이 생긴 뒤 Infisical 값을 바꿔도 비번은 안 바뀐다. 바꾸려면 Portainer UI 에서 바꾸거나 PVC 를 지운다.
+  Kafka UI·Swagger 와 달리 Infisical 이 계속 진짜 소스인 구조가 아니다.
+- 네임스페이스가 `portainer` 가 아니라 `edrdog` 인 이유: k8s Secret 은 네임스페이스를 넘지 못한다.
+  `edrdog-secrets` 를 마운트하려면 같은 네임스페이스여야 한다.
+- 이 계정은 `cluster-admin` 이라 `edrdog` 의 Secret(API 키, DB 비번)까지 전부 보인다. 비번을 세게 잡는다.
 - 서브패스(`/portainer`)가 아니라 서브도메인인 이유: 서브패스로 서비스하려면 `--base-url` 과 프록시의
   prefix strip 이 정확히 한 번씩 맞아야 하고, 어긋나면 화면은 뜨는데 로그인이 안 된다.
-  DuckDNS 는 하위 도메인이 전부 같은 IP 로 와서 서브도메인이 공짜다.
 - `--trusted-origins` 가 없으면 Caddy 뒤에서 로그인할 때 `Origin invalid` 로 막힌다. 도메인을 바꾸면
   매니페스트의 이 값도 같이 바꿔야 한다.
-- 계정과 설정은 PVC 에 있다(k3s `local-path`). 지우면 관리자 계정부터 다시 만들어야 한다.
+- 계정과 설정은 PVC 에 있다(k3s `local-path`). 지우면 다음 기동에서 Infisical 값으로 다시 만들어진다.
 
 ## 시크릿 (Infisical)
 
