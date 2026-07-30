@@ -85,9 +85,9 @@ spec:
             # 뒤는 안 거친다(에이전트가 붙는 곳). 에이전트가 서버 인증서를 고정해서 붙기
             # 때문에 중간에서 TLS 를 다시 종단하면 등록 단계에서 실패한다.
             - name: INSTALL_PUBLIC_BASE
-              value: "https://edrdog-i-team.duckdns.org"
+              value: "https://edrdog.duckdns.org"
             - name: INSTALL_AGENT_SERVER
-              value: "edrdog-i-team.duckdns.org:30443"
+              value: "edrdog.duckdns.org:30443"
           readinessProbe:
             httpGet:
               path: /actuator/health
