@@ -29,6 +29,7 @@ var version = "0.1.0"
 
 type options struct {
 	configPath       string
+	logPath          string
 	selfTest         bool
 	selfTestInterval time.Duration
 	asService        bool
@@ -37,12 +38,22 @@ type options struct {
 func main() {
 	var opts options
 	flag.StringVar(&opts.configPath, "config", "", "설정 파일 경로")
+	flag.StringVar(&opts.logPath, "log", "", "로그 파일 경로. 비우면 stderr (Windows 서비스는 stderr 가 아무 데도 가지 않는다)")
 	flag.BoolVar(&opts.selfTest, "selftest", false, "진짜 센서 대신 가짜 이벤트를 보내 서버까지의 경로를 확인한다")
 	flag.DurationVar(&opts.selfTestInterval, "selftest-interval", time.Second, "자체 점검 이벤트 주기")
 	flag.BoolVar(&opts.asService, "service", false, "Windows 서비스로 실행한다(설치 스크립트가 붙인다)")
 	flag.Parse()
 
-	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	out, closeLog, err := openLogWriter(opts.logPath)
+	if err != nil {
+		// 여기서만 stderr 로 적는다. 로그를 파일에 쓰기로 해 놓고 못 열었다는 사실은
+		// 어디엔가는 남아야 한다.
+		fmt.Fprintf(os.Stderr, "로그 파일을 열지 못했다: %v\n", err)
+		os.Exit(1)
+	}
+	defer func() { _ = closeLog() }()
+
+	log := slog.New(slog.NewTextHandler(out, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
 	if opts.asService {
 		if err := runAsService(opts, log); err != nil {
