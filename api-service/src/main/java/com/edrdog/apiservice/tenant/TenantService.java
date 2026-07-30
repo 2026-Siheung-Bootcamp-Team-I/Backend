@@ -3,7 +3,7 @@ package com.edrdog.apiservice.tenant;
 import com.edrdog.apiservice.auth.domain.Tenant;
 import com.edrdog.apiservice.auth.exception.AuthException;
 import com.edrdog.apiservice.auth.repository.TenantRepository;
-import com.edrdog.apiservice.osquery.OsqueryTokens;
+import com.edrdog.apiservice.security.Tokens;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -47,7 +47,7 @@ public class TenantService {
     public String rotateEnrollSecret(Long tenantId) {
         Tenant tenant = tenants.findById(tenantId)
                 .orElseThrow(() -> AuthException.notFound("tenant 를 찾을 수 없습니다"));
-        String secret = OsqueryTokens.newToken();
+        String secret = Tokens.newToken();
         tenant.updateEnrollSecret(secret);
         tenants.save(tenant);
         return secret;
@@ -66,7 +66,7 @@ public class TenantService {
         Tenant tenant = tenants.findById(tenantId)
                 .orElseThrow(() -> AuthException.notFound("tenant 를 찾을 수 없습니다"));
         if (tenant.getEnrollSecret() == null) {
-            tenant.updateEnrollSecret(OsqueryTokens.newToken());
+            tenant.updateEnrollSecret(Tokens.newToken());
             tenants.save(tenant);
         }
         return Optional.of(tenant.getEnrollSecret());

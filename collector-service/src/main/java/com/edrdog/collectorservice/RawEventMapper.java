@@ -4,30 +4,44 @@ import com.edrdog.collectorservice.dto.Event;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import java.util.Locale;
 import java.util.Optional;
+import java.util.regex.Pattern;
 
 /**
- * osquery 원시 result-log JSON 1건을 정규화된 Event 로 변환하는 순수 매핑.
+ * 에이전트가 보낸 이벤트 JSON 1건을 검증해 {@link Event} 로 통과시키는 검증 경계.
  *
- * <p>osquery 는 소비자 스키마에 맞추지 않고 자기 표준 포맷(차등 result-log)으로만 로그를 낸다.
- * 실제 컬럼 값은 {@code columns} 안에 중첩되고 {@code hostIdentifier}/{@code unixTime}/{@code action}
- * 같은 래핑 필드가 항상 붙는다. 이 매핑이 그 껍데기를 벗기고 detector 스키마로 정규화한다.
+ * <p>이전에는 osquery 원시 result-log 의 {@code columns} 중첩과 {@code hostIdentifier}/{@code unixTime}
+ * 같은 래퍼를 벗기는 변환이 필요했다. 이제 에이전트가 detector 스키마 그대로(평평한 JSON) 보내므로
+ * 벗길 껍데기가 없다. 그래도 이 서비스를 없애지는 않는다. 엔드포인트에서 들어온 입력을 detector 에
+ * 넘기기 전에 거르는 검증 경계로 남긴다. 망가진 이벤트가 detector 까지 흘러가면 판정이 오염된다.
  *
- * <p>변환 규칙:
+ * <p>검증 규칙:
  * <ul>
- *   <li>host   = 래핑 {@code hostIdentifier} (구버전 {@code hostname} 폴백)</li>
- *   <li>ts     = 래핑 {@code unixTime}(초) × 1000 (없으면 columns.time 폴백)</li>
- *   <li>type   = 쿼리명({@code name}) 매칭: socket/network→network, file→file, script→script, 그 외 process</li>
- *   <li>process= columns.path(file 은 target_path) 의 basename (구분자 {@code /}, {@code \} 모두 처리)</li>
- *   <li>parent = columns.parent (osquery.conf 쿼리에서 processes 조인으로 이름을 넣어 둠)</li>
- *   <li>cmdline= columns.cmdline. file 이벤트는 판정용 전체 경로(target_path)를 담는다.</li>
- *   <li>destIp/destPort = columns.remote_address / remote_port</li>
+ *   <li>JSON 이 깨졌거나 객체가 아니면 스킵</li>
+ *   <li>{@code host} 가 비었으면 스킵 (상관분석 키가 없으면 쓸모가 없다)</li>
+ *   <li>{@code type} 이 process/network/file/script/dns/l7 이 아니면 스킵 (모르는 타입을 process 로 넘겨짚지 않는다)</li>
+ *   <li>{@code ts} 가 없거나 0 이하면 스킵</li>
+ *   <li>{@code ts} 가 초 단위로 보이면 스킵. epoch millis 라야 한다.</li>
+ *   <li>{@code network} 인데 {@code destIp} 가 비었으면 스킵</li>
+ *   <li>{@code dns}/{@code l7} 인데 {@code domain} 이 비었으면 스킵. 도메인이 없으면 어느 이름을 물어봤는지
+ *       모르니 남겨도 조사에 쓸 수 없다(network 가 destIp 없으면 버리는 것과 같은 이유다)</li>
+ *   <li>{@code sha256} 이 64자리 16진수가 아니면 그 필드만 빈 값으로 떨어뜨린다(이벤트는 살린다)</li>
  * </ul>
  *
- * <p>차등 로그의 top-level {@code action} 이 {@code removed}(프로세스 종료 등)면 스킵한다.
- * columns 가 없거나 JSON 이 깨졌으면 예외 없이 스킵한다.
+ * <p>그 외에는 값을 그대로 옮긴다. basename 추출, 타입 추측, 시각 변환 같은 변환은 하지 않는다.
+ * 이제 그 일은 에이전트가 한다(경로 구분자가 플랫폼마다 다르니 그 플랫폼에서 도는 쪽이 판단하는 게 맞다).
  */
 public final class RawEventMapper {
+
+    /**
+     * ts 가 이 값보다 작으면 초 단위를 밀리초로 착각해 보낸 것으로 본다.
+     * 100_000_000_000L 을 밀리초로 보면 1973년 근방이라, 현실적인 이벤트 시각이 이보다 작을 수 없다.
+     */
+    private static final long MIN_PLAUSIBLE_MILLIS = 100_000_000_000L;
+
+    /** SHA-256 은 32바이트라 16진수 표기로 정확히 64자리다. 길이가 다르면 다른 알고리즘이거나 잘린 값이다. */
+    private static final Pattern SHA256_PATTERN = Pattern.compile("[0-9a-fA-F]{64}");
 
     private RawEventMapper() {
     }
@@ -42,90 +56,79 @@ public final class RawEventMapper {
         if (root == null || !root.isObject()) {
             return Optional.empty();
         }
-        if ("removed".equals(text(root, "action"))) {
-            return Optional.empty();   // 프로세스 종료 등 생성이 아닌 이벤트
-        }
-        JsonNode columns = root.get("columns");
-        if (columns == null || !columns.isObject()) {
+
+        String host = text(root, "host");
+        if (host == null || host.isBlank()) {
             return Optional.empty();
         }
 
-        String host = firstNonBlank(text(root, "hostIdentifier"), text(root, "hostname"));
-        long ts = toMillis(firstNonBlank(text(root, "unixTime"), text(columns, "time")));
-        String type = classify(text(root, "name"));
-        String tenantId = text(root, "tenantId");   // 수집 API 가 node_key→tenant 로 풀어 루트에 태깅
+        String type = text(root, "type");
+        if (!isKnownType(type)) {
+            return Optional.empty();
+        }
 
-        if (Event.TYPE_NETWORK.equals(type)) {
-            return Optional.of(new Event(
-                    host, type, ts, basename(text(columns, "path")), null,
-                    text(columns, "cmdline"),
-                    text(columns, "remote_address"),
-                    toInt(text(columns, "remote_port")),
-                    tenantId));
+        Long ts = longValue(root, "ts");
+        if (ts == null || ts <= 0) {
+            return Optional.empty();
         }
-        if (Event.TYPE_FILE.equals(type)) {
-            // FIM: target_path 전체를 판정용으로 cmdline 에 싣고, basename 을 파일명으로.
-            String path = firstNonBlank(text(columns, "target_path"), text(columns, "path"));
-            return Optional.of(new Event(
-                    host, type, ts, basename(path), null,
-                    path, null, 0, tenantId));
+        if (ts < MIN_PLAUSIBLE_MILLIS) {
+            return Optional.empty();   // 초 단위로 잘못 보낸 값
         }
-        // process / script: 동일한 프로세스 컬럼 구조. script 는 cmdline 에 스크립트 경로가 포함됨.
+
+        String destIp = text(root, "destIp");
+        if (Event.TYPE_NETWORK.equals(type) && (destIp == null || destIp.isBlank())) {
+            return Optional.empty();
+        }
+
+        String domain = text(root, "domain");
+        if (needsDomain(type) && (domain == null || domain.isBlank())) {
+            return Optional.empty();
+        }
+
         return Optional.of(new Event(
-                host, type, ts, basename(text(columns, "path")),
-                text(columns, "parent"),
-                text(columns, "cmdline"),
-                null, 0,
-                tenantId));
+                host,
+                type,
+                ts,
+                text(root, "process"),
+                text(root, "parent"),
+                text(root, "cmdline"),
+                destIp,
+                intValue(root, "destPort"),
+                domain,
+                text(root, "detail"),
+                normalizeSha256(text(root, "sha256")),
+                text(root, "tenantId")));
     }
 
-    /** 쿼리명으로 이벤트 타입 판정. socket/network→network, file→file, script→script, 그 외 process. */
-    private static String classify(String name) {
-        if (name == null) {
-            return Event.TYPE_PROCESS;
-        }
-        String n = name.toLowerCase();
-        if (n.contains("socket") || n.contains("network")) {
-            return Event.TYPE_NETWORK;
-        }
-        if (n.contains("file")) {
-            return Event.TYPE_FILE;
-        }
-        if (n.contains("script")) {
-            return Event.TYPE_SCRIPT;
-        }
-        return Event.TYPE_PROCESS;
+    private static boolean isKnownType(String type) {
+        return Event.TYPE_PROCESS.equals(type)
+                || Event.TYPE_NETWORK.equals(type)
+                || Event.TYPE_FILE.equals(type)
+                || Event.TYPE_SCRIPT.equals(type)
+                || Event.TYPE_DNS.equals(type)
+                || Event.TYPE_L7.equals(type);
     }
 
-    /** 경로에서 파일명만 추출. {@code /} 와 {@code \} 를 모두 구분자로 본다. */
-    private static String basename(String path) {
-        if (path == null || path.isEmpty()) {
-            return path;
-        }
-        int cut = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
-        return cut < 0 ? path : path.substring(cut + 1);
+    /** dns/l7 은 도메인이 핵심 값이다. 그게 없으면 남겨도 조사에 쓸 수 없어 버린다. */
+    private static boolean needsDomain(String type) {
+        return Event.TYPE_DNS.equals(type) || Event.TYPE_L7.equals(type);
     }
 
-    private static long toMillis(String unixSeconds) {
-        if (unixSeconds == null || unixSeconds.isBlank()) {
-            return 0L;
+    /**
+     * sha256 을 소문자 64자리 16진수로 정규화한다. 그 형태가 아니면 null 로 떨어뜨린다.
+     *
+     * <p>이 컬럼은 "이 해시가 우리 조직 어딘가에 있었나" 를 묻는 검색 대상이다. 엔드포인트가 보낸 값을
+     * 그대로 믿고 넣으면 잘린 해시나 다른 알고리즘 값이 섞여 조회 결과가 오염된다. 이벤트 자체는
+     * 버리지 않는다. 해시가 틀렸다고 프로세스 실행 기록까지 날리면 손해가 더 크다.
+     *
+     * <p>대문자로 와도 소문자로 맞춘다. 같은 해시가 대소문자 때문에 둘로 보이면 조회가 갈린다.
+     */
+    private static String normalizeSha256(String raw) {
+        if (raw == null) {
+            return null;
         }
-        try {
-            return Long.parseLong(unixSeconds.trim()) * 1000L;
-        } catch (NumberFormatException e) {
-            return 0L;
-        }
-    }
-
-    private static int toInt(String s) {
-        if (s == null || s.isBlank()) {
-            return 0;
-        }
-        try {
-            return Integer.parseInt(s.trim());
-        } catch (NumberFormatException e) {
-            return 0;
-        }
+        String trimmed = raw.trim();
+        return SHA256_PATTERN.matcher(trimmed).matches() ? trimmed.toLowerCase(Locale.ROOT) : null;
     }
 
     private static String text(JsonNode node, String field) {
@@ -133,7 +136,39 @@ public final class RawEventMapper {
         return v == null || v.isNull() ? null : v.asText();
     }
 
-    private static String firstNonBlank(String a, String b) {
-        return a != null && !a.isBlank() ? a : b;
+    private static Long longValue(JsonNode node, String field) {
+        JsonNode v = node.get(field);
+        if (v == null || v.isNull()) {
+            return null;
+        }
+        if (v.isNumber()) {
+            return v.asLong();
+        }
+        if (v.isTextual()) {
+            try {
+                return Long.parseLong(v.asText().trim());
+            } catch (NumberFormatException e) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private static int intValue(JsonNode node, String field) {
+        JsonNode v = node.get(field);
+        if (v == null || v.isNull()) {
+            return 0;
+        }
+        if (v.isNumber()) {
+            return v.asInt();
+        }
+        if (v.isTextual()) {
+            try {
+                return Integer.parseInt(v.asText().trim());
+            } catch (NumberFormatException e) {
+                return 0;
+            }
+        }
+        return 0;
     }
 }

@@ -28,6 +28,9 @@ public final class EventRow {
         row.put("cmdline", nz(e.cmdline()));
         row.put("dest_ip", nz(e.destIp()));
         row.put("dest_port", e.destPort());
+        row.put("domain", nz(e.domain()));
+        row.put("detail", nz(e.detail()));
+        row.put("sha256", nz(e.sha256()));
         try {
             return mapper.writeValueAsString(row);
         } catch (JsonProcessingException ex) {

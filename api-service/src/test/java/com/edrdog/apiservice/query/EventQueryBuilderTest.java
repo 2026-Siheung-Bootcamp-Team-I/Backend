@@ -2,6 +2,8 @@ package com.edrdog.apiservice.query;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.Locale;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -16,30 +18,31 @@ class EventQueryBuilderTest {
 
     private final EventQueryBuilder builder = new EventQueryBuilder("edrdog.events");
     private static final String TENANT = "1";
+    private static final String HASH = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
     // --- limit 클램프 ---
 
     @Test
     void limit_이_null_이면_기본값_100() {
-        ClickHouseQuery q = builder.events(TENANT, null, null, null, null, null);
+        ClickHouseQuery q = builder.events(TENANT, null, null, null, null, null, null);
         assertTrue(q.sql().contains("LIMIT 100"), q.sql());
     }
 
     @Test
     void limit_이_0이하이면_기본값_100() {
-        assertTrue(builder.events(TENANT, null, null, null, null, 0).sql().contains("LIMIT 100"));
-        assertTrue(builder.events(TENANT, null, null, null, null, -5).sql().contains("LIMIT 100"));
+        assertTrue(builder.events(TENANT, null, null, null, null, null, 0).sql().contains("LIMIT 100"));
+        assertTrue(builder.events(TENANT, null, null, null, null, null, -5).sql().contains("LIMIT 100"));
     }
 
     @Test
     void limit_이_상한_1000_을_넘으면_1000으로_클램프() {
-        ClickHouseQuery q = builder.events(TENANT, null, null, null, null, 5000);
+        ClickHouseQuery q = builder.events(TENANT, null, null, null, null, null, 5000);
         assertTrue(q.sql().contains("LIMIT 1000"), q.sql());
     }
 
     @Test
     void limit_이_범위_안이면_그대로() {
-        ClickHouseQuery q = builder.events(TENANT, null, null, null, null, 250);
+        ClickHouseQuery q = builder.events(TENANT, null, null, null, null, null, 250);
         assertTrue(q.sql().contains("LIMIT 250"), q.sql());
     }
 
@@ -47,7 +50,7 @@ class EventQueryBuilderTest {
 
     @Test
     void tenant_는_항상_WHERE_에_바인딩된다() {
-        ClickHouseQuery q = builder.events(TENANT, null, null, null, null, 100);
+        ClickHouseQuery q = builder.events(TENANT, null, null, null, null, null, 100);
         assertTrue(q.sql().contains("WHERE"), q.sql());
         assertTrue(q.sql().contains("tenant_id = {tenant:String}"), q.sql());
         assertEquals(TENANT, q.params().get("tenant"));
@@ -55,14 +58,14 @@ class EventQueryBuilderTest {
 
     @Test
     void 다른_필터가_없으면_tenant_만_바인딩된다() {
-        ClickHouseQuery q = builder.events(TENANT, null, null, null, null, 100);
+        ClickHouseQuery q = builder.events(TENANT, null, null, null, null, null, 100);
         assertEquals(1, q.params().size());
         assertEquals(TENANT, q.params().get("tenant"));
     }
 
     @Test
     void tenant_값은_SQL_본문에_직접_박히지_않는다() {
-        ClickHouseQuery q = builder.events("1 OR 1=1", null, null, null, null, 100);
+        ClickHouseQuery q = builder.events("1 OR 1=1", null, null, null, null, null, 100);
         assertFalse(q.sql().contains("1 OR 1=1"), q.sql());
         assertEquals("1 OR 1=1", q.params().get("tenant"));
     }
@@ -70,9 +73,9 @@ class EventQueryBuilderTest {
     @Test
     void tenant_가_null_이거나_빈값이면_예외() {
         assertThrows(IllegalArgumentException.class,
-                () -> builder.events(null, null, null, null, null, 100));
+                () -> builder.events(null, null, null, null, null, null, 100));
         assertThrows(IllegalArgumentException.class,
-                () -> builder.events("  ", null, null, null, null, 100));
+                () -> builder.events("  ", null, null, null, null, null, 100));
         assertThrows(IllegalArgumentException.class,
                 () -> builder.summaryByType(null, null, null));
     }
@@ -81,7 +84,7 @@ class EventQueryBuilderTest {
 
     @Test
     void host_필터는_파라미터_바인딩으로_들어간다() {
-        ClickHouseQuery q = builder.events(TENANT, "host-01", null, null, null, 100);
+        ClickHouseQuery q = builder.events(TENANT, "host-01", null, null, null, null, 100);
         assertTrue(q.sql().contains("host = {host:String}"), q.sql());
         assertEquals("host-01", q.params().get("host"));
         assertEquals(TENANT, q.params().get("tenant"));
@@ -91,14 +94,59 @@ class EventQueryBuilderTest {
 
     @Test
     void type_필터_바인딩() {
-        ClickHouseQuery q = builder.events(TENANT, null, "process", null, null, 100);
+        ClickHouseQuery q = builder.events(TENANT, null, "process", null, null, null, 100);
         assertTrue(q.sql().contains("type = {type:String}"), q.sql());
         assertEquals("process", q.params().get("type"));
     }
 
     @Test
+    void dns_l7_도_type_필터로_쓸_수_있다() {
+        // 타입 화이트리스트를 두지 않고 값을 그대로 바인딩하므로 새 타입이 늘어도 조회가 막히지 않는다.
+        assertEquals("dns", builder.events(TENANT, null, "dns", null, null, null, 100).params().get("type"));
+        assertEquals("l7", builder.events(TENANT, null, "l7", null, null, null, 100).params().get("type"));
+    }
+
+    @Test
+    void 조회_컬럼에_domain_과_detail_이_들어간다() {
+        // 대시보드가 dns/l7 이벤트의 도메인과 부가정보를 보려면 조회 결과에 실려야 한다.
+        ClickHouseQuery q = builder.events(TENANT, null, null, null, null, null, 100);
+        assertTrue(q.sql().contains("domain"), q.sql());
+        assertTrue(q.sql().contains("detail"), q.sql());
+    }
+
+    @Test
+    void 조회_컬럼에_sha256_이_들어간다() {
+        // 어떤 파일이 걸린 건지 화면에서 확인하려면 조회 결과에 해시가 실려야 한다.
+        ClickHouseQuery q = builder.events(TENANT, null, null, null, null, null, 100);
+        assertTrue(q.sql().contains("sha256"), q.sql());
+    }
+
+    @Test
+    void sha256_필터는_파라미터_바인딩으로_들어간다() {
+        // "이 악성코드 해시가 우리 조직 어딘가에 있었나" 를 묻는 조회.
+        ClickHouseQuery q = builder.events(TENANT, null, null, HASH, null, null, 100);
+        assertTrue(q.sql().contains("sha256 = {sha256:String}"), q.sql());
+        assertEquals(HASH, q.params().get("sha256"));
+        assertFalse(q.sql().contains(HASH), q.sql());
+    }
+
+    @Test
+    void sha256_필터는_대문자로_들어와도_소문자로_찾는다() {
+        // 적재되는 값은 소문자로 정규화돼 있다. 검색어 대소문자 때문에 조회가 갈리면 안 된다.
+        ClickHouseQuery q = builder.events(TENANT, null, null, HASH.toUpperCase(Locale.ROOT), null, null, 100);
+        assertEquals(HASH, q.params().get("sha256"));
+    }
+
+    @Test
+    void 빈문자열_sha256_은_필터로_치지_않는다() {
+        ClickHouseQuery q = builder.events(TENANT, null, null, "   ", null, null, 100);
+        assertEquals(1, q.params().size());
+        assertFalse(q.sql().contains("sha256 = "), q.sql());
+    }
+
+    @Test
     void 시간범위_from_to_는_ts_에_바인딩() {
-        ClickHouseQuery q = builder.events(TENANT, null, null, 1000L, 2000L, 100);
+        ClickHouseQuery q = builder.events(TENANT, null, null, null, 1000L, 2000L, 100);
         assertTrue(q.sql().contains("ts >= {from:UInt64}"), q.sql());
         assertTrue(q.sql().contains("ts <= {to:UInt64}"), q.sql());
         assertEquals("1000", q.params().get("from"));
@@ -107,7 +155,7 @@ class EventQueryBuilderTest {
 
     @Test
     void 여러_필터는_AND_로_결합_되고_tenant_도_함께_바인딩() {
-        ClickHouseQuery q = builder.events(TENANT, "host-01", "network", null, null, 100);
+        ClickHouseQuery q = builder.events(TENANT, "host-01", "network", null, null, null, 100);
         assertTrue(q.sql().contains(" AND "), q.sql());
         // tenant + host + type
         assertEquals(3, q.params().size());
@@ -116,14 +164,14 @@ class EventQueryBuilderTest {
 
     @Test
     void 빈문자열_host_type_은_무시되고_tenant_만_남는다() {
-        ClickHouseQuery q = builder.events(TENANT, "  ", "", null, null, 100);
+        ClickHouseQuery q = builder.events(TENANT, "  ", "", null, null, null, 100);
         assertEquals(1, q.params().size());
         assertTrue(q.sql().contains("tenant_id = {tenant:String}"), q.sql());
     }
 
     @Test
     void 최신순_정렬() {
-        assertTrue(builder.events(TENANT, null, null, null, null, 100).sql().contains("ORDER BY ts DESC"));
+        assertTrue(builder.events(TENANT, null, null, null, null, null, 100).sql().contains("ORDER BY ts DESC"));
     }
 
     // --- lineage ---

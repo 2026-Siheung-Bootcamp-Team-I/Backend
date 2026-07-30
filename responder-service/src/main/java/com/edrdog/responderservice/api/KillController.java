@@ -10,7 +10,9 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * 반자동 실제 조치 트리거 API. 대시보드의 "실행" 버튼이 호출한다(자동 실행 아님).
- * 실행 경로(권한·Fleet 호출·kill 검증)는 다 만들되 방아쇠는 사람이 당긴다.
+ * 실행 경로(권한·명령 전달·kill 검증)는 다 만들되 방아쇠는 사람이 당긴다.
+ *
+ * <p>에이전트의 다음 하트비트를 서버가 대신 기다려 주므로 이 API 는 동기로 답한다.
  */
 @RestController
 @RequestMapping("/api/responder")
