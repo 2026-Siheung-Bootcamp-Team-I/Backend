@@ -55,3 +55,43 @@ func FuzzParse(f *testing.F) {
 		asm.Push(flow, payload, time.Unix(1785400000, 0))
 	})
 }
+
+// FuzzAssembler 는 조각난 입력을 조립기에 이어 먹여 panic 하지 않는지 본다.
+//
+// FuzzParse 와 따로 두는 이유는 위험한 부분이 다르기 때문이다. 파서는 바이트 한 장을 보지만
+// 조립기는 여러 번의 Push 에 걸쳐 상태를 들고 있다. 버퍼를 이어 붙이는 자리, 흐름을 지우는
+// 자리, 만료를 판정하는 자리가 서로 어긋나면 거기서 깨진다. 그래서 한 입력을 여러 조각으로
+// 나눠 넣고, 시각도 앞뒤로 움직여 만료 경로까지 지나가게 한다.
+func FuzzAssembler(f *testing.F) {
+	hello := clientHello(f, &tls.Config{ServerName: "example.com"})
+	f.Add(hello, uint8(200), uint8(0))
+	f.Add(hello, uint8(1), uint8(11)) // 조각을 잘게 내고 중간에 TTL 을 넘긴다
+	f.Add([]byte{recordHandshake, 3, 1, 0xff, 0xff, 1}, uint8(3), uint8(0))
+	f.Add([]byte("GET / HTTP/1.1\r\n\r\n"), uint8(4), uint8(1))
+	f.Add([]byte{}, uint8(1), uint8(0))
+
+	f.Fuzz(func(t *testing.T, data []byte, chunk uint8, skewSeconds uint8) {
+		a := NewAssembler()
+		base := time.Unix(1785400000, 0)
+		flow := Flow{Protocol: "tcp", SrcIP: "10.0.0.2", SrcPort: 51000, DstIP: "93.184.216.34", DstPort: 443}
+
+		size := int(chunk)
+		if size == 0 {
+			size = 1
+		}
+		for i, step := 0, 0; i < len(data); i, step = i+size, step+1 {
+			end := min(i+size, len(data))
+			// 조각마다 시계를 앞으로 민다. skew 가 크면 TTL 을 넘겨 만료 경로를 지난다.
+			now := base.Add(time.Duration(step) * time.Duration(skewSeconds) * time.Second)
+			if hello, ok := a.Push(flow, data[i:end], now); ok {
+				// 완성했다고 했으면 그 흐름은 즉시 사라져야 한다. 남으면 재전송에서 또 나온다.
+				if a.Len() != 0 {
+					t.Fatalf("완성 후에도 흐름이 %d 개 남았다 (SNI=%q)", a.Len(), hello.SNI)
+				}
+			}
+			if a.Len() > assemblerMaxFlows {
+				t.Fatalf("추적 흐름이 %d 개다. 상한 %d", a.Len(), assemblerMaxFlows)
+			}
+		}
+	})
+}

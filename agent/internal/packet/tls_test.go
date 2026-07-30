@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"io"
 	"net"
+	"slices"
 	"testing"
 	"time"
 )
@@ -148,7 +149,8 @@ func countExtensions(t testing.TB, payload []byte) int {
 	return n
 }
 
-// 한 세그먼트에 다 안 들어온 ClientHello 는 재조립하지 않고 버린다.
+// ParseClientHello 자체는 덜 온 바이트를 기다리지 않는다. 세그먼트를 모으는 일은 Assembler 가
+// 하고, 이 함수는 완성된 레코드만 받는다. 그 경계가 지켜지는지 본다.
 func TestParseClientHelloTruncated(t *testing.T) {
 	raw := clientHello(t, &tls.Config{ServerName: "example.com"})
 
@@ -202,6 +204,9 @@ func TestParseClientHelloFromFullFrame(t *testing.T) {
 }
 
 // --- 손으로 만든 ClientHello ---
+//
+// crypto/tls 는 이제 TLS 1.0 hello 나 이상한 확장을 만들어 주지 않는다. 그래도 캡처에는
+// 낡은 클라이언트와 규격을 어긴 구현이 섞여 들어오므로 그 모양은 직접 조립해서 검증한다.
 
 func tlsRecord(payload []byte) []byte {
 	h := []byte{recordHandshake, 0x03, 0x03, 0, 0}
@@ -213,10 +218,6 @@ func handshakeMessage(msgType byte, body []byte) []byte {
 	h := []byte{msgType, byte(len(body) >> 16), byte(len(body) >> 8), byte(len(body))}
 	return append(h, body...)
 }
-
-//
-// crypto/tls 는 이제 TLS 1.0 hello 나 이상한 확장을 만들어 주지 않는다. 그래도 캡처에는
-// 낡은 클라이언트와 규격을 어긴 구현이 섞여 들어오므로 그 모양은 직접 조립해서 검증한다.
 
 func rawClientHello(legacy uint16, exts []byte) []byte {
 	body := []byte{byte(legacy >> 8), byte(legacy)}
@@ -343,5 +344,129 @@ func TestParseClientHelloRejectsMalformedExtensions(t *testing.T) {
 				t.Error("길이 필드가 깨졌는데 true 를 줬다")
 			}
 		})
+	}
+}
+
+// --- ALPN ---
+
+func alpnExtension(protos ...string) []byte {
+	var list []byte
+	for _, p := range protos {
+		list = append(list, byte(len(p)))
+		list = append(list, []byte(p)...)
+	}
+	data := append([]byte{byte(len(list) >> 8), byte(len(list))}, list...)
+	return extension(extALPN, data)
+}
+
+// ALPN 은 포트만으로 알 수 없는 것을 알려준다. 443 으로 나가는 것이 브라우저의 h2 인지
+// 뭔가가 직접 연 TLS 소켓인지가 여기서 갈린다.
+func TestParseClientHelloExtractsALPN(t *testing.T) {
+	hello, ok := ParseClientHello(clientHello(t, &tls.Config{
+		ServerName: "alpn.example.com",
+		NextProtos: []string{"h2", "http/1.1"},
+	}))
+	if !ok {
+		t.Fatal("ParseClientHello 가 false 를 돌려줬다")
+	}
+	if !slices.Equal(hello.ALPN, []string{"h2", "http/1.1"}) {
+		t.Errorf("ALPN = %v, want [h2 http/1.1]", hello.ALPN)
+	}
+}
+
+func TestParseClientHelloWithoutALPN(t *testing.T) {
+	// ALPN 을 제안하지 않는 클라이언트도 많다. 없는 것이 오류는 아니다.
+	hello, ok := ParseClientHello(clientHello(t, &tls.Config{ServerName: "noalpn.example.com"}))
+	if !ok {
+		t.Fatal("ParseClientHello 가 false 를 돌려줬다")
+	}
+	if len(hello.ALPN) != 0 {
+		t.Errorf("ALPN = %v, want 비어 있음", hello.ALPN)
+	}
+	if hello.SNI != "noalpn.example.com" {
+		t.Errorf("SNI = %q", hello.SNI)
+	}
+}
+
+func TestParseClientHelloALPNWithSNI(t *testing.T) {
+	// 손으로 조립해 두 확장이 함께 있을 때 서로를 덮지 않는지 본다.
+	exts := append(sniExtension(sniEntry(sniHostName, "both.example.com")), alpnExtension("h3", "h2")...)
+
+	hello, ok := ParseClientHello(rawClientHello(0x0303, exts))
+	if !ok {
+		t.Fatal("ParseClientHello 가 false 를 돌려줬다")
+	}
+	if hello.SNI != "both.example.com" {
+		t.Errorf("SNI = %q, want both.example.com", hello.SNI)
+	}
+	if !slices.Equal(hello.ALPN, []string{"h3", "h2"}) {
+		t.Errorf("ALPN = %v, want [h3 h2]", hello.ALPN)
+	}
+}
+
+func TestParseClientHelloRejectsMalformedALPN(t *testing.T) {
+	cases := map[string][]byte{
+		"목록 길이 과다":   extension(extALPN, []byte{0xff, 0xff, 0x02, 'h', '2'}),
+		"프로토콜 길이 과다": extension(extALPN, []byte{0x00, 0x03, 0xff, 'h', '2'}),
+		"확장이 빈 경우":   extension(extALPN, nil),
+	}
+	for name, exts := range cases {
+		t.Run(name, func(t *testing.T) {
+			if _, ok := ParseClientHello(rawClientHello(0x0303, exts)); ok {
+				t.Error("길이 필드가 깨졌는데 true 를 줬다")
+			}
+		})
+	}
+}
+
+// --- reader 경계 검사 ---
+//
+// TLS 파싱의 안전성은 전부 이 타입에 걸려 있다. 여기서 검사 한 군데가 빠지면 조작된 패킷에서
+// 곧바로 panic 이고, 그건 패킷 한 장으로 에이전트를 죽이는 길이다. 그래서 따로 증명한다.
+
+func TestReaderRejectsReadsPastEnd(t *testing.T) {
+	cases := map[string]func(*reader) bool{
+		"take 가 남은 것보다 큼": func(r *reader) bool { _, ok := r.take(4); return ok },
+		"take 가 음수":       func(r *reader) bool { _, ok := r.take(-1); return ok },
+		"uint16 인데 1바이트":  func(r *reader) bool { r.take(2); _, ok := r.uint16(); return ok },
+		"vector8 길이 과다":   func(r *reader) bool { _, ok := r.vector8(); return ok },
+		"vector16 길이 과다":  func(r *reader) bool { _, ok := r.vector16(); return ok },
+	}
+	for name, read := range cases {
+		t.Run(name, func(t *testing.T) {
+			// 3바이트뿐인데 어느 읽기도 그보다 많이 요구한다. 길이 필드 0xff 도 마찬가지다.
+			r := reader{b: []byte{0xff, 0xff, 0xff}}
+			if read(&r) {
+				t.Error("남은 것보다 많이 읽었는데 true 를 줬다")
+			}
+		})
+	}
+}
+
+func TestReaderDoesNotAdvanceOnFailure(t *testing.T) {
+	// 실패한 읽기가 커서를 옮기면 그다음 읽기가 엉뚱한 자리에서 값을 꺼낸다.
+	r := reader{b: []byte{0x01, 0x02}}
+	if _, ok := r.take(5); ok {
+		t.Fatal("범위를 넘는 take 가 성공했다")
+	}
+	got, ok := r.uint16()
+	if !ok || got != 0x0102 {
+		t.Errorf("uint16 = %#04x ok=%v, want 0x0102 true", got, ok)
+	}
+	if !r.empty() {
+		t.Error("다 읽었는데 empty 가 아니다")
+	}
+}
+
+func TestReaderEmptyInput(t *testing.T) {
+	r := reader{}
+	if !r.empty() {
+		t.Error("빈 reader 가 empty 가 아니다")
+	}
+	if _, ok := r.uint8(); ok {
+		t.Error("빈 입력에서 uint8 이 성공했다")
+	}
+	if b, ok := r.take(0); !ok || len(b) != 0 {
+		t.Error("0바이트 읽기는 성공해야 한다")
 	}
 }

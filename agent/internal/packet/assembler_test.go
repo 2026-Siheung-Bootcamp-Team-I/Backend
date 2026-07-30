@@ -2,6 +2,7 @@ package packet
 
 import (
 	"crypto/tls"
+	"slices"
 	"testing"
 	"time"
 )
@@ -173,5 +174,101 @@ func TestAssemblerSurvivesGarbage(t *testing.T) {
 		f := asmFlow
 		f.SrcPort = 30000 + len(in)
 		a.Push(f, in, asmNow())
+	}
+}
+
+// pendingHello 는 끝나지 않는 흐름을 하나 만든다. 레코드 길이를 상한 안쪽으로 적어서
+// "더 기다릴 가치가 있는" 상태로 남게 한다. 축출 경로를 밟으려면 이 상태가 필요하다.
+func pendingHello() []byte {
+	return []byte{recordHandshake, 3, 1, 0x0f, 0xa0, msgClientHello} // 레코드 4000바이트
+}
+
+// 상한에 걸렸을 때 실제로 오래된 흐름이 밀려나는지 본다. 위의 상한 테스트는 레코드 길이가
+// 8KB 를 넘어 곧바로 버려지는 경로라 축출 자체를 지나지 않는다.
+func TestAssemblerEvictsOldestWhenFull(t *testing.T) {
+	a := NewAssembler()
+	head := pendingHello()
+
+	for i := range assemblerMaxFlows {
+		f := asmFlow
+		f.SrcPort = 20000 + i
+		if _, ok := a.Push(f, head, asmNow().Add(time.Duration(i)*time.Millisecond)); ok {
+			t.Fatalf("끝나지 않은 흐름이 완성됐다고 한다 (i=%d)", i)
+		}
+	}
+	if a.Len() != assemblerMaxFlows {
+		t.Fatalf("흐름 %d 개, want %d", a.Len(), assemblerMaxFlows)
+	}
+
+	// 한 개를 더 넣으면 상한을 넘지 않아야 한다.
+	extra := asmFlow
+	extra.SrcPort = 20000 + assemblerMaxFlows
+	a.Push(extra, head, asmNow().Add(time.Second))
+
+	if a.Len() > assemblerMaxFlows {
+		t.Errorf("추적 흐름이 %d 개다. 상한 %d", a.Len(), assemblerMaxFlows)
+	}
+	// 가장 오래된 것이 밀려나고 방금 넣은 것은 살아 있어야 한다.
+	if _, ok := a.Push(extra, make([]byte, 16), asmNow().Add(time.Second)); ok {
+		t.Error("방금 넣은 흐름이 이상하게 완성됐다")
+	}
+}
+
+// 세그먼트 수 상한이 바이트 상한과 별개로 걸리는지 본다. 잘게 쪼개 보내면 바이트는 안 차도
+// 흐름 수만큼 버퍼가 남는다.
+func TestAssemblerEnforcesSegmentLimit(t *testing.T) {
+	a := NewAssembler()
+	a.Push(asmFlow, pendingHello(), asmNow())
+
+	for i := range assemblerMaxSegments {
+		if a.Len() == 0 {
+			break
+		}
+		a.Push(asmFlow, []byte{byte(i)}, asmNow())
+	}
+	if a.Len() != 0 {
+		t.Errorf("세그먼트 상한을 넘겼는데 흐름이 %d 개 남아있다", a.Len())
+	}
+}
+
+// 핸드셰이크 뒤에 암호문이 바로 따라붙어도 ClientHello 만 끊어 읽어야 한다.
+func TestAssemblerStopsAtRecordBoundary(t *testing.T) {
+	a := NewAssembler()
+	hello := clientHello(t, &tls.Config{ServerName: "trailing.example.com"})
+	withTrailer := append(append([]byte{}, hello...), make([]byte, 512)...)
+
+	got, ok := a.Push(asmFlow, withTrailer, asmNow())
+	if !ok {
+		t.Fatal("뒤에 데이터가 붙었다고 못 읽었다")
+	}
+	if got.SNI != "trailing.example.com" {
+		t.Errorf("SNI = %q", got.SNI)
+	}
+	if a.Len() != 0 {
+		t.Errorf("완성 후 흐름이 %d 개 남았다", a.Len())
+	}
+}
+
+// ALPN 도 조립을 거쳐 그대로 나오는지 본다. 쪼개진 경계가 확장 한가운데를 지나는 경우다.
+func TestAssemblerPreservesALPNAcrossSegments(t *testing.T) {
+	a := NewAssembler()
+	full := clientHello(t, &tls.Config{
+		ServerName: "alpn.example.com",
+		NextProtos: []string{"h2", "http/1.1"},
+	})
+	if len(full) <= 1500 {
+		t.Fatalf("ClientHello 가 %d 바이트다. 쪼개져야 이 테스트가 의미 있다", len(full))
+	}
+
+	a.Push(asmFlow, full[:1400], asmNow())
+	got, ok := a.Push(asmFlow, full[1400:], asmNow())
+	if !ok {
+		t.Fatal("두 세그먼트를 다 넣었는데 완성되지 않았다")
+	}
+	if !slices.Equal(got.ALPN, []string{"h2", "http/1.1"}) {
+		t.Errorf("ALPN = %v, want [h2 http/1.1]", got.ALPN)
+	}
+	if got.Version != "TLS 1.3" {
+		t.Errorf("Version = %q, want TLS 1.3", got.Version)
 	}
 }
