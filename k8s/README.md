@@ -149,6 +149,33 @@ sudo kubectl -n edrdog logs deploy/api-service | grep 'GeoIP DB 로드'
 4번이 `GeoIP DB 로드(파일)` 이면 성공이다. `(클래스패스)` 면 볼륨의 파일을 못 읽어 jar 번들로
 넘어간 것이고, 그 상태로 mmdb 없는 이미지가 배포되면 지도가 빈다.
 
+## 운영 UI (Portainer / Kafka UI / Swagger)
+
+배포서버 전용이다. 셋 다 Caddy 뒤에 있고 NodePort 를 방화벽에 열지 않으므로 Caddy 를 통해서만 들어간다.
+
+| 대상 | 주소 | 인증 | NodePort |
+|---|---|---|---|
+| Portainer | `https://portainer.<도메인>` | Portainer 자체 로그인 | 30777 |
+| Kafka UI | `https://<도메인>/kafka-ui` | 없음 | 30901 |
+| Swagger | `https://<도메인>/swagger-ui.html` | 없음 | (api 30084) |
+
+### Portainer
+
+`k8s/portainer.yaml`. 첫 접속에서 관리자 계정을 만든다. **파드가 뜨고 5분 안에 안 만들면 스스로 잠근다.**
+
+```bash
+sudo kubectl -n portainer rollout restart deploy/portainer   # 잠겼을 때 다시 여는 법
+```
+
+- 이 계정은 `cluster-admin` 이라 `edrdog` 네임스페이스의 Secret(Infisical 이 동기화한 API 키, DB 비번)까지
+  전부 보인다. 비번을 세게 건다.
+- 서브패스(`/portainer`)가 아니라 서브도메인인 이유: 서브패스로 서비스하려면 `--base-url` 과 프록시의
+  prefix strip 이 정확히 한 번씩 맞아야 하고, 어긋나면 화면은 뜨는데 로그인이 안 된다.
+  DuckDNS 는 하위 도메인이 전부 같은 IP 로 와서 서브도메인이 공짜다.
+- `--trusted-origins` 가 없으면 Caddy 뒤에서 로그인할 때 `Origin invalid` 로 막힌다. 도메인을 바꾸면
+  매니페스트의 이 값도 같이 바꿔야 한다.
+- 계정과 설정은 PVC 에 있다(k3s `local-path`). 지우면 관리자 계정부터 다시 만들어야 한다.
+
 ## 시크릿 (Infisical)
 
 매니페스트에 평문으로 박혀 있던 값(`DB_PASSWORD`, `CLICKHOUSE_PASSWORD` 등)을 Infisical 로 옮긴다.

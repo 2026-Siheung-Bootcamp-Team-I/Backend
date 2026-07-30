@@ -38,6 +38,7 @@ GHCR_IMAGE_BASE="${GHCR_IMAGE_BASE:-ghcr.io/edrdog/backend}"
 # 때문에 중간에서 TLS 를 다시 종단하면 등록 단계에서 실패한다.
 AGENT_PORT=30443
 API_NODEPORT=30084
+PORTAINER_NODEPORT=30777
 
 fail() { echo "오류: $*" >&2; exit 1; }
 step() { echo; echo "== $*"; }
@@ -162,10 +163,20 @@ $DOMAIN {
 		reverse_proxy localhost:$API_NODEPORT
 	}
 }
+
+# Portainer. DuckDNS 는 하위 도메인이 전부 같은 IP 로 오므로 레코드를 따로 만들 필요가 없고,
+# Caddy 가 이 이름으로 인증서를 알아서 받는다(80 이 열려 있어야 받는다).
+portainer.$DOMAIN {
+	reverse_proxy localhost:$PORTAINER_NODEPORT
+}
 EOF
+# 설정이 틀리면 reload 가 조용히 실패하고 사이트가 옛 설정으로 남거나 죽는다. 여기서 잡는다.
+caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1 \
+  || fail "Caddyfile 이 잘못됐다: caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile"
 systemctl enable --now caddy >/dev/null 2>&1 || true
 systemctl reload caddy 2>/dev/null || systemctl restart caddy
 echo "  $DOMAIN -> localhost:$API_NODEPORT"
+echo "  portainer.$DOMAIN -> localhost:$PORTAINER_NODEPORT"
 
 # --- 5. 에이전트 수집 TLS -----------------------------------------------------
 # 에이전트가 호스트명을 SAN 과 대조한다. 도메인을 바꾸면 여기도 다시 만들어야 한다.
@@ -231,7 +242,7 @@ step "8/8 인프라 매니페스트"
 if [[ -d "$REPO_DIR/.git" ]]; then
   git -C "$REPO_DIR" fetch --quiet origin main || true
   for f in k8s/00-namespace.yaml k8s/mysql.yaml k8s/kafka.yaml k8s/clickhouse.yaml \
-           k8s/otel-lgtm.yaml k8s/alloy.yaml k8s/kafka-ui.yaml; do
+           k8s/otel-lgtm.yaml k8s/alloy.yaml k8s/kafka-ui.yaml k8s/portainer.yaml; do
     git -C "$REPO_DIR" show "FETCH_HEAD:$f" | kubectl apply -f - >/dev/null && echo "  $f"
   done
 else
@@ -276,7 +287,12 @@ cat <<EOF
    CD 가 arm64 를 포함해 이미지를 올리고, 서비스 매니페스트 apply 와 롤아웃까지 한다.
    Deployment 가 없으면 CD 가 알아서 apply 하므로 여기서 손으로 할 것은 없다.
 
-3) 확인
+3) Portainer 관리자 계정을 만든다 (https://portainer.$DOMAIN)
+   파드가 뜨고 5분 안에 안 만들면 Portainer 가 스스로 잠근다. 그때는 아래로 다시 연다.
+     kubectl -n portainer rollout restart deploy/portainer
+   이 계정은 cluster-admin 이라 edrdog 네임스페이스의 Secret 까지 다 보인다. 비번을 세게 건다.
+
+4) 확인
    kubectl -n $NS get pods
    curl -sS https://$DOMAIN/actuator/health
    openssl s_client -connect $DOMAIN:$AGENT_PORT </dev/null 2>/dev/null | head -3

@@ -1,0 +1,133 @@
+# Portainer CE — 브라우저에서 클러스터의 파드/컨테이너 상태와 로그를 보는 관리 UI.
+# 배포서버에서는 Caddy 가 https://portainer.<도메인> 으로 프록시한다.
+#   Caddyfile 예:  portainer.edrdog-api.duckdns.org { reverse_proxy localhost:30777 }
+#
+# 서브패스(/portainer)가 아니라 서브도메인인 이유: Portainer 를 서브패스로 서비스하려면
+# --base-url 과 프록시의 prefix strip 이 정확히 한 번씩만 맞아야 하고, 어긋나면 화면은 뜨는데
+# 로그인이 안 된다(자산 경로가 /portainer/portainer/ 로 겹친다). DuckDNS 는 하위 도메인이
+# 전부 같은 IP 로 오므로 서브도메인이 공짜다.
+#
+# 첫 접속에서 관리자 계정을 만든다. 파드가 뜨고 5분 안에 안 만들면 Portainer 가 스스로 잠그고,
+# 그때는 파드를 재시작해야 다시 열린다.
+#   kubectl -n portainer rollout restart deploy/portainer
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: portainer
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: portainer
+  namespace: portainer
+---
+# Portainer 가 k8s 를 관리하려면 cluster-admin 이 필요하다(공식 매니페스트도 같다).
+# 즉 이 UI 에 로그인한 사람은 edrdog 네임스페이스의 Secret(Infisical 이 동기화한 API 키,
+# DB 비번)까지 전부 읽을 수 있다. 첫 접속 때 관리자 비번을 세게 걸어야 한다.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: portainer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: portainer
+    namespace: portainer
+---
+# 계정과 설정이 여기 들어간다. emptyDir 로 두면 파드가 재시작될 때마다 관리자 계정을
+# 처음부터 다시 만들어야 한다. k3s 는 local-path 가 기본 StorageClass 라 그대로 바인딩된다.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: portainer
+  namespace: portainer
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: portainer
+  namespace: portainer
+  labels:
+    app: portainer
+spec:
+  replicas: 1
+  # PVC 가 ReadWriteOnce 라 롤링으로 두면 새 파드가 볼륨을 못 잡고 매달린다.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: portainer
+  template:
+    metadata:
+      labels:
+        app: portainer
+    spec:
+      serviceAccountName: portainer
+      containers:
+        - name: portainer
+          # 배포서버가 오라클 Ampere A1(arm64) 이다. 이 태그는 arm64 를 포함한다.
+          image: portainer/portainer-ce:2.39.5
+          args:
+            # Caddy 가 TLS 를 끊고 평문으로 넘기므로 9000(HTTP)으로 받는다.
+            - --http-enabled
+            # 이게 없으면 Caddy 뒤에서 로그인할 때 "Origin invalid" 로 막힌다.
+            # Portainer 가 보는 요청은 http 인데 브라우저가 보낸 Origin 은 https 라서다.
+            - --trusted-origins=portainer.edrdog-api.duckdns.org
+          ports:
+            - containerPort: 9000
+            - containerPort: 9443
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 9443
+              scheme: HTTPS
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 9443
+              scheme: HTTPS
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: portainer
+---
+# NodePort 30777 — 호스트에서 도는 Caddy 가 localhost:30777 로 프록시한다.
+# 오라클 보안 목록과 호스트 방화벽에 30777 을 열지 않으므로 외부에서 직접은 못 들어오고
+# Caddy(=basic auth 없이 Portainer 자체 로그인) 경유만 가능하다.
+apiVersion: v1
+kind: Service
+metadata:
+  name: portainer
+  namespace: portainer
+  labels:
+    app: portainer
+spec:
+  type: NodePort
+  selector:
+    app: portainer
+  ports:
+    - port: 9000
+      targetPort: 9000
+      nodePort: 30777
