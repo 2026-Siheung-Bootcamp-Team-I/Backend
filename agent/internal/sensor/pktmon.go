@@ -178,8 +178,8 @@ func parsePktMonPacket(userData []byte) (pktMonFrame, pktMonReject) {
 //
 // 모르는 값은 false 다. 즉 못 알아본 방향은 통과시킨다. 반대로 만들면(모르는 값을 들어오는
 // 쪽으로 보면) Windows 판이 우리가 모르는 태그를 쓰는 순간 모든 프레임이 조용히 사라진다.
-// 나가는 것만 필요하다는 것은 부하를 줄이려는 최적화이지 정확성 조건이 아니다. L7Sensor 가
-// 목적지 포트 443 만 보므로 들어오는 프레임이 섞여 들어와도 이벤트가 잘못 나지는 않는다.
+// 방향을 가리는 것은 부하를 줄이려는 최적화이지 정확성 조건이 아니다. L7Sensor 가 포트로
+// 한 번 더 가르므로 들어오는 프레임이 섞여 들어와도 이벤트가 잘못 나지는 않는다.
 func pktMonInbound(dirTag uint16) bool {
 	switch dirTag {
 	case pktMonDirIn, pktMonDirRx, pktMonDirIngress:

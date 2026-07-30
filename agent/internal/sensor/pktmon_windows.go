@@ -113,7 +113,9 @@ func OpenPktMonCapture(log *slog.Logger) (*PktMonCapture, error) {
 	}
 
 	log.Info("pktmon 캡처를 시작했다",
-		"filter", pktMonFilterName, "port", portHTTPS,
+		// 포트를 둘 다 적는다. 하나만 적으면 HTTP 가 0 건일 때 필터를 안 건 것인지
+		// 트래픽이 없었던 것인지 로그로 가릴 수 없다.
+		"filter", pktMonFilterName, "ports", []int{portHTTPS, portHTTP},
 		"pktSize", CaptureSnapLen, "etl", c.etlPath)
 	return c, nil
 }
