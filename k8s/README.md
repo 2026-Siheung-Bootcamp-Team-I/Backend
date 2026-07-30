@@ -95,9 +95,21 @@ curl -sk https://localhost:8443/api/agent/enroll -H 'Content-Type: application/j
   다시 만들고 Secret 을 갱신한 뒤 엔드포인트의 PEM 까지 교체해야 한다.
 ### 매니페스트 변경을 배포서버에 반영하기
 
-CD 는 서비스 5개 매니페스트를 apply 하지 않는다(apply 하면 image 가 `:latest` 로 되돌아갔다가
-`set image` 로 다시 `:sha` 가 되면서 롤아웃이 두 번 돈다). 그래서 `k8s/api-service.yaml` 을 고쳤으면
-서버에서 한 번 수동으로 적용한다. 지금 떠 있는 이미지 태그를 지키면서 적용하는 순서:
+**인프라 매니페스트는 CD 가 알아서 올린다.** 목록을 적어 두지 않고 `k8s/` 를 훑어서 적용하므로,
+파일을 새로 추가해도 워크플로를 같이 고칠 필요가 없다. 제외 대상은 셋뿐이다.
+
+| 파일 | 왜 빼는가 |
+|---|---|
+| `*-service.yaml` | 아래처럼 이미지 태그까지 맞춰 따로 다룬다 |
+| `kind-cluster.yaml` | 로컬 kind 설정이라 apply 대상이 아니다 |
+| `infisical.yaml` | CRD 가 있을 때만 적용한다 |
+
+인프라가 안 떠도 앱 배포는 막지 않고, 대신 CD 가 맨 끝에서 실패한다. `kafka-ui`·`portainer` 는
+시크릿이 없으면 일부러 안 뜨는데 그것 때문에 앱 배포가 멈추면 곤란해서다.
+
+서비스 매니페스트만 손으로 적용한다. CD 가 apply 하면 image 가 `:latest` 로 되돌아갔다가
+`set image` 로 다시 `:sha` 가 되면서 롤아웃이 두 번 돈다. `k8s/api-service.yaml` 을 고쳤으면
+지금 떠 있는 이미지 태그를 지키면서 적용한다:
 
 ```bash
 IMG=$(sudo kubectl -n edrdog get deploy/api-service -o jsonpath='{.spec.template.spec.containers[0].image}')

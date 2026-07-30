@@ -112,28 +112,37 @@ jobs:
           set -euo pipefail
           MODULES="detector-service responder-service archiver-service api-service alert-service collector-service"
 
-          # 모니터링 스택과 Kafka UI 만 매니페스트로 apply 한다.
-          # 서비스 5개 매니페스트는 손대지 않는다. apply 하면 image 가 :latest 로 되돌아갔다가
-          # 아래 set image 로 다시 :sha 가 되면서 롤아웃이 두 번 돌기 때문이다.
-          # (레포 api-service Service 가 ClusterIP 라 apply 하면 NodePort 30084 가 벗겨져 사이트가
-          #  죽던 문제는 매니페스트를 실제 상태에 맞추면서 해소됐다. 매니페스트 변경 반영은
-          #  k8s/README.md 의 수동 apply 절차를 따른다.)
+          # 인프라 매니페스트는 목록을 적지 않고 k8s/ 를 훑어서 전부 적용한다.
+          # 파일을 추가할 때마다 여기도 같이 고쳐야 하면 잊게 되고, 그러면 서버에만 빠진 채로
+          # 조용히 지나간다(실제로 portainer.yaml 이 그랬다).
+          #   빼는 것: *-service.yaml 은 아래에서 이미지 태그까지 맞춰 따로 다룬다. 여기서 apply 하면
+          #            image 가 :latest 로 되돌아갔다가 set image 로 다시 :sha 가 되어 롤아웃이 두 번 돈다.
+          #            kind-cluster.yaml 은 로컬 kind 설정이라 apply 대상이 아니고,
+          #            infisical.yaml 은 CRD 가 있을 때만 적용한다(바로 아래).
           # 서버 브랜치를 건드리지 않으려고 FETCH_HEAD 에서 파일만 꺼내 적용한다.
+          INFRA_FAILED=""
           if [ -d ~/Backend/.git ]; then
           git -C ~/Backend fetch --quiet origin main
-          for f in k8s/otel-lgtm.yaml k8s/alloy.yaml k8s/kafka-ui.yaml; do
-          git -C ~/Backend show "FETCH_HEAD:$f" | sudo kubectl apply -f -
+          INFRA_DEPLOYS=""
+          for f in $(git -C ~/Backend ls-tree --name-only FETCH_HEAD k8s/ | grep '\.yaml$'); do
+          case "$(basename "$f" .yaml)" in *-service|kind-cluster|infisical) continue ;; esac
+          echo "apply $f" >&2
+          APPLIED=$(git -C ~/Backend show "FETCH_HEAD:$f" | sudo kubectl apply -f - -o name)
+          echo "$APPLIED" >&2
+          INFRA_DEPLOYS="$INFRA_DEPLOYS $(echo "$APPLIED" | grep '^deployment' || true)"
           done
           # Infisical 연동은 Operator 가 깔려 있을 때만. 없으면 CRD 가 없어 apply 가 실패하고
           # set -e 때문에 서비스 롤링까지 같이 죽는다.
           if sudo kubectl get crd infisicalsecrets.secrets.infisical.com >/dev/null 2>&1; then
           git -C ~/Backend show "FETCH_HEAD:k8s/infisical.yaml" | sudo kubectl apply -f -
           fi
-          sudo kubectl -n "$NS" rollout status deployment/otel-lgtm --timeout=300s
-          sudo kubectl -n "$NS" rollout status deployment/alloy --timeout=180s
-          sudo kubectl -n "$NS" rollout status deployment/kafka-ui --timeout=180s
+          # 인프라가 안 떠도 여기서 멈추지 않는다. kafka-ui·portainer 는 시크릿이 없으면 일부러
+          # 안 뜨는데, 운영 UI 때문에 앱 배포가 막히면 곤란하다. 대신 맨 끝에서 CD 를 실패시킨다.
+          for d in $INFRA_DEPLOYS; do
+          sudo kubectl -n "$NS" rollout status "$d" --timeout=300s || INFRA_FAILED="$INFRA_FAILED $d"
+          done
           else
-          echo "~/Backend 클론이 없어 모니터링 매니페스트 apply 를 건너뛴다" >&2
+          echo "~/Backend 클론이 없어 인프라 매니페스트 apply 를 건너뛴다" >&2
           fi
 
           # Deployment 가 없으면(빈 클러스터, 새로 추가된 서비스) 매니페스트를 먼저 apply 한다.
@@ -159,4 +168,11 @@ jobs:
           for m in $DEPLOYED; do
           sudo kubectl -n "$NS" rollout status "deployment/$m" --timeout=120s
           done
+
+          # 앱은 다 올린 뒤에 인프라 실패를 알린다. 여기서 죽어야 CD 가 초록으로 안 끝난다.
+          if [ -n "$INFRA_FAILED" ]; then
+          echo "인프라 롤아웃 실패:$INFRA_FAILED" >&2
+          echo "kafka-ui·portainer 라면 edrdog-secrets 에 계정 키가 없는 것이다(k8s/README.md)." >&2
+          exit 1
+          fi
           REMOTE
