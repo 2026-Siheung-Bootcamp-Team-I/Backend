@@ -41,8 +41,7 @@ for v in DUCKDNS_TOKEN GHCR_USER GHCR_TOKEN AGENT_TLS_KEYSTORE_PASSWORD; do
   [[ -n "${!v:-}" ]] || fail "$v 가 필요하다"
 done
 
-# 아키텍처를 먼저 본다. 여기서 짚어 주지 않으면 나중에 파드가 exec format error 로만
-# 죽는데, 그 메시지로는 원인이 아키텍처라는 것을 알기 어렵다.
+# 여기서 안 짚으면 나중에 파드가 exec format error 로만 죽는다.
 ARCH="$(uname -m)"
 step "0/7 확인 (arch=$ARCH)"
 case "$ARCH" in
@@ -90,7 +89,6 @@ if command -v k3s >/dev/null 2>&1; then
 else
   curl -sfL https://get.k3s.io | sh - || fail "k3s 설치 실패"
 fi
-# 이 뒤로 kubectl 을 쓰려면 kubeconfig 가 필요하다.
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 kubectl get nodes >/dev/null || fail "k3s 가 응답하지 않는다"
 kubectl create namespace "$NS" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
@@ -104,8 +102,7 @@ result="$(duck_update)"
 [[ "$result" == "OK" ]] || fail "DuckDNS 갱신 실패: $result"
 echo "  갱신됨."
 
-# 공인 IP 가 바뀌면(인스턴스를 껐다 켜면 바뀔 수 있다) 도메인이 엉뚱한 곳을 가리킨다.
-# 5분마다 갱신해 둔다.
+# 인스턴스를 껐다 켜면 공인 IP 가 바뀐다.
 cat > /usr/local/bin/duckdns-update <<EOF
 #!/bin/sh
 curl -sS "https://www.duckdns.org/update?domains=$DUCKDNS_SUBDOMAIN&token=$DUCKDNS_TOKEN&ip=" >/dev/null
@@ -131,8 +128,7 @@ if ! command -v caddy >/dev/null 2>&1; then
   fi
 fi
 
-# 도메인 블록 안에서는 벗은 reverse_proxy 와 handle 을 섞을 수 없다. 라우트를 늘릴 것을
-# 생각해 처음부터 전부 handle 로 감싼다. 나중에 하나 추가하려다 기존 것까지 고치게 된다.
+# 도메인 블록 안에서 벗은 reverse_proxy 와 handle 은 섞을 수 없다. 처음부터 전부 감싼다.
 cat > /etc/caddy/Caddyfile <<EOF
 $DOMAIN {
 	handle /kafka-ui* {
@@ -148,8 +144,7 @@ systemctl reload caddy 2>/dev/null || systemctl restart caddy
 echo "  $DOMAIN -> localhost:$API_NODEPORT"
 
 # --- 5. 에이전트 수집 TLS -----------------------------------------------------
-# 에이전트는 RootCAs 만 갈아끼우고 InsecureSkipVerify 를 쓰지 않는다. 그래서 접속 주소의
-# 호스트가 인증서 SAN 과 같아야 한다. 도메인을 바꾸면 여기도 다시 만들어야 한다.
+# 에이전트가 호스트명을 SAN 과 대조한다. 도메인을 바꾸면 여기도 다시 만들어야 한다.
 step "5/7 agent-tls"
 command -v keytool >/dev/null 2>&1 || {
   if command -v apt-get >/dev/null 2>&1; then
@@ -167,9 +162,8 @@ keytool -genkeypair -alias agent -keyalg RSA -keysize 2048 -validity 825 \
   -storepass "$AGENT_TLS_KEYSTORE_PASSWORD" -keypass "$AGENT_TLS_KEYSTORE_PASSWORD" >/dev/null
 chmod 600 "$TLS_DIR/agent-keystore.p12"
 
-# 이름이 agent-tls 여야 한다. 매니페스트가 optional:true 로 참조해서, 이름이 틀리면
-# 값이 안 들어오고 커넥터가 꺼진 채로 api-service 는 멀쩡히 뜬다. 파드는 정상인데
-# 에이전트만 한 대도 못 붙는 상태가 되는데, 그 조합이 가장 짚기 어렵다.
+# 이름이 agent-tls 여야 한다. 매니페스트가 optional:true 로 참조해서, 틀리면 커넥터가
+# 꺼진 채로 파드는 멀쩡히 뜬다. 정상으로 보이는데 에이전트만 못 붙는다.
 kubectl -n "$NS" delete secret agent-tls --ignore-not-found >/dev/null
 kubectl -n "$NS" create secret generic agent-tls \
   --from-file=keystore.p12="$TLS_DIR/agent-keystore.p12" \
