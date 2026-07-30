@@ -27,7 +27,9 @@ set -euo pipefail
 DOMAIN="${DOMAIN:-edrdog-api.duckdns.org}"
 DUCKDNS_SUBDOMAIN="${DUCKDNS_SUBDOMAIN:-${DOMAIN%%.*}}"
 NS="${NS:-edrdog}"
-REPO_DIR="${REPO_DIR:-$HOME/Backend}"
+# sudo 로 돌면 HOME 이 /root 가 된다. 클론은 원래 사용자의 홈에 있으므로 그쪽을 본다.
+SUDO_HOME="$(getent passwd "${SUDO_USER:-root}" 2>/dev/null | cut -d: -f6)"
+REPO_DIR="${REPO_DIR:-${SUDO_HOME:-$HOME}/Backend}"
 GHCR_IMAGE_BASE="${GHCR_IMAGE_BASE:-ghcr.io/edrdog/backend}"
 
 # 에이전트가 붙는 포트. Caddy 를 거치지 않는다. 에이전트가 서버 인증서를 고정해서 붙기
