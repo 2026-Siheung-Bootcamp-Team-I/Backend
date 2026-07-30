@@ -59,10 +59,10 @@ spec:
               value: "edrdog"
             - name: EDRDOG_CLICKHOUSE_URL
               value: "http://clickhouse:8123"
-            # 프론트 도메인 (배포 시 실제 값으로 교체)
-            # 배포된 프론트(Vercel) + 로컬 dev 서버. 서버 실제 값과 같게 둔다.
+            # 프론트 도메인. 서버 실제 값과 같게 둔다.
+            # CorsConfig 가 setAllowedOrigins 라 정확히 일치하는 출처만 통과한다(빠지면 브라우저만 403).
             - name: CORS_ALLOWED_ORIGINS
-              value: "https://frontend1-ten-gamma.vercel.app,http://localhost:5173"
+              value: "https://edrdog.duckdns.org,https://frontend1-ten-gamma.vercel.app,http://localhost:5173"
             # 발표 환경에서만 true (데모 계정 test/1234 + 과거 7일 시드).
             # 현재 배포서버가 true 라 그대로 맞춘다. 해커톤이 끝나면 false 로 되돌린다.
             - name: DEMO_SEED
