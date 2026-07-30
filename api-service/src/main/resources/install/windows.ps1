@@ -56,18 +56,27 @@ try {
 
 # 받은 것이 온전한지 본다. 끊긴 다운로드는 크기만 작고 그대로 설치돼서, 깔린 뒤에
 # "왜 안 뜨지" 로 시간을 버리게 된다.
+#
+# try 로 감싸는 것은 해시 파일을 받는 것까지다. 비교까지 같이 감싸면 불일치가 catch 로
+# 흘러들어 경고로 강등되고 설치가 그대로 이어진다. 그러면 검사가 있으나 마나다.
+$want = $null
 try {
     $want = (Invoke-WebRequest -Uri "$DownloadBase/$asset.sha256" -UseBasicParsing).Content
-    $want = ($want -replace '[^A-Fa-f0-9]', '')
-    if ($want.Length -ge 64) {
-        $want = $want.Substring($want.Length - 64, 64)
-        $got = (Get-FileHash -Path $downloaded -Algorithm SHA256).Hash
-        if ($want -ne $got) { Fail "받은 바이너리의 해시가 다르다 (기대 $want, 실제 $got)" }
-        Write-Host '  해시 확인됨.'
-    }
 } catch {
     # 릴리스에 해시 파일이 없을 수 있다. 그 사실을 조용히 넘기지는 않는다.
     Write-Warning "$asset.sha256 이 없어 무결성을 확인하지 못했다"
+}
+if ($want) {
+    # 파일 모양은 "<해시>  <파일명>" 이다. 해시는 첫 칸에 있다. 16진수만 남기고 뒤에서
+    # 자르면 파일명 끝을 해시로 읽는다(실제로 그렇게 짰다가 모든 설치가 막혔다).
+    # edrdog-agent-windows-amd64.exe 는 a, d, e, 6, 4 처럼 16진수로 보이는 글자가 많다.
+    $want = (($want -split '\s+') | Where-Object { $_ })[0]
+    # 64자 16진수가 아니면 비교 자체가 무의미하다. 그걸 "일치하지 않음" 으로 뭉뚱그리면
+    # 릴리스 파일이 깨진 것과 바이너리가 바뀐 것을 구별할 수 없다.
+    if ($want -notmatch '^[A-Fa-f0-9]{64}$') { Fail "$asset.sha256 의 모양이 예상과 다르다: $want" }
+    $got = (Get-FileHash -Path $downloaded -Algorithm SHA256).Hash
+    if ($want -ne $got) { Fail "받은 바이너리의 해시가 다르다 (기대 $want, 실제 $got)" }
+    Write-Host '  해시 확인됨.'
 }
 
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null

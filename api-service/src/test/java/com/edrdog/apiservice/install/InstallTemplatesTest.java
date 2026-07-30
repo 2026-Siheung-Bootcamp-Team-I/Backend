@@ -56,6 +56,18 @@ class InstallTemplatesTest {
         assertTrue(scripts.macos().contains("/dev/tty"), "권한 대기를 /dev/tty 로 읽어야 한다");
     }
 
+    @Test
+    void 두_원본_모두_받은_해시의_모양을_먼저_본다() {
+        // .sha256 파일은 "<해시>  <파일명>" 이다. 처음에는 공백을 지우고 뒤에서 64자를
+        // 잘랐는데, 그러면 파일명 끝을 해시로 읽는다. 실제 릴리스로 받아 보고서야 알았고
+        // 그때까지 모든 설치가 해시 불일치로 막혀 있었다.
+        //
+        // 모양 검사를 먼저 두면 추출이 또 깨져도 "해시가 다르다" 가 아니라 "모양이 다르다"
+        // 로 나온다. 릴리스 파일이 깨진 것과 바이너리가 바뀐 것은 대응이 전혀 다르다.
+        assertTrue(scripts.macos().contains("[A-Fa-f0-9]{64}"), "macOS 원본이 해시 모양을 안 본다");
+        assertTrue(scripts.windows().contains("[A-Fa-f0-9]{64}"), "windows 원본이 해시 모양을 안 본다");
+    }
+
     private static void assertNoPlaceholderLeft(String out) {
         assertFalse(out.contains("{{"), "안 채운 자리표시자가 남았다: "
                 + out.replaceAll("(?s).*?(\\{\\{[A-Z_]*}}).*", "$1"));
