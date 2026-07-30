@@ -1,0 +1,133 @@
+# Portainer CE — 브라우저에서 클러스터의 파드/컨테이너 상태와 로그를 보는 관리 UI.
+# 배포서버에서는 Caddy 가 https://portainer.<도메인> 으로 프록시한다.
+#   Caddyfile 예:  portainer.edrdog-api.duckdns.org { reverse_proxy localhost:30777 }
+#
+# 서브도메인인 이유: 서브패스로 서비스하려면 --base-url 과 프록시의 prefix strip 이 정확히 한 번씩
+# 맞아야 하고, 어긋나면 화면은 뜨는데 로그인이 안 된다. DuckDNS 는 하위 도메인이 전부 같은 IP 로 온다.
+#
+# 네임스페이스가 edrdog 인 이유: k8s Secret 은 네임스페이스를 넘지 못한다. 관리자 비번을
+# edrdog-secrets 에서 받으려면 같은 네임스페이스에 있어야 한다.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: portainer
+  namespace: edrdog
+---
+# 공식 매니페스트와 같다. 이 UI 에 로그인한 사람은 edrdog 의 Secret 도 전부 읽을 수 있다.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: portainer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: portainer
+    namespace: edrdog
+---
+# 계정과 설정이 여기 들어간다. emptyDir 면 재시작마다 계정이 초기화된다.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: portainer
+  namespace: edrdog
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: portainer
+  namespace: edrdog
+  labels:
+    app: portainer
+spec:
+  replicas: 1
+  # PVC 가 ReadWriteOnce 라 롤링으로 두면 새 파드가 볼륨을 못 잡고 매달린다.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: portainer
+  template:
+    metadata:
+      labels:
+        app: portainer
+    spec:
+      serviceAccountName: portainer
+      containers:
+        - name: portainer
+          # 배포서버가 오라클 Ampere A1(arm64) 이다. 이 태그는 arm64 를 포함한다.
+          image: portainer/portainer-ce:2.39.5
+          args:
+            # Caddy 가 TLS 를 끊고 평문으로 넘기므로 9000(HTTP)으로 받는다.
+            - --http-enabled
+            # 없으면 Caddy 뒤에서 로그인이 Origin invalid 로 막힌다(요청은 http, Origin 은 https).
+            - --trusted-origins=portainer.edrdog-api.duckdns.org
+            # 첫 기동에만 먹는다. 계정이 생긴 뒤 Infisical 값을 바꿔도 비번은 안 바뀐다.
+            # 대신 5분 안에 사람이 계정을 만들어야 하는 잠금이 사라진다.
+            # /run/secrets/portainer 는 쓰지 않는다. Portainer 가 거기를 DB 암호화 키 파일로 먼저 읽는다.
+            - --admin-password-file=/etc/portainer/admin-password
+          ports:
+            - containerPort: 9000
+            - containerPort: 9443
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: admin-password
+              mountPath: /etc/portainer
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 9443
+              scheme: HTTPS
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 9443
+              scheme: HTTPS
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: portainer
+        # optional 을 주지 않는다. 키가 없으면 비번 없이 뜨는 대신 파드가 멈춘다.
+        - name: admin-password
+          secret:
+            secretName: edrdog-secrets
+            items:
+              - key: PORTAINER_ADMIN_PASSWORD
+                path: admin-password
+---
+# NodePort 30777 — Caddy 가 localhost:30777 로 프록시한다. 방화벽에 열지 않으므로 직접은 못 들어온다.
+apiVersion: v1
+kind: Service
+metadata:
+  name: portainer
+  namespace: edrdog
+  labels:
+    app: portainer
+spec:
+  type: NodePort
+  selector:
+    app: portainer
+  ports:
+    - port: 9000
+      targetPort: 9000
+      nodePort: 30777

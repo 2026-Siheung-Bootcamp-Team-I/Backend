@@ -333,10 +333,34 @@ level=ERROR msg="패킷 캡처를 열지 못해 dns/l7 수집을 건너뛴다" e
 
 키를 사람 손에 쥐여 주면 채팅방에 붙고 스크린샷에 남는다. 그래서 링크 쪽이 편의만의 문제가 아니다.
 
+**링크를 만드는 쪽도 키를 다루지 않는다.** 스크립트가 로그인부터 발급까지 한 번에 한다.
+
 ```bash
-# 관리자: 링크 발급 (로그인 토큰 필요)
+./scripts/install-link.sh me@example.com
+```
+
+```
+비밀번호:
+
+macOS — 터미널에 붙여넣는다:
+
+  curl -fsSL https://edr.example.com/i/AbC123 | sudo bash
+
+Windows — 관리자 권한 PowerShell 에 붙여넣는다:
+
+  irm https://edr.example.com/i/AbC123.ps1 | iex
+```
+
+대시보드에 "기기 추가" 버튼이 생기면 그쪽이 이 자리를 대신한다. 그때까지 쓰는 것이다.
+
+직접 부르려면 이렇게 한다. `X-API-Key` 는 필요 없다. 이 경로는 Bearer 로만 인증한다
+(`ApiKeyPolicy.EXEMPT_PATHS`). 접두어가 아니라 정확히 이 경로만 여는데, `/api/tenant` 아래에
+enroll secret 과 webhook 이 같이 있어서다. 설치 링크는 만료되지만 enroll secret 은 테넌트당
+하나에 만료가 없어 한 번 새면 되돌리기 어렵다.
+
+```bash
 curl -X POST https://edr.example.com/api/tenant/install-link \
-  -H "Authorization: Bearer <로그인 토큰>" -H "X-API-Key: <프론트 키>"
+  -H "Authorization: Bearer <로그인 토큰>"
 ```
 
 ```json
