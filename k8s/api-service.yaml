@@ -78,6 +78,16 @@ spec:
             # 파일을 호스트에 두면 이미지를 어떻게 갈아도 지도가 살아 있다.
             - name: GEOIP_DB_PATH
               value: "/etc/geoip/GeoLite2-Country.mmdb"
+            # 설치 링크(/i/<토큰>). 둘 다 비밀이 아니라 우리 서버 주소라서 Infisical 이 아니라
+            # 여기에 둔다. 사용자가 브라우저에 치는 값과 같아서 숨길 수가 없다.
+            #
+            # 두 값이 다른 이유: 앞은 Caddy 를 거치고(설치 스크립트를 curl 로 받는 곳),
+            # 뒤는 안 거친다(에이전트가 붙는 곳). 에이전트가 서버 인증서를 고정해서 붙기
+            # 때문에 중간에서 TLS 를 다시 종단하면 등록 단계에서 실패한다.
+            - name: INSTALL_PUBLIC_BASE
+              value: "https://edrdog-i-team.duckdns.org"
+            - name: INSTALL_AGENT_SERVER
+              value: "edrdog-i-team.duckdns.org:30443"
           readinessProbe:
             httpGet:
               path: /actuator/health
