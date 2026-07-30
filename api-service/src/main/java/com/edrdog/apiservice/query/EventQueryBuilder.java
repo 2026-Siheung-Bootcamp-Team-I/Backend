@@ -6,6 +6,7 @@ import org.springframework.stereotype.Component;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -17,8 +18,10 @@ public class EventQueryBuilder {
     static final int DEFAULT_LIMIT = 100;
     static final int MAX_LIMIT = 1000;
 
+    // domain/detail 은 dns/l7 이벤트용. 대시보드가 어떤 도메인을 물어봤는지 보려면 조회 컬럼에 있어야 한다.
+    // sha256 은 파일 해시. 조회 결과에 실려야 어떤 파일이 걸린 건지 화면에서 확인할 수 있다.
     private static final String COLUMNS =
-            "host, type, ts, process, parent, cmdline, dest_ip, dest_port, ingested_at";
+            "host, type, ts, process, parent, cmdline, dest_ip, dest_port, domain, detail, sha256, ingested_at";
 
     private final String table;
 
@@ -27,12 +30,13 @@ public class EventQueryBuilder {
     }
 
     /**
-     * tenant 격리 하에 host/type/from/to 필터(옵션)로 최신순 events 조회. limit 은 1..MAX 로 클램프.
+     * tenant 격리 하에 host/type/sha256/from/to 필터(옵션)로 최신순 events 조회. limit 은 1..MAX 로 클램프.
      * tenantId 는 필수 — 로그인 유저의 조직 것만 보이도록 항상 WHERE 에 강제된다.
      */
-    public ClickHouseQuery events(String tenantId, String host, String type, Long from, Long to, Integer limit) {
+    public ClickHouseQuery events(String tenantId, String host, String type, String sha256,
+                                  Long from, Long to, Integer limit) {
         Map<String, String> params = new LinkedHashMap<>();
-        String where = where(tenantId, host, type, from, to, params);
+        String where = where(tenantId, host, type, sha256, from, to, params);
         String sql = "SELECT " + COLUMNS + " FROM " + table
                 + where
                 + " ORDER BY ts DESC LIMIT " + clampLimit(limit);
@@ -45,7 +49,7 @@ public class EventQueryBuilder {
      */
     public ClickHouseQuery hostsLastSeen(String tenantId) {
         Map<String, String> params = new LinkedHashMap<>();
-        String where = where(tenantId, null, null, null, null, params);
+        String where = where(tenantId, null, null, null, null, null, params);
         String sql = "SELECT host, max(ts) AS last_seen FROM " + table
                 + where
                 + " GROUP BY host ORDER BY last_seen DESC";
@@ -59,7 +63,7 @@ public class EventQueryBuilder {
      */
     public ClickHouseQuery lineageEvents(String tenantId, String host, Long from, Long to) {
         Map<String, String> params = new LinkedHashMap<>();
-        String where = where(tenantId, host, null, from, to, params);
+        String where = where(tenantId, host, null, null, from, to, params);
         String sql = "SELECT type, ts, process, parent, dest_ip, dest_port FROM " + table
                 + where
                 + " ORDER BY ts ASC LIMIT " + MAX_LIMIT;
@@ -69,7 +73,7 @@ public class EventQueryBuilder {
     /** tenant 격리 하에 type 별 건수 집계. 시간범위 필터(옵션) 지원. tenantId 는 필수. */
     public ClickHouseQuery summaryByType(String tenantId, Long from, Long to) {
         Map<String, String> params = new LinkedHashMap<>();
-        String where = where(tenantId, null, null, from, to, params);
+        String where = where(tenantId, null, null, null, from, to, params);
         String sql = "SELECT type, count() AS cnt FROM " + table
                 + where
                 + " GROUP BY type ORDER BY cnt DESC";
@@ -82,7 +86,7 @@ public class EventQueryBuilder {
      */
     public ClickHouseQuery geo(String tenant, long from, long to) {
         Map<String, String> params = new LinkedHashMap<>();
-        String where = where(tenant, null, null, null, null, params);
+        String where = where(tenant, null, null, null, null, null, params);
         params.put("from", String.valueOf(from));
         params.put("to", String.valueOf(to));
         String sql = "SELECT dest_ip, count() AS cnt FROM " + table
@@ -92,8 +96,8 @@ public class EventQueryBuilder {
         return new ClickHouseQuery(sql, params);
     }
 
-    private static String where(String tenantId, String host, String type, Long from, Long to,
-                                Map<String, String> params) {
+    private static String where(String tenantId, String host, String type, String sha256,
+                                Long from, Long to, Map<String, String> params) {
         if (!hasText(tenantId)) {
             throw new IllegalArgumentException("tenant 는 필수입니다(격리)");
         }
@@ -108,6 +112,12 @@ public class EventQueryBuilder {
         if (hasText(type)) {
             conds.add("type = {type:String}");
             params.put("type", type.trim());
+        }
+        if (hasText(sha256)) {
+            // 적재되는 해시는 collector 가 소문자로 정규화한 값이다. 검색어가 대문자로 들어와도
+            // 같은 파일을 찾도록 여기서도 소문자로 맞춘다.
+            conds.add("sha256 = {sha256:String}");
+            params.put("sha256", sha256.trim().toLowerCase(Locale.ROOT));
         }
         if (from != null) {
             conds.add("ts >= {from:UInt64}");

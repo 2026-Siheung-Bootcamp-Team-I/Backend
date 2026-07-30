@@ -14,9 +14,9 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * events(호스트+last_seen), alerts(host 별 열린 alert 집계), osquery_nodes(등록 노드)를 병합하는 순수 로직.
+ * events(호스트+last_seen), alerts(host 별 열린 alert 집계), agent_nodes(등록 노드)를 병합하는 순수 로직.
  * 세 저장소(ClickHouse/MySQL)라 SQL 조인이 안 되므로 여기서 host 기준으로 합친다.
- * 호스트 집합은 events ∪ 등록 노드다. osquery 가 enroll 에 성공해도 이벤트가 0건이면 화면에서
+ * 호스트 집합은 events ∪ 등록 노드다. 에이전트가 enroll 에 성공해도 이벤트가 0건이면 화면에서
  * 기기 상태를 전혀 볼 수 없었던 문제 때문에, 이벤트 없이 등록만 된 기기도 목록에 넣는다.
  * alert 만 있고 events/등록 둘 다 없는 host 는 여전히 나오지 않는다.
  */
@@ -29,7 +29,7 @@ public final class HostAggregator {
      * events 행(host, last_seen)에 host 별 alert 집계와 등록 노드 정보를 붙여 목록을 만든다.
      * events 쿼리가 last_seen DESC 로 정렬돼 오므로 그 순서를 그대로 유지하고,
      * events 는 없고 등록만 된 host 는 agentSeen DESC 로 정렬해 뒤에 붙인다.
-     * host 이름은 osquery 가 OS 원본 그대로 보내 대소문자가 어긋나는 사례가 있어(Fleet 조회에서 겪음)
+     * host 이름은 엔드포인트가 OS 원본 그대로 보내 대소문자가 어긋나는 사례가 있어
      * 매칭은 소문자로 하되, 화면 표시명은 events 쪽 원본을 우선한다.
      */
     public static List<HostResponse> hosts(List<Map<String, Object>> eventRows, List<HostAlertCount> alertCounts,

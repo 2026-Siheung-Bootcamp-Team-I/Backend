@@ -37,17 +37,19 @@ public class EventQueryController {
     }
 
     @Operation(summary = "이벤트 조회",
-            description = "로그인 유저의 tenant 것만 host/type/from/to(epoch millis) 필터로 최신순 조회. limit 기본 100, 상한 1000.")
+            description = "로그인 유저의 tenant 것만 host/type/sha256/from/to(epoch millis) 필터로 최신순 조회. "
+                    + "sha256 은 파일 해시 완전일치이며 대소문자를 가리지 않는다. limit 기본 100, 상한 1000.")
     @GetMapping("/events")
     public List<Map<String, Object>> events(
             @RequestHeader(name = "Authorization", required = false) String authorization,
             @RequestParam(required = false) String host,
             @RequestParam(required = false) String type,
+            @RequestParam(required = false) String sha256,
             @RequestParam(required = false) Long from,
             @RequestParam(required = false) Long to,
             @RequestParam(required = false) Integer limit) {
         String tenantId = currentTenantId(authorization);
-        return reader.query(builder.events(tenantId, host, type, from, to, limit));
+        return reader.query(builder.events(tenantId, host, type, sha256, from, to, limit));
     }
 
     @Operation(summary = "이벤트 요약",

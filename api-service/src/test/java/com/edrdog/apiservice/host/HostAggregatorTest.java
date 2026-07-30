@@ -13,7 +13,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * events 행, alert 집계, 등록 노드(osquery_nodes)를 host 기준으로 병합하는 순수 로직 검증.
+ * events 행, alert 집계, 등록 노드(agent_nodes)를 host 기준으로 병합하는 순수 로직 검증.
  * 호스트 집합은 events ∪ 등록 노드다(이벤트가 없어도 등록만 됐으면 목록에 나와야 한다).
  * status/위협수는 alert 집계에서 붙는다.
  */
@@ -29,7 +29,7 @@ class HostAggregatorTest {
         return new HostAlertCount(host, total, critical, high);
     }
 
-    /** osquery_nodes 등록 노드 값(host, agentSeen). */
+    /** agent_nodes 등록 노드 값(host, agentSeen). */
     private static EnrolledHost enrolled(String host, long agentSeen) {
         return new EnrolledHost(host, agentSeen);
     }
