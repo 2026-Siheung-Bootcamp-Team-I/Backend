@@ -42,6 +42,10 @@ macOS 라이브 캡처에서 실제로 잡힌 것이다. 암호화된 TLS 1.3 �
 - **상수가 틀려도 빌드는 통과하고 조용히 0건이 된다. 이게 가장 위험하다.** 프로바이더 GUID,
   keyword 비트, 이벤트 ID 는 컴파일러가 검사해 주지 않는다. 값 하나가 어긋나면 오류 없이
   이벤트만 안 온다
+- **pktmon 으로 TLS SNI 를 받는 경로 전체가 미검증이다.** 이벤트 160 의 필드 배치는 Microsoft 의
+  NetMon 파서와 드라이버 헤더 두 곳을 대조해 잡았지만 실기기에서 확인한 것은 아니다. 어긋나면
+  `sizeMismatch` 로 잡히게 해 두었다. **Windows Defender 가 pktmon 조작을 막을 가능성이 이 경로에서
+  가장 큰 위험이다.** 공격 기법으로 공개된 방식이라 휴리스틱 탐지가 실재한다
 - Windows 서비스 등록과 `-service` 경로도 실기기 미검증이다
 - 설치 스크립트 두 개 다 실기기 미검증이다
 
@@ -116,6 +120,88 @@ Read(15)나 Write(16)까지 켜면 평범한 기기에서 초당 수천 건이 �
 
 **나중에 삭제와 이름 변경까지 보려면 `MapFile` 이 `FilePath` 도 읽게 고친 뒤에 켜야 한다.** 프로바이더
 설정만 되돌리면 이벤트는 오지만 전부 버려진다.
+
+### Windows: TLS SNI 만 패킷을 보고, 그 패킷도 같은 세션으로 받는다
+
+`l7` 이벤트(TLS ClientHello 의 SNI)는 커널 이벤트로는 알 수 없다. 어느 도메인에 접속했는지는
+패킷 안에만 있다. 그래서 Windows 에서도 패킷을 봐야 하는데, **드라이버는 설치하지 않는다.**
+Npcap 은 라이선스가 재배포를 금지한다. 대신 Windows 10 2004 이후와 Windows 11 에 인박스로 들어
+있는 `pktmon` 을 쓴다.
+
+**ETW 프로바이더를 켜는 것만으로는 캡처가 시작되지 않는다.** `pktmon.sys` 가 먼저 시작돼야 이벤트를
+만든다. 프로바이더만 켜면 세션도 붙고 오류도 없는데 이벤트가 0건이다. 드라이버를 시작하는 길은
+셋인데, 실제로 쓸 수 있는 것은 하나뿐이었다.
+
+| 방법 | 왜 안 쓰나 / 쓰나 |
+|:---|:---|
+| 문서화된 Win32 API (`PacketMonitorCreateLiveSession` 등, `Pktmonapi.dll`) | MS 문서의 요구 사항 표에 **Minimum supported client 가 비어 있다.** 서버는 Windows Server 2022 6b 이상이라고만 적혀 있어, 대상인 Windows 10/11 클라이언트에 있다는 근거가 없다 |
+| `Pktmonapi.dll` 의 옛 export (`PktmonStart` 등) 또는 `\\.\PktMonDev` IOCTL | 둘 다 **문서가 없다.** 인자 구조를 리버스 엔지니어링 글에서 짐작해 넣는 셈인데, 틀려도 오류가 아니라 조용한 0건으로 나타난다 |
+| `pktmon.exe` 를 부른다 | 인자와 동작이 MS 문서에 그대로 있다. **이걸 쓴다** |
+
+외부 프로세스를 띄우는 것은 마지막 수단이지만, 남은 둘이 "문서가 없어 틀렸는지도 모르는 채 0건"
+으로 끝날 수 있는 길이라 이쪽을 골랐다. 부르는 것은 시작과 끝 각각 두 번뿐이고, **이벤트는 우리
+ETW 세션에서 직접 받는다.** 즉 데이터 경로에는 외부 프로세스가 없다.
+
+```
+pktmon filter remove                                        # 남아 있던 필터를 먼저 지운다
+pktmon filter add EDRdog-TLS -t TCP -p 443                  # 커널에서 거른다
+pktmon start --capture --comp nics --pkt-size 2048 \
+             --flags 0x10 --log-mode memory --file-size 1 --file-name %TEMP%\edrdog-pktmon.etl
+```
+
+- `--flags 0x10` 은 프레임 바이트(raw packet)다. `--pkt-size` 기본값 128 로는 ClientHello 의 SNI
+  확장이 잘려 도메인을 못 뽑는다. macOS 캡처의 snaplen 과 같은 2048 을 쓴다
+- `--comp nics` 는 같은 패킷이 컴포넌트마다 한 번씩 올라오는 것을 막는다. 기본값 `all` 이면
+  한 패킷이 NIC, vSwitch 등에서 여러 번 보고돼 양이 몇 배가 된다
+- `--log-mode memory --file-size 1` 은 pktmon 자신의 로그를 1MB 메모리에 두고 stop 할 때만 파일로
+  쓰게 한다. 우리는 그 파일을 읽지 않지만 pktmon 이 로그 대상 없이는 시작하지 않아서 두는 것이고,
+  닫을 때 지운다
+
+프레임은 프로바이더 `Microsoft-Windows-PktMon` 의 **이벤트 160** 에 실려 온다. keyword 는
+**`0x10`(Payload)** 이고, 이걸 빼면 메타데이터만 오고 프레임 바이트가 비어 온다. 이 프로바이더도
+`EDRdog-Agent` **같은 세션**에 붙인다. 별도 세션이면 버퍼 풀과 플러시 주기가 따로 놀아 연결
+이벤트와 패킷의 도착 순서가 더 흔들리는데, 아래 프로세스 귀속이 그 순서에 달려 있다.
+
+**DNS 는 이 경로로 뽑지 않는다.** Windows 의 DNS 는 이미 ETW 의 DNS-Client 프로바이더로 받고 있어서
+패킷에서 또 뽑으면 같은 질의가 두 번 올라간다. `L7Sensor` 는 UDP 53 을 보면 `dns` 이벤트를 내도록
+되어 있으므로, 그 경로가 아예 안 타게 **커널 필터를 TCP 443 하나만 걸었다.** UDP 53 프레임은 애초에
+올라오지 않는다. 시작할 때 `pktmon filter remove` 로 남아 있던 필터를 전부 지우는 것도 같은 이유다.
+필터 목록은 시스템 전체에 하나뿐이라, 앞서 죽은 우리 프로세스나 다른 도구가 남긴 53번 필터가
+살아 있으면 그 막음이 뚫린다. Windows 에서 `L7Sensor` 를 붙일지 결정할 때 `dns` 스위치를 보지 않고
+`l7` 스위치만 보는 것도 같은 판단이다.
+
+**프레임이 이더넷인지 IP 헤더부터인지는 이벤트가 알려 준다.** 이벤트 160 의 `PacketType` 필드가
+`1 = Ethernet`, `3 = IP` 다(드라이버 헤더 `pktmonnpik.h` 의 `PKTMON_PACKET_TYPE`). 캡처가 그 값을
+보고 raw IP 프레임에는 14바이트 이더넷 헤더를 지어 붙여, 센서에는 언제나 이더넷 프레임 한 가지
+모양만 넘긴다. MAC 자리는 0 이고 `packet.Parse` 는 EtherType 두 바이트만 읽으므로 지어낸 값이
+판단에 쓰이지 않는다. **링크 종류를 잘못 짚어 조용히 0건이 되는 실패 모드를 아예 없애려는 것이다.**
+
+#### SNI 에 프로세스를 붙이는 방법이 macOS 와 다르다
+
+macOS 는 ClientHello 를 본 그 순간 열려 있는 소켓을 전부 훑어 주인을 찾는다. Windows 는 그럴 필요가
+없다. **`Microsoft-Windows-Kernel-Network` 연결 이벤트가 이미 PID 를 실어 준다.** 그 값을
+`FlowOwners` 에 잠깐 기억해 두었다가 SNI 가 올 때 `(로컬 포트, 상대 IP, 상대 포트)` 로 이어 붙인다.
+
+| | 값 | 이유 |
+|:---|:---|:---|
+| TTL | 60초 | ETW 실시간 세션은 프로세서마다 버퍼를 따로 두고 기본 1초 주기로 비워서 만들어진 순서와 배달 순서가 다를 수 있다. 반대로 60초 안에 동적 포트 16384개를 한 바퀴 돌리려면 초당 273개 연결을 그 시간 내내 유지해야 하는데 단말에서 나올 수치가 아니다 |
+| 항목 상한 | 8192 | 바깥 입력으로 커지는 맵이다. 넘으면 만료된 것부터 지우고, 그래도 모자라면 통째로 버린다 |
+| 로컬 포트만으로 물러나기 | **안 한다** | 최대 60초 전의 기억이라, 포트만 맞춰 답하면 이미 닫힌 연결의 프로세스를 새 연결에 붙일 수 있다. 틀린 프로세스는 빈 값보다 나쁘다 |
+
+프로토콜상으로는 연결 이벤트가 ClientHello 보다 **반드시 먼저 생긴다.** ClientHello 는 3-way
+handshake 가 끝난 뒤에 나가고 연결 이벤트는 커널이 SYN 을 낼 때 나므로 최소 1 RTT 차이가 난다.
+문제는 도착 순서다. 그래서 두 가지를 했다.
+
+- 두 프로바이더를 같은 세션에 넣었다. 버퍼 풀과 타임스탬프 기준계가 하나가 된다
+- **연결 기억과 프레임 전달을 둘 다 ETW 콜백 스레드에서 한다.** 연결 기억을 이벤트 채널을 읽는
+  고루틴에서 했다면, ETW 가 순서를 지켜 보내 줘도 우리 고루틴 둘이 그 순서를 다시 흐트러뜨린다
+
+**조회가 빗나갔을 때 미뤘다가 다시 시도하지는 않는다.** 적중률은 오르겠지만 `Lookup` 은 `L7Sensor` 의
+단일 고루틴에서 동기로 불리므로, 여기서 기다리면 그동안 캡처 큐가 쌓이고 넘치면 프레임을 통째로
+잃는다. 빗나감이 몇 개만 몰려도 몇 초가 서는데, 프로세스 이름 하나 얻자고 관측을 멈추는 것은
+바꿔치기가 맞지 않는다. 대신 **적중률을 1분마다 로그에 남긴다**(`SNI 프로세스 귀속 상태 hit=.. miss=..`).
+실기기에서 이 비율이 낮게 나오면 그때 미루기를 넣을지 판단하면 된다. **지금 이 비율이 얼마일지는
+추정하지 않았다.** 실기기 데이터가 없다.
 
 ### macOS: eslogger 를 자식 프로세스로 띄운다
 
@@ -750,6 +836,124 @@ notepad.exe
 - `NO_MATCH` 면 `target` 문자열과 실제 이미지 경로의 매칭 규칙을 본다. Windows 는 대소문자를
   무시하고 비교한다
 - 여러 개 떠 있을 때 전부 죽는지, 일부만 죽으면 `FAILED` 로 보고되는지도 같이 본다
+
+### 10. TLS SNI 가 pktmon 으로 잡히는가
+
+**번호는 뒤지만 위험도는 위쪽과 같은 급이다.** 1, 2번(세션이 열리고 이벤트가 오는가)이 통과한
+다음에 볼 항목이라 여기 두었을 뿐이고, 이 경로는 실기기에서 확인된 것이 하나도 없다.
+
+macOS 쪽처럼 **opt-in 라이브 테스트**를 만들어 두었다. 사람이 브라우저를 여는 것에 기대면
+아무것도 안 나왔을 때 캡처가 고장난 것인지 트래픽이 없었던 것인지 구분할 수 없어서, 테스트가
+스스로 TLS 접속을 낸 뒤 그것이 이벤트로 돌아오는지 본다.
+
+```powershell
+cd agent
+go test -c -o C:\Temp\sensor.test.exe .\internal\sensor
+# 관리자 PowerShell 에서
+$env:EDRDOG_LIVE=1; C:\Temp\sensor.test.exe -test.run TestLivePktMonCapture -test.v
+```
+
+컴파일은 사용자 권한으로 하고 실행만 관리자로 한다. 시간을 늘리려면 `EDRDOG_LIVE_SECONDS` 를 준다
+(기본 45초).
+
+이 테스트가 단언하는 것은 넷이다.
+
+| # | 단언 | 깨지면 의심할 곳 |
+|:---|:---|:---|
+| 1 | `l7` 이벤트가 한 건이라도 나오는가 | 아래 표의 이유별 건수를 먼저 본다 |
+| 2 | 접속한 SNI 가 그 이벤트에 있는가 | 캡처는 살아 있고 필터나 `Assembler` 배선이 문제 |
+| 3 | `l7` 이벤트에 `process` 가 붙는가 | Kernel-Network 연결 이벤트, `FlowOwners` 의 조인 키(`sport`/`daddr`/`dport`) |
+| 4 | `dns` 이벤트가 **이 경로로는** 안 나오는가 | pktmon 필터에 53번이 남아 있는 것 |
+
+4번은 테스트가 ETW 의 `dns` 센서를 꺼 놓고 돌리므로, 거기서 나온 `dns` 이벤트는 반드시 패킷
+경로에서 온 것이다. 0건이어야 한다.
+
+1번이 깨졌을 때는 로그의 pktmon 상태 줄(`pktmon 캡처 상태 accept=.. sizeMismatch=.. ...`)이 어디서
+끊겼는지 말해 준다. **이 줄을 보라고 만든 것이다.** 모든 값이 0 이면 이벤트 자체가 안 온 것이다.
+
+| 쌓이는 이유 | 뜻 | 볼 곳 |
+|:---|:---|:---|
+| 전부 0 | 이벤트가 한 건도 안 왔다 | `pktmon status` 로 캡처가 도는지, 프로바이더 이름이 풀렸는지 |
+| `empty` | 메타데이터만 오고 프레임 바이트가 없다 | keyword `0x10`(Payload)과 `--flags 0x10` |
+| `sizeMismatch` | **우리가 읽는 필드 위치가 이 Windows 판과 어긋났다** | `pktmon.go` 의 `pktMonOffLoggedSize`(32)와 `pktMonHeaderLen`(34) |
+| `linkType` | 이더넷도 raw IP 도 아닌 프레임이다 | `packetType2`(WiFi) 가 같이 쌓였는지 |
+| `inbound` 만 쌓이고 `accept` 는 0 | 나가는 패킷을 하나도 못 봤다 | `dirTag` 별 건수. 우리가 In/Rx/Ingress 로 아는 값만 오고 있는지 |
+| `queueFull` | 센서가 밀린다 | 양이 너무 많다. `--comp nics` 가 먹었는지 |
+
+`sizeMismatch` 가 이 항목에서 가장 중요한 신호다. 이벤트 160 의 필드 배치는 Microsoft 의 NetMon
+파서(`etl_Microsoft-Windows-PktMon-Events.npl` 의 `PktMon_FramePayload`)와 드라이버 헤더의
+`PKTMON_EVT_STREAM_METADATA` 두 곳을 대조해 잡았지만, **실기기에서 확인한 것은 아니다.** 어긋나면
+`34 + LoggedPayloadSize != 이벤트 길이` 가 되어 여기 잡힌다. 그래서 조용한 0건 대신 이유 있는
+0건이 된다.
+
+#### 눈으로 같이 볼 것
+
+- **프레임이 이더넷인가 IP 헤더부터인가.** 로그의 `packetType1`(Ethernet) 과 `packetType3`(IP) 중
+  어느 쪽이 쌓이는지 본다. 코드는 둘 다 처리하지만, 어느 쪽이 오는지는 아무도 모른다
+- **`dirTag` 로 무엇이 오는가.** `dirTag4`(Tx) / `dirTag2`(Out) / `dirTag6`(Egress) 중 어느 것이
+  실제로 오는지 본다. 지금은 In/Rx/Ingress 만 버리고 모르는 값은 통과시키는데, 실제로 오는 값이
+  확인되면 나가는 쪽만 남기도록 조일 수 있다
+- **SNI 에 프로세스가 붙는 비율.** 로그의 `SNI 프로세스 귀속 상태 hit=.. miss=..` 를 본다.
+  이 테스트는 자기 자신이 접속을 내므로 **반드시 붙어야 한다.** 하나도 안 붙으면 조인 키가 틀린
+  것이지 타이밍 문제가 아니다. 절반쯤 붙으면 그때가 도착 순서 문제이고, 그러면 `FlowOwners` 에
+  미뤘다 재시도를 넣을지 판단한다
+- **부하.** `pktmon` 캡처가 도는 동안 CPU 와 메모리를 본다
+
+  ```powershell
+  Get-Process edrdog-agent | Select-Object CPU, WorkingSet
+  ```
+
+  `queueFull` 이 쌓이면 커널 필터가 제대로 안 걸린 것이다. `pktmon filter list` 로 우리 필터
+  하나(`EDRdog-TLS`)만 있는지 본다
+
+#### 관리자 권한 없이 실행하면 명확한 오류로 죽는가
+
+에이전트 전체는 ETW 세션을 못 열어 먼저 죽는다(1번 항목). pktmon 만 따로 보려면 일반 사용자
+PowerShell 에서:
+
+```powershell
+pktmon start --capture
+```
+
+- 기대: 권한 오류 메시지. 에이전트는 이 출력을 그대로 오류에 담아 `pktmon 캡처를 열지 못해 l7
+  수집을 건너뛴다` 로 남기고, **에이전트를 죽이지는 않는다.** 나머지 센서는 멀쩡하기 때문이다
+- 이 로그가 안 보이는데 `l7` 이벤트도 없으면 캡처는 열렸고 다른 곳이 문제다
+
+#### Windows Defender 가 pktmon 조작을 차단하는가 (**가장 큰 위험**)
+
+pktmon 을 캡처 도구로 쓰는 것은 **공격 기법으로 공개된 방식이다.** 휴리스틱 탐지에 걸릴 가능성이
+실재한다. 이건 코드로 어떻게 할 수 있는 문제가 아니라 실기기에서 확인해야만 아는 것이다.
+
+```powershell
+# 에이전트를 30분쯤 돌린 뒤
+Get-MpThreatDetection | Select-Object -First 20
+Get-WinEvent -LogName 'Microsoft-Windows-Windows Defender/Operational' -MaxEvents 50 |
+  Where-Object { $_.Message -match 'pktmon|edrdog' }
+```
+
+- **차단당하면** `pktmon start` 가 실패하거나, 성공한 뒤 캡처가 조용히 멈춘다. 후자가 더 나쁘다.
+  1분마다 나오는 `pktmon 프레임을 한 건도 넘기지 못했다` 경고가 그 신호다
+- 에이전트 바이너리와 `pktmon.exe` 호출이 ASR 규칙에 걸리는지도 본다
+
+  ```powershell
+  Get-MpPreference | Select-Object AttackSurfaceReductionRules_Ids, AttackSurfaceReductionRules_Actions
+  ```
+- 막히면 선택지는 둘이다. 배포 환경에 예외를 넣거나, TLS SNI 수집을 Windows 에서 포기하는 것이다.
+  **포기해도 나머지는 그대로 돈다.** `l7` 센서만 안 붙는다
+
+#### 끝난 뒤 정리됐는지
+
+에이전트를 멈춘 뒤 남은 것이 없어야 한다. 남기면 다음 실행이 그걸 물려받고, 특히 필터가 남으면
+우리가 걸지 않은 조건으로 패킷이 올라온다.
+
+```powershell
+pktmon status         # 캡처가 멈춰 있어야 한다
+pktmon filter list    # EDRdog-TLS 가 없어야 한다
+dir $env:TEMP\edrdog-pktmon.etl   # 없어야 한다
+```
+
+- 에이전트를 `taskkill /f` 로 강제 종료하면 정리 코드가 안 돈다. 그때는 위 셋이 남는데,
+  다음 실행이 `pktmon filter remove` 로 먼저 지우므로 필터는 회복된다. 캡처와 파일은 손으로 치운다
 
 ## 라이선스
 
