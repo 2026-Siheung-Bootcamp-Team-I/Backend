@@ -2,10 +2,13 @@
 # 매니페스트에 비밀번호를 평문으로 박아두던 걸(DB_PASSWORD, CLICKHOUSE_PASSWORD 등) 여기로 옮기는 게 목적이다.
 #
 # 문서에는 v1beta1(InfisicalConnection/InfisicalAuth/InfisicalStaticSecret)이 나오지만
-# 릴리스된 Operator(v0.11.5)에는 아직 그 CRD 가 없다. 실제로 도는 건 v1alpha1 InfisicalSecret 이다.
+# 실제로 도는 건 v1alpha1 InfisicalSecret 이다. v1beta1 CRD 는 v0.11.6 부터 들어왔다.
 #
-# 1) Operator 설치 (1회)
-#   kubectl apply -f https://raw.githubusercontent.com/Infisical/kubernetes-operator/infisical-k8-operator/v0.11.5/kubectl-install/install-secrets-operator.yaml
+# 1) Operator 설치 (1회). 설치 매니페스트 기본 이미지가 :latest 라 그대로 두면 릴리스마다 서버가 갈아타고
+#    CRD 와 어긋나 죽는다(실제로 v0.11.6 이 나오면서 하루 동안 동기화가 멈췄다). 설치 뒤 태그를 고정한다.
+#   kubectl apply -f https://raw.githubusercontent.com/Infisical/kubernetes-operator/infisical-k8-operator/v0.11.6/kubectl-install/install-secrets-operator.yaml
+#   kubectl -n infisical-operator-system set image \
+#     deploy/infisical-operator-controller-manager manager=infisical/kubernetes-operator:v0.11.6
 #
 # 2) Machine Identity 자격증명 (1회, 값이 비밀이라 레포에 두지 않는다)
 #    Infisical > Access Control > Identities 에서 Universal Auth 로 발급하고
@@ -45,7 +48,7 @@ spec:
         secretNamespace: edrdog
       secretsScope:
         # 프로젝트 슬러그는 Infisical 프로젝트 Settings 에서 확인한다. 비밀값이 아니다.
-        projectSlug: REPLACE_WITH_INFISICAL_PROJECT_SLUG
+        projectSlug: edrdog-a9kj
         envSlug: prod        # Infisical 의 Production 환경 슬러그
         secretsPath: /
 

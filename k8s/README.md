@@ -209,7 +209,14 @@ Operator 가 Infisical 을 읽어 `edrdog-secrets` k8s Secret 으로 동기화�
 설치와 연결 절차는 `k8s/infisical.yaml` 주석에 있다. 요약하면 Operator 설치 1회,
 Machine Identity 자격증명 Secret 생성 1회, `kubectl apply -f k8s/infisical.yaml`, 서비스에 `envFrom` patch.
 
-- 릴리스된 Operator(v0.11.5)에는 문서에 나오는 v1beta1 CRD 가 아직 없다. 실제로 도는 건 v1alpha1 `InfisicalSecret` 이다.
+- 실제로 도는 건 v1alpha1 `InfisicalSecret` 이다. 문서에 나오는 v1beta1 은 v0.11.6 부터 들어왔다.
+- **Operator 이미지를 `:latest` 로 두지 않는다.** 설치 매니페스트 기본값이 `:latest` 라 Infisical 이 릴리스할 때마다
+  서버가 조용히 갈아탄다. CRD 는 그대로인데 Operator 만 올라가면 시작하자마자 죽고(`no matches for kind
+  "InfisicalConnection"`), 시크릿이 며칠씩 낡은 줄도 모르고 지나간다. 설치 뒤 반드시 태그를 고정한다:
+  ```
+  kubectl -n infisical-operator-system set image \
+    deploy/infisical-operator-controller-manager manager=infisical/kubernetes-operator:v0.11.6
+  ```
 - Deployment 에 같은 이름의 env 가 직접 박혀 있으면 그쪽이 `envFrom` 을 이긴다. Infisical 값을 쓰려면
   `kubectl -n edrdog set env deployment/<이름> <키>-` 로 기존 env 를 먼저 지운다.
 - CD 는 `infisicalsecrets` CRD 가 있을 때만 이 파일을 apply 한다. Operator 가 없으면 건너뛴다.
