@@ -54,7 +54,6 @@ public class CorsConfig {
         return new CorsFilter(source);
     }
 
-    /** 쉼표로 구분된 설정값을 출처 목록으로. 빈 항목은 버린다. */
     private static List<String> parseOrigins(String raw) {
         return Arrays.stream(raw.split(","))
                 .map(String::trim)

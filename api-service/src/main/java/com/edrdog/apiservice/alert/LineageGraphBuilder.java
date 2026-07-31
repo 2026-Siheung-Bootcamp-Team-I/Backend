@@ -79,7 +79,6 @@ public class LineageGraphBuilder {
         edges.putIfAbsent(from + "->" + to + ":" + rel, new Edge(from, to, rel));
     }
 
-    /** null/빈값을 빈 문자열로 정규화하고 앞뒤 공백을 없앤다. 숫자(dest_port)는 문자열로 변환. */
     private static String str(Object v) {
         return v == null ? "" : String.valueOf(v).trim();
     }

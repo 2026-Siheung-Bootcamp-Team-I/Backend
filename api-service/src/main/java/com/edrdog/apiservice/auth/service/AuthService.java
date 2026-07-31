@@ -41,7 +41,6 @@ public class AuthService {
     }
 
     /**
-     * 조직·유저 생성 후 세션 발급. 이메일/비번 형식 오류 400, 중복 이메일 409.
      * 한 트랜잭션으로 묶어 중간 실패 시 tenant 까지 롤백(고아 데이터 방지).
      * existsByEmail 통과 후 동시 요청이 unique 제약을 밟으면 409 로 변환한다.
      */
@@ -68,7 +67,6 @@ public class AuthService {
         }
     }
 
-    /** 이메일/비번 확인 후 세션 발급. 자격증명 불일치 401. */
     public AuthResult login(String email, String password) {
         AppUser user = users.findByEmail(email)
                 .filter(u -> encoder.matches(password, u.getPasswordHash()))
@@ -83,7 +81,6 @@ public class AuthService {
         }
     }
 
-    /** 토큰으로 현재 유저 확인. 없거나 만료면 401. */
     public Principal resolve(String token) {
         UserSession session = (token == null ? null : sessions.findById(token).orElse(null));
         if (session == null || session.isExpired(Instant.now())) {

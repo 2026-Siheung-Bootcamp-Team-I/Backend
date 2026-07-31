@@ -53,12 +53,10 @@ public class ApiKeyPolicy {
         return "OPTIONS".equalsIgnoreCase(method) && origin != null && requestMethodHeader != null;
     }
 
-    /** 헬스체크·Swagger 등 인증 없이 열어두는 경로. */
     public boolean isExempt(String path) {
         return EXEMPT_PATHS.contains(path) || EXEMPT_PREFIXES.stream().anyMatch(path::startsWith);
     }
 
-    /** 제공된 키가 설정 키와 정확히 일치하면 통과. null/빈 값은 거부. */
     public boolean isAuthorized(String providedKey) {
         return providedKey != null && !providedKey.isBlank() && configuredKey.equals(providedKey);
     }

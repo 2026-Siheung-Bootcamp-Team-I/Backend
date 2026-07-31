@@ -35,7 +35,6 @@ public class ClickHouseReader {
                 .build();
     }
 
-    /** ClickHouseQuery(sql + 바인딩 파라미터)를 실행해 결과 행 목록을 돌려준다. */
     public List<Map<String, Object>> query(ClickHouseQuery q) {
         String body = q.sql() + " FORMAT JSON";
         String response = client.post()

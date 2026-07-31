@@ -369,8 +369,6 @@ func decodeDetail(t *testing.T, raw string) map[string]any {
 	return out
 }
 
-// --- 합성 페이로드 만들기 ---
-
 // dnsQuery 는 진짜 DNS 질의 바이트를 만든다.
 func dnsQuery(t *testing.T, domain string, qtype dnsmessage.Type) []byte {
 	t.Helper()

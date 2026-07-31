@@ -81,7 +81,6 @@ public class AppUser {
         return slackWebhookUrl;
     }
 
-    /** 개인 Slack webhook URL 을 갱신한다. */
     public void updateWebhook(String url) {
         this.slackWebhookUrl = url;
     }

@@ -93,10 +93,7 @@ public class AlertClickHouseWriter {
         log.info("ClickHouse TTL 적용: {} TTL {}", table, TTL);
     }
 
-    /**
-     * 판정기록 한 건을 alerts 테이블에 적재한다. id 는 결정적(AlertId)이라 재소비돼도 병합 시 한 행만 남는다.
-     * created_at 은 CH 기본값(now64)에 맡겨 재삽입 시 최신본이 이기게 한다.
-     */
+    /** id 는 결정적(AlertId)이라 재소비돼도 병합 시 한 행만 남는다. created_at 은 CH 기본값(now64)에 맡겨 재삽입 시 최신본이 이기게 한다. */
     public void insert(String id, Alert alert) {
         if (!schemaReady) {
             // CH 가 부팅 시점에 죽어있었으면 테이블이 아직 없다. 첫 적재 때 한 번 더 시도해 자가복구한다.

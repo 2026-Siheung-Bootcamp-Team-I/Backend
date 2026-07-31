@@ -15,7 +15,6 @@ import java.util.regex.Pattern;
  */
 public final class InstallScript {
 
-    /** {@code {{NAME}}} 꼴만 자리표시자로 본다. */
     private static final Pattern PLACEHOLDER = Pattern.compile("\\{\\{([A-Z_]+)}}");
 
     /**

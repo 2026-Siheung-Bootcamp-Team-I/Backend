@@ -11,10 +11,7 @@ package com.edrdog.apiservice.demo;
  * @param type      process | network | file | script
  * @param ts        발생 시각 (epoch millis) — detector 의 event-time 윈도우 기준
  * @param process   프로세스명/파일명 (basename)
- * @param parent    부모 프로세스명
  * @param cmdline   명령행. file/script 는 판정에 쓰는 전체 경로를 여기 담는다.
- * @param destIp    목적지 IP (network)
- * @param destPort  목적지 포트 (network)
  * @param tenantId  조직(tenant) 식별자 — api-service 의 tenant PK 문자열이어야 조회에서 보인다
  */
 public record CollectedEvent(
@@ -34,25 +31,24 @@ public record CollectedEvent(
     public static final String TYPE_FILE = "file";
     public static final String TYPE_SCRIPT = "script";
 
-    /** process 이벤트. */
     public static CollectedEvent process(String host, long ts, String process, String parent,
                                          String cmdline, String tenantId) {
         return new CollectedEvent(host, TYPE_PROCESS, ts, process, parent, cmdline, null, 0, tenantId);
     }
 
-    /** network 이벤트. 소유 프로세스를 같이 담아야 lineage 가 process -> network 로 이어진다. */
+    /** 소유 프로세스를 같이 담아야 lineage 가 process -> network 로 이어진다. */
     public static CollectedEvent network(String host, long ts, String process, String destIp,
                                          int destPort, String tenantId) {
         return new CollectedEvent(host, TYPE_NETWORK, ts, process, null, null, destIp, destPort, tenantId);
     }
 
-    /** script 이벤트. process 는 인터프리터 basename, cmdline 은 판정용 전체 경로. */
+    /** process 는 인터프리터 basename, cmdline 은 판정용 전체 경로. */
     public static CollectedEvent script(String host, long ts, String process, String parent,
                                         String cmdline, String tenantId) {
         return new CollectedEvent(host, TYPE_SCRIPT, ts, process, parent, cmdline, null, 0, tenantId);
     }
 
-    /** file 이벤트. process 는 파일명 basename, cmdline 은 판정용 전체 경로. */
+    /** process 는 파일명 basename, cmdline 은 판정용 전체 경로. */
     public static CollectedEvent file(String host, long ts, String name, String fullPath, String tenantId) {
         return new CollectedEvent(host, TYPE_FILE, ts, name, null, fullPath, null, 0, tenantId);
     }

@@ -203,8 +203,6 @@ func TestParseClientHelloFromFullFrame(t *testing.T) {
 	}
 }
 
-// --- 손으로 만든 ClientHello ---
-//
 // crypto/tls 는 이제 TLS 1.0 hello 나 이상한 확장을 만들어 주지 않는다. 그래도 캡처에는
 // 낡은 클라이언트와 규격을 어긴 구현이 섞여 들어오므로 그 모양은 직접 조립해서 검증한다.
 
@@ -347,8 +345,6 @@ func TestParseClientHelloRejectsMalformedExtensions(t *testing.T) {
 	}
 }
 
-// --- ALPN ---
-
 func alpnExtension(protos ...string) []byte {
 	var list []byte
 	for _, p := range protos {
@@ -419,8 +415,6 @@ func TestParseClientHelloRejectsMalformedALPN(t *testing.T) {
 	}
 }
 
-// --- reader 경계 검사 ---
-//
 // TLS 파싱의 안전성은 전부 이 타입에 걸려 있다. 여기서 검사 한 군데가 빠지면 조작된 패킷에서
 // 곧바로 panic 이고, 그건 패킷 한 장으로 에이전트를 죽이는 길이다. 그래서 따로 증명한다.
 

@@ -22,7 +22,6 @@ public record AlertResponse(
         String status,
         List<String> matched
 ) {
-    /** ClickHouse 판정기록 한 행 + 병합된 status 로 응답을 만든다. */
     public static AlertResponse fromRow(Map<String, Object> row, String status) {
         String ruleId = str(row, "rule_id");
         return new AlertResponse(str(row, "id"), str(row, "host"), ruleId, ThreatCatalog.threatName(ruleId),

@@ -43,16 +43,14 @@ class InstallTemplatesTest {
 
     @Test
     void 두_원본_모두_등록을_확인하고_끝낸다() {
-        // 서비스나 데몬이 떠 있다는 것과 서버에 붙었다는 것은 다른 말이다. 둘 다 KeepAlive 라
-        // 못 붙어도 계속 살아 있어서, 떠 있는 것만 보고 끝내면 아무것도 안 오는 채로 설치가 끝난다.
+        // 서비스가 떠 있다는 것과 서버에 붙었다는 것은 다르다. 둘 다 KeepAlive 라 못 붙어도 계속 살아 있어 떠 있는 것만 보면 설치가 조용히 실패한다.
         assertTrue(scripts.macos().contains("등록 완료"), "macOS 원본이 등록 여부를 안 본다");
         assertTrue(scripts.windows().contains("등록 완료"), "windows 원본이 등록 여부를 안 본다");
     }
 
     @Test
     void macOS_원본은_터미널을_따로_읽는다() {
-        // curl 로 받아 실행하면 stdin 은 스크립트 자신이다. 그냥 read 를 쓰면 권한 승인을
-        // 기다리지 않고 스크립트 다음 줄을 답으로 먹고 지나간다.
+        // curl 로 받아 실행하면 stdin 이 스크립트 자신이라, 그냥 read 를 쓰면 권한 승인을 안 기다리고 다음 줄을 답으로 먹는다.
         assertTrue(scripts.macos().contains("/dev/tty"), "권한 대기를 /dev/tty 로 읽어야 한다");
     }
 

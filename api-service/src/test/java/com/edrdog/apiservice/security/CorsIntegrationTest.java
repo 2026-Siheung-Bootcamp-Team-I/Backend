@@ -60,8 +60,7 @@ class CorsIntegrationTest {
 
     @Test
     void API키가_필요한_경로도_preflight_는_통과한다() throws Exception {
-        // 브라우저는 preflight 에 X-API-Key 를 싣지 않는다. ApiKeyFilter 가 여기서 401 을 주면
-        // 본 요청이 아예 발사되지 않아 온보딩의 enroll secret 발급이 "서버에 연결하지 못했습니다"로 죽는다.
+        // 브라우저 preflight 는 X-API-Key 를 안 실어서, 여기서 401 이면 본 요청이 안 나가 enroll secret 발급이 통째로 막힌다.
         mvc.perform(options("/api/tenant/enroll-secret")
                         .header("Origin", "http://localhost:5173")
                         .header("Access-Control-Request-Method", "POST")

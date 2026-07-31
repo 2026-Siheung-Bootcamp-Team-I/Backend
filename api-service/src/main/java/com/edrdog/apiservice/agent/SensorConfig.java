@@ -16,7 +16,6 @@ public final class SensorConfig {
     public record Sensors(boolean process, boolean network, boolean file, boolean dns) {
     }
 
-    /** 하트비트 응답의 config 블록. */
     public record Config(
             Sensors sensors,
             @JsonProperty("watch_paths") List<String> watchPaths,
@@ -51,7 +50,7 @@ public final class SensorConfig {
     private SensorConfig() {
     }
 
-    /** enroll 시 저장한 platform 으로 설정을 고른다. Windows 가 아니면 macOS 로 본다. */
+    /** enroll 시 저장한 platform 으로 설정을 고른다. */
     public static Config forPlatform(String platform) {
         List<String> watchPaths = isWindows(platform) ? WINDOWS_WATCH_PATHS : DARWIN_WATCH_PATHS;
         return new Config(ALL_SENSORS, watchPaths, FLUSH_INTERVAL_SECONDS);

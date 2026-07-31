@@ -73,7 +73,6 @@ public class DemoDataSeeder {
         }
     }
 
-    /** 대표 호스트의 events 가 이미 있는지. */
     private boolean alreadySeeded() {
         ClickHouseQuery q = new ClickHouseQuery(
                 "SELECT count() AS cnt FROM " + table

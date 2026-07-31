@@ -25,7 +25,7 @@ public class EventsProducer {
         this.eventsTopic = eventsTopic;
     }
 
-    /** 이벤트 1건 발행. 인자 순서대로 같은 파티션에 쌓이므로 호출 순서가 곧 판정 순서다. */
+    /** 인자 순서대로 같은 파티션에 쌓이므로 호출 순서가 곧 판정 순서다. */
     public void publish(CollectedEvent event) {
         try {
             template.send(eventsTopic, event.host(), mapper.writeValueAsString(event));

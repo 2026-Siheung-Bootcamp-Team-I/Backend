@@ -153,8 +153,6 @@ func TestBPFWordAlign(t *testing.T) {
 	}
 }
 
-// --- ProcOwner ---
-
 // fakeClock 은 캐시 만료를 검사하려고 시간을 손으로 민다.
 type fakeClock struct{ at time.Time }
 

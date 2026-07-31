@@ -5,8 +5,7 @@
 #   접속:  http://localhost:3000  (익명 Admin 으로 열려 있음)
 #   OTLP:  호스트 실행 서비스 -> http://localhost:4318, 클러스터 내부 -> http://otel-lgtm:4318
 ---
-# 지표 보관용 볼륨. emptyDir 로 두면 파드가 한 번 재시작될 때 그동안의 지표·로그·트레이스가
-# 통째로 사라져 발표 중 그래프가 빈다. 기본 StorageClass 를 쓴다(kind: standard, k3s: local-path).
+# 지표 보관용 볼륨. emptyDir 로 두면 파드 재시작 때 지표·로그·트레이스가 통째로 사라져 발표 중 그래프가 빈다. 기본 StorageClass 를 쓴다(kind: standard, k3s: local-path).
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -2023,9 +2022,7 @@ spec:
               value: >-
                 -backend-scheduler.provider.work.compaction.block-retention=144h
                 -backend-worker.compaction.block-retention=144h
-          # Alloy 가 인프라 메트릭을 밀어넣는 remote write 수신은 이미지 기본 실행 인자에
-          # 이미 켜져 있다(--web.enable-remote-write-receiver). PROMETHEUS_EXTRA_ARGS 로
-          # 같은 플래그를 또 주면 중복으로 Prometheus 가 아예 뜨지 않으니 넣지 말 것.
+          # Alloy 가 인프라 메트릭을 밀어넣는 remote write 수신은 이미지 기본 실행 인자에 이미 켜져 있다(--web.enable-remote-write-receiver). PROMETHEUS_EXTRA_ARGS 로 같은 플래그를 또 주면 중복으로 Prometheus 가 아예 뜨지 않으니 넣지 말 것.
           volumeMounts:
             # 프로비저닝 디렉터리는 통째로 덮으면 기본 대시보드가 사라지므로 파일 하나만 subPath 로 얹는다.
             - name: dashboards

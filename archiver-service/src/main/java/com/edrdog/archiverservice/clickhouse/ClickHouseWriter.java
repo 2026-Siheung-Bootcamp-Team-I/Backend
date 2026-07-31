@@ -42,9 +42,7 @@ public class ClickHouseWriter {
                 .build();
     }
 
-    /**
-     * 나중에 추가된 컬럼. CREATE 문에도 있지만 ALTER 로 한 번 더 보장한다(아래 ensureSchema 주석 참고).
-     */
+    /** 나중에 추가된 컬럼. CREATE 문에도 있지만 ALTER 로 한 번 더 보장한다(아래 ensureSchema 주석 참고). */
     private static final List<String> ADDED_COLUMNS = List.of(
             "domain String",
             "detail String",
@@ -96,7 +94,6 @@ public class ClickHouseWriter {
         log.info("ClickHouse TTL 적용: {} TTL {}", table, TTL);
     }
 
-    /** 이벤트 한 건을 events 테이블에 적재. */
     public void insert(Event event) {
         String body = "INSERT INTO " + table + " FORMAT JSONEachRow\n"
                 + EventRow.toJson(event, mapper);

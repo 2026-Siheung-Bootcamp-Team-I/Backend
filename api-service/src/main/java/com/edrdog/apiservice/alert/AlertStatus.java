@@ -13,7 +13,6 @@ public final class AlertStatus {
     private AlertStatus() {
     }
 
-    /** PATCH 로 허용되는 status 인지. confirmed / false_positive 만 true. */
     public static boolean validTransition(String status) {
         return CONFIRMED.equals(status) || FALSE_POSITIVE.equals(status);
     }

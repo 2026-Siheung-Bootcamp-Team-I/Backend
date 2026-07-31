@@ -15,8 +15,7 @@ jobs:
           distribution: temurin
           java-version: '21'
       - uses: gradle/actions/setup-gradle@v4
-      # GeoLite2 mmdb 캐시. MaxMind 는 짧은 시간에 여러 번 받으면 429 를 준다(실제로 배포가 막혔다).
-      # DB 는 주 단위로 갱신되므로 주차 키로 캐시하면 하루에 몇 번을 빌드해도 한 번만 받는다.
+      # GeoLite2 mmdb 캐시. MaxMind 는 짧은 시간에 여러 번 받으면 429 를 준다(실제로 배포가 막혔다). DB 는 주 단위로 갱신되므로 주차 키로 캐시하면 하루에 몇 번을 빌드해도 한 번만 받는다.
       - name: GeoLite2 캐시
         uses: actions/cache@v4
         with:
@@ -24,8 +23,7 @@ jobs:
           key: geolite2-${{ hashFiles('api-service/build.gradle') }}-week
           restore-keys: geolite2-
       - name: Build + test
-        # GeoLite2 mmdb 는 빌드 시점에 받아 jar 에 번들된다. 이 키가 없으면 다운로드를 건너뛰고
-        # 빌드는 그대로 성공하지만, 런타임에 GET /api/events/geo 가 항상 빈 배열을 준다(위협 지도가 빈다).
+        # GeoLite2 mmdb 는 빌드 시점에 받아 jar 에 번들된다. 이 키가 없으면 다운로드를 건너뛰고 빌드는 그대로 성공하지만, 런타임에 GET /api/events/geo 가 항상 빈 배열을 준다(위협 지도가 빈다).
         env:
           MAXMIND_LICENSE_KEY: ${{ secrets.MAXMIND_LICENSE_KEY }}
         run: ./gradlew build
@@ -51,8 +49,7 @@ jobs:
       contents: read
       packages: write
     strategy:
-      # 한 모듈이 실패해도 나머지는 계속 빌드한다. Docker Hub 에서 베이스 이미지를 받다가
-      # 네트워크 타임아웃이 나면(실제로 발생했다) fail-fast 가 멀쩡한 모듈까지 취소시킨다.
+      # 한 모듈이 실패해도 나머지는 계속 빌드한다. Docker Hub 에서 베이스 이미지를 받다가 네트워크 타임아웃이 나면(실제로 발생했다) fail-fast 가 멀쩡한 모듈까지 취소시킨다.
       fail-fast: false
       matrix:
         module: [detector-service, responder-service, archiver-service, api-service, alert-service, collector-service]
@@ -112,9 +109,7 @@ jobs:
           set -euo pipefail
           MODULES="detector-service responder-service archiver-service api-service alert-service collector-service"
 
-          # 인프라 매니페스트는 목록을 적지 않고 k8s/ 를 훑어서 전부 적용한다.
-          # 파일을 추가할 때마다 여기도 같이 고쳐야 하면 잊게 되고, 그러면 서버에만 빠진 채로
-          # 조용히 지나간다(실제로 portainer.yaml 이 그랬다).
+          # 인프라 매니페스트는 목록을 적지 않고 k8s/ 를 훑어서 전부 적용한다. 파일을 추가할 때마다 여기도 같이 고쳐야 하면 잊게 되고, 그러면 서버에만 빠진 채로 조용히 지나간다(실제로 portainer.yaml 이 그랬다).
           #   빼는 것: *-service.yaml 은 아래에서 이미지 태그까지 맞춰 따로 다룬다. 여기서 apply 하면
           #            image 가 :latest 로 되돌아갔다가 set image 로 다시 :sha 가 되어 롤아웃이 두 번 돈다.
           #            kind-cluster.yaml 은 로컬 kind 설정이라 apply 대상이 아니고,
@@ -131,13 +126,11 @@ jobs:
           echo "$APPLIED" >&2
           INFRA_DEPLOYS="$INFRA_DEPLOYS $(echo "$APPLIED" | grep '^deployment' || true)"
           done
-          # Infisical 연동은 Operator 가 깔려 있을 때만. 없으면 CRD 가 없어 apply 가 실패하고
-          # set -e 때문에 서비스 롤링까지 같이 죽는다.
+          # Infisical 연동은 Operator 가 깔려 있을 때만 한다. 없으면 CRD 가 없어 apply 가 실패하고 set -e 때문에 서비스 롤링까지 같이 죽는다.
           if sudo kubectl get crd infisicalsecrets.secrets.infisical.com >/dev/null 2>&1; then
           git -C ~/Backend show "FETCH_HEAD:k8s/infisical.yaml" | sudo kubectl apply -f -
           fi
-          # 인프라가 안 떠도 여기서 멈추지 않는다. kafka-ui·portainer 는 시크릿이 없으면 일부러
-          # 안 뜨는데, 운영 UI 때문에 앱 배포가 막히면 곤란하다. 대신 맨 끝에서 CD 를 실패시킨다.
+          # 인프라가 안 떠도 여기서 멈추지 않는다. kafka-ui·portainer 는 시크릿이 없으면 일부러 안 뜨는데, 운영 UI 때문에 앱 배포가 막히면 곤란해서 대신 맨 끝에서 CD 를 실패시킨다.
           for d in $INFRA_DEPLOYS; do
           sudo kubectl -n "$NS" rollout status "$d" --timeout=300s || INFRA_FAILED="$INFRA_FAILED $d"
           done
@@ -145,9 +138,7 @@ jobs:
           echo "~/Backend 클론이 없어 인프라 매니페스트 apply 를 건너뛴다" >&2
           fi
 
-          # Deployment 가 없으면(빈 클러스터, 새로 추가된 서비스) 매니페스트를 먼저 apply 한다.
-          # 있으면 apply 하지 않는다. image 가 :latest 로 되돌아갔다가 아래 set image 로 다시
-          # :sha 가 되면서 롤아웃이 두 번 돌기 때문이다.
+          # Deployment 가 없으면(빈 클러스터, 새로 추가된 서비스) 매니페스트를 먼저 apply 한다. 있으면 apply 하지 않는다: image 가 :latest 로 되돌아갔다가 아래 set image 로 다시 :sha 가 되면서 롤아웃이 두 번 돌기 때문이다.
           DEPLOYED=""
           for m in $MODULES; do
           if ! sudo kubectl -n "$NS" get deploy "$m" >/dev/null 2>&1; then

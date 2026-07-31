@@ -94,8 +94,7 @@ class TenantServiceTest {
 
     @Test
     void getEnrollSecret_미발급이면_그자리에서_발급한다() {
-        // 사용자가 버튼을 눌러야 secret 이 생기면 설치 명령이 빈 채로 보인다.
-        // tenant 당 하나 있으면 되는 값이라 조회 시점에 만들어 준다.
+        // 사용자가 버튼을 눌러야 secret 이 생기면 설치 명령이 비어 보인다. tenant 당 하나면 되니 조회 시점에 만든다.
         Tenant tenant = newTenant();
         when(tenants.findById(1L)).thenReturn(Optional.of(tenant));
 
