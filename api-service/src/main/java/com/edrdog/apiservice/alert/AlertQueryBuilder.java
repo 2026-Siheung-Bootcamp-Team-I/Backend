@@ -20,8 +20,9 @@ public class AlertQueryBuilder {
     static final int DEFAULT_LIMIT = 100;
     static final int MAX_LIMIT = 1000;
 
+    // domain/dest_ip 는 판정을 유발한 목적지. "이 엔드포인트가 어디에 붙어서 걸렸나" 를 세려면 조회 컬럼에 있어야 한다.
     private static final String COLUMNS =
-            "id, tenant_id, host, rule_id, mitre, severity, action, ts, matched";
+            "id, tenant_id, host, rule_id, mitre, severity, action, ts, matched, domain, dest_ip";
 
     private final String table;
 

@@ -33,6 +33,12 @@ public class AlertClickHouseWriter {
     private final String table;
     private volatile boolean schemaReady = false;
 
+    /** 나중에 추가된 컬럼. CREATE 문에도 있지만 ALTER 로 한 번 더 보장한다(아래 ensureSchema 주석 참고). */
+    private static final List<String> ADDED_COLUMNS = List.of(
+            "domain String",
+            "dest_ip String"
+    );
+
     /** 보관기간 90일. 판정기록은 건수가 적어 events(7일)보다 길게 둔다. 정규형인 건 SHOW CREATE 와 비교하기 때문. */
     private static final String TTL = "toDateTime(created_at) + toIntervalDay(90)";
 
@@ -71,11 +77,20 @@ public class AlertClickHouseWriter {
                         action String,
                         ts UInt64,
                         matched Array(String),
+                        domain String,
+                        dest_ip String,
                         created_at DateTime64(3) DEFAULT now64(3)
                     ) ENGINE = ReplacingMergeTree(created_at)
                     ORDER BY (tenant_id, host, id)
                     TTL %s
                     """.formatted(table, TTL));
+
+            // CREATE TABLE IF NOT EXISTS 는 이미 있는 테이블의 스키마를 바꾸지 않는다. 그래서 배포된 서버처럼
+            // 예전 컬럼 구성으로 만들어진 테이블에는 위 DDL 로 새 컬럼이 붙지 않고, 그 컬럼을 담은 INSERT 가
+            // 통째로 실패해 적재가 끊긴다. 나중에 늘어난 컬럼은 ALTER 로 한 번 더 보장한다.
+            for (String column : ADDED_COLUMNS) {
+                execute("ALTER TABLE " + table + " ADD COLUMN IF NOT EXISTS " + column);
+            }
             ensureTtl();
             schemaReady = true;
             log.info("ClickHouse alerts 스키마 준비 완료: {}", table);
@@ -109,6 +124,8 @@ public class AlertClickHouseWriter {
         row.put("action", nz(alert.action()));
         row.put("ts", alert.ts());
         row.put("matched", alert.matched() == null ? new ArrayList<>() : alert.matched());
+        row.put("domain", nz(alert.domain()));
+        row.put("dest_ip", nz(alert.destIp()));
         execute("INSERT INTO " + table + " FORMAT JSONEachRow\n" + toJson(row));
     }
 

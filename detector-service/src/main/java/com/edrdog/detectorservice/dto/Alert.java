@@ -14,6 +14,9 @@ import java.util.List;
  * @param matched  판정 근거가 된 이벤트 요약들
  * @param tenantId 조직(tenant) 식별자 — 트리거 이벤트에서 물려받은 격리 태그
  * @param target   조치 대상 프로세스명/경로 — responder 의 kill 실행에 사용 (kill 대상 없으면 null)
+ * @param domain   이 알림과 관련된 목적지 도메인 (관측 못했으면 빈 문자열). 판정 근거 중 목적지를 관측한
+ *                 이벤트에서 가져오며, 트리거와 같은 이벤트가 아닐 수 있다(R2 는 다운로드와 실행을 상관한다).
+ * @param destIp   이 알림과 관련된 목적지 IP (관측 못했으면 빈 문자열). 출처는 domain 과 같다.
  */
 public record Alert(
         String host,
@@ -24,7 +27,9 @@ public record Alert(
         long ts,
         List<String> matched,
         String tenantId,
-        String target
+        String target,
+        String domain,
+        String destIp
 ) {
     public static final String SEV_MEDIUM = "MEDIUM";
     public static final String SEV_HIGH = "HIGH";
