@@ -76,7 +76,7 @@ public class AlertService {
      */
     @Transactional(readOnly = true)
     public List<AlertResponse> query(String tenantId, String host, String severity, String status,
-                                     Long from, Long to, Integer limit) {
+                                     String domain, String destIp, Long from, Long to, Integer limit) {
         List<String> includeIds = null;
         List<String> excludeIds = null;
         if (AlertStatus.OPEN.equals(status)) {
@@ -88,7 +88,7 @@ public class AlertService {
             }
         }
         List<Map<String, Object>> rows = reader.query(
-                alertBuilder.search(tenantId, host, severity, from, to, limit, includeIds, excludeIds));
+                alertBuilder.search(tenantId, host, severity, domain, destIp, from, to, limit, includeIds, excludeIds));
         // open 경로는 반환 행이 이미 전부 트리아지 제외분(=open)이라 오버레이 조회가 불필요하다.
         Map<String, String> overlay = AlertStatus.OPEN.equals(status)
                 ? Map.of()

@@ -86,7 +86,7 @@ class AlertServiceTest {
         when(reader.query(any())).thenReturn(List.of(row("r1", "A", "h1", 100L)));
         when(statuses.findAllById(any())).thenReturn(List.of());
 
-        List<AlertResponse> out = service.query("A", null, null, "open", null, null, null);
+        List<AlertResponse> out = service.query("A", null, null, "open", null, null, null, null, null);
 
         ArgumentCaptor<ClickHouseQuery> cap = ArgumentCaptor.forClass(ClickHouseQuery.class);
         verify(reader).query(cap.capture());
@@ -100,7 +100,7 @@ class AlertServiceTest {
     void query_confirmed_인데_트리아지가_없으면_CH조회없이_빈결과() {
         when(statuses.findByTenantId("A")).thenReturn(List.of());
 
-        assertTrue(service.query("A", null, null, AlertStatus.CONFIRMED, null, null, null).isEmpty());
+        assertTrue(service.query("A", null, null, AlertStatus.CONFIRMED, null, null, null, null, null).isEmpty());
         verify(reader, never()).query(any());
     }
 
@@ -110,7 +110,7 @@ class AlertServiceTest {
         when(reader.query(any())).thenReturn(List.of(row("r1", "A", "h1", 100L)));
         when(statuses.findAllById(any())).thenReturn(List.of(triaged("r1", "A", AlertStatus.CONFIRMED)));
 
-        List<AlertResponse> out = service.query("A", null, null, AlertStatus.CONFIRMED, null, null, null);
+        List<AlertResponse> out = service.query("A", null, null, AlertStatus.CONFIRMED, null, null, null, null, null);
 
         assertEquals(1, out.size());
         assertEquals(AlertStatus.CONFIRMED, out.get(0).status());
@@ -173,10 +173,23 @@ class AlertServiceTest {
         when(reader.query(any())).thenReturn(List.of(row("r1", "A", "h1", 100L)));
         when(statuses.findAllById(any())).thenReturn(List.of());
 
-        List<AlertResponse> out = service.query("A", null, null, null, null, null, null);
+        List<AlertResponse> out = service.query("A", null, null, null, null, null, null, null, null);
 
         assertNull(out.get(0).sourceEvent());
         verify(reader, times(1)).query(any());
+    }
+
+    @Test
+    void query_는_domain_destIp_필터를_alertBuilder에_그대로_전달한다() {
+        when(reader.query(any())).thenReturn(List.of());
+
+        service.query("A", null, null, null, "EVIL.EXAMPLE.COM", "203.0.113.9", null, null, null);
+
+        ArgumentCaptor<ClickHouseQuery> cap = ArgumentCaptor.forClass(ClickHouseQuery.class);
+        verify(reader).query(cap.capture());
+        // 소문자 정규화는 AlertQueryBuilder 몫이라 여기서는 그대로 전달만 되는지 본다(SQL 상세는 AlertQueryBuilderTest).
+        assertEquals("evil.example.com", cap.getValue().params().get("domain"));
+        assertEquals("203.0.113.9", cap.getValue().params().get("destIp"));
     }
 
     // --- triage ---

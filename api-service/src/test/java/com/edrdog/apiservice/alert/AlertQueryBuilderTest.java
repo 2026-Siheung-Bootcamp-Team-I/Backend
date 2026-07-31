@@ -46,6 +46,71 @@ class AlertQueryBuilderTest {
         assertEquals("300", q.params().get("to"));
     }
 
+    // --- domain/destIp: 관계 분석 화면에서 도메인/목적지를 짚어 "이것 때문에 난 알림"으로 넘어가는 필터 ---
+
+    @Test
+    void search_는_domain_미지정시_조건을_넣지_않는다() {
+        ClickHouseQuery q = b.search("A", null, null, null, null, null, null, null, null, null);
+        assertTrue(!q.sql().contains("domain ="), q.sql());
+        assertTrue(!q.sql().contains("dest_ip ="), q.sql());
+    }
+
+    @Test
+    void search_는_domain으로_거른다_대소문자_무관() {
+        // 도메인은 소문자로 정규화되어 적재되므로(agent 의 normalizeDNSName) 대문자로 검색해도 같은 도메인을 찾아야 한다.
+        ClickHouseQuery q = b.search("A", null, null, "EVIL.EXAMPLE.COM", null, null, null, null, null, null);
+        assertTrue(q.sql().contains("domain = {domain:String}"), q.sql());
+        assertEquals("evil.example.com", q.params().get("domain"));
+    }
+
+    @Test
+    void search_는_destIp로_거른다() {
+        ClickHouseQuery q = b.search("A", null, null, null, "203.0.113.9", null, null, null, null, null);
+        assertTrue(q.sql().contains("dest_ip = {destIp:String}"), q.sql());
+        assertEquals("203.0.113.9", q.params().get("destIp"));
+    }
+
+    @Test
+    void search_는_domain과_destIp를_함께_주면_둘다_적용한다() {
+        ClickHouseQuery q = b.search("A", null, null, "evil.example.com", "203.0.113.9",
+                null, null, null, null, null);
+        assertTrue(q.sql().contains("domain = {domain:String}"), q.sql());
+        assertTrue(q.sql().contains("dest_ip = {destIp:String}"), q.sql());
+        assertEquals("evil.example.com", q.params().get("domain"));
+        assertEquals("203.0.113.9", q.params().get("destIp"));
+    }
+
+    @Test
+    void search_는_domain_빈문자열도_미지정과_다르게_걸러_관측안된_목적지를_찾는다() {
+        // edrdog.alerts 에서 목적지를 관측 못한 알림은 domain/dest_ip 가 빈 문자열로 적재된다.
+        // 빈 문자열로 걸러도 미지정(null)과 같은 뜻이 되면 그 알림들을 못 찾는다.
+        ClickHouseQuery q = b.search("A", null, null, "", null, null, null, null, null, null);
+        assertTrue(q.sql().contains("domain = {domain:String}"), q.sql());
+        assertEquals("", q.params().get("domain"));
+    }
+
+    @Test
+    void search_는_destIp_빈문자열도_미지정과_다르게_거른다() {
+        ClickHouseQuery q = b.search("A", null, null, null, "", null, null, null, null, null);
+        assertTrue(q.sql().contains("dest_ip = {destIp:String}"), q.sql());
+        assertEquals("", q.params().get("destIp"));
+    }
+
+    @Test
+    void search_는_destIp로_거른다_IPv6_대소문자_무관() {
+        // IPv6 는 16진수라 대소문자가 같은 주소다. Go net.IP.String() 은 항상 소문자로 적재하므로 검색어도 맞춘다.
+        ClickHouseQuery q = b.search("A", null, null, null, "2001:DB8::1", null, null, null, null, null);
+        assertTrue(q.sql().contains("dest_ip = {destIp:String}"), q.sql());
+        assertEquals("2001:db8::1", q.params().get("destIp"));
+    }
+
+    @Test
+    void search_는_domain_필터를_줘도_tenant격리는_유지한다() {
+        ClickHouseQuery q = b.search("A", null, null, "evil.example.com", null, null, null, null, null, null);
+        assertTrue(q.sql().contains("tenant_id = {tenant:String}"), q.sql());
+        assertEquals("A", q.params().get("tenant"));
+    }
+
     @Test
     void search_는_limit_상한으로_클램프() {
         assertTrue(b.search("A", null, null, null, null, 99999, null, null).sql().contains("LIMIT 1000"));

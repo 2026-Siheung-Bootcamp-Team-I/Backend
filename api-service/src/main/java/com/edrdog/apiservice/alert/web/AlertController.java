@@ -52,18 +52,23 @@ public class AlertController {
         this.incidents = incidents;
     }
 
-    @Operation(summary = "알림 목록", description = "로그인 유저의 tenant 것만 host/severity/status/from/to 필터로 최신순 조회. limit 기본 100, 상한 1000.")
+    @Operation(summary = "알림 목록",
+            description = "로그인 유저의 tenant 것만 host/severity/status/domain/destIp/from/to 필터로 최신순 조회. "
+                    + "domain/destIp 는 알림이 실은 목적지 필터라 관계 분석 화면에서 도메인을 짚은 뒤 "
+                    + "그 도메인 때문에 난 알림으로 넘어갈 때 쓴다. 대소문자 무관하게 도메인을 찾는다. limit 기본 100, 상한 1000.")
     @GetMapping
     public List<AlertResponse> list(
             @RequestHeader(name = "Authorization", required = false) String authorization,
             @RequestParam(required = false) String host,
             @RequestParam(required = false) String severity,
             @RequestParam(required = false) String status,
+            @RequestParam(required = false) String domain,
+            @RequestParam(required = false) String destIp,
             @RequestParam(required = false) Long from,
             @RequestParam(required = false) Long to,
             @RequestParam(required = false) Integer limit) {
         String tenantId = currentTenantId(authorization);
-        return alerts.query(tenantId, host, severity, status, from, to, limit);
+        return alerts.query(tenantId, host, severity, status, domain, destIp, from, to, limit);
     }
 
     @Operation(summary = "알림 대시보드 집계",

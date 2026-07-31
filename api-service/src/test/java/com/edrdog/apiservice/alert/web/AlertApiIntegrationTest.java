@@ -78,8 +78,23 @@ class AlertApiIntegrationTest {
                     .filter(r -> tenant.equals(r.get("tenant_id")))
                     .filter(r -> !q.params().containsKey("id") || q.params().get("id").equals(r.get("id")))
                     .filter(r -> inRange(q.params(), r))
+                    .filter(r -> matchesExact(q.params(), r, "domain"))
+                    .filter(r -> matchesExact(q.params(), r, "destIp", "dest_ip"))
                     .toList();
         });
+    }
+
+    /** ClickHouse 의 domain/dest_ip 등호 필터를 흉내 낸다. 파라미터가 없으면 조건 없는 것과 같다(통과). */
+    private static boolean matchesExact(Map<String, String> params, Map<String, Object> row, String key) {
+        return matchesExact(params, row, key, key);
+    }
+
+    private static boolean matchesExact(Map<String, String> params, Map<String, Object> row, String paramKey, String rowKey) {
+        if (!params.containsKey(paramKey)) {
+            return true;
+        }
+        Object v = row.get(rowKey);
+        return params.get(paramKey).equals(v == null ? "" : String.valueOf(v));
     }
 
     /**
@@ -141,6 +156,35 @@ class AlertApiIntegrationTest {
                 .andExpect(jsonPath("$[0].ruleId").value("DOWNLOAD_AND_EXECUTE"))
                 .andExpect(jsonPath("$[0].threatName").value("다운로드 후 실행"))
                 .andExpect(jsonPath("$[0].status").value("open"));
+    }
+
+    @Test
+    void 목록은_domain과_destIp로_거를_수_있다() throws Exception {
+        // 관계 분석 화면에서 도메인을 짚은 뒤 "이 도메인 때문에 난 알림" 으로 넘어가는 동선을 검증한다.
+        String[] a = signup("a-listfilter@edrdog.com");
+        seedAlert(a[1], "hostA", 100L); // 기본 시드: domain=evil.example.com, dest_ip=203.0.113.9
+        String bId = seedAlert(a[1], "hostB", "RULE_B", "HIGH", 200L);
+        Map<String, Object> bRow = alertRows.stream().filter(r -> bId.equals(r.get("id"))).findFirst().orElseThrow();
+        bRow.put("domain", "other.example.com");
+        bRow.put("dest_ip", "10.0.0.5");
+
+        // 대문자로 줘도 소문자로 정규화된 도메인을 찾는다
+        mvc.perform(get("/api/alerts").param("domain", "EVIL.EXAMPLE.COM")
+                        .header("Authorization", "Bearer " + a[0]))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].host").value("hostA"));
+
+        mvc.perform(get("/api/alerts").param("destIp", "10.0.0.5")
+                        .header("Authorization", "Bearer " + a[0]))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].host").value("hostB"));
+
+        // 안 주면 기존과 같이 전부 보인다
+        mvc.perform(get("/api/alerts").header("Authorization", "Bearer " + a[0]))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2));
     }
 
     @Test

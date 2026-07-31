@@ -7,6 +7,7 @@ import org.springframework.stereotype.Component;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -30,11 +31,22 @@ public class AlertQueryBuilder {
         this.table = table;
     }
 
-    /** includeIds/excludeIds 는 오버레이(MySQL)에서 계산한 status 필터를 SQL IN/NOT IN 으로 옮긴 것이다(빈 목록이면 조건 생략). */
+    /** domain/destIp 없이 부르는 기존 호출부(IncidentService 등) 호환용. 새 필터는 안 건다. */
     public ClickHouseQuery search(String tenantId, String host, String severity, Long from, Long to,
                                   Integer limit, List<String> includeIds, List<String> excludeIds) {
+        return search(tenantId, host, severity, null, null, from, to, limit, includeIds, excludeIds);
+    }
+
+    /**
+     * includeIds/excludeIds 는 오버레이(MySQL)에서 계산한 status 필터를 SQL IN/NOT IN 으로 옮긴 것이다(빈 목록이면 조건 생략).
+     * domain/destIp 는 알림이 실은 목적지(관계 분석 화면에서 도메인을 짚었을 때 그 도메인 때문에 난 알림을 찾는 용도).
+     */
+    public ClickHouseQuery search(String tenantId, String host, String severity, String domain, String destIp,
+                                  Long from, Long to, Integer limit, List<String> includeIds, List<String> excludeIds) {
         Map<String, String> params = new LinkedHashMap<>();
         List<String> conds = base(tenantId, host, severity, from, to, params);
+        addDomain(domain, conds, params);
+        addDestIp(destIp, conds, params);
         addIdSet("inc", includeIds, false, conds, params);
         addIdSet("exc", excludeIds, true, conds, params);
         String sql = "SELECT " + COLUMNS + " FROM " + table + " FINAL"
@@ -126,6 +138,32 @@ public class AlertQueryBuilder {
             params.put("to", String.valueOf(to));
         }
         return conds;
+    }
+
+    /**
+     * domain 필터. host/severity 와 달리 미지정(null)과 빈 문자열 필터링을 구분한다: 목적지를 관측 못한 alert 는
+     * domain 이 빈 문자열로 적재되므로, 빈 값으로도 걸러야 그 알림들을 찾을 수 있다.
+     * 도메인은 소문자로 정규화되어 적재되므로(agent 의 normalizeDNSName) 검색어도 소문자로 맞춘다(EventQueryBuilder.sha256 과 동일 패턴).
+     */
+    private static void addDomain(String domain, List<String> conds, Map<String, String> params) {
+        if (domain == null) {
+            return;
+        }
+        conds.add("domain = {domain:String}");
+        params.put("domain", domain.trim().toLowerCase(Locale.ROOT));
+    }
+
+    /**
+     * destIp 필터. domain 과 같은 이유로 미지정과 빈 문자열을 구분한다.
+     * IPv6 는 16진수라 대소문자가 같은 주소를 가리킨다(Go 의 net.IP.String() 은 항상 소문자로 적재한다).
+     * IPv4 는 글자가 없어 영향 없고 IPv6 만 이득이라 domain 과 같이 소문자로 맞춘다.
+     */
+    private static void addDestIp(String destIp, List<String> conds, Map<String, String> params) {
+        if (destIp == null) {
+            return;
+        }
+        conds.add("dest_ip = {destIp:String}");
+        params.put("destIp", destIp.trim().toLowerCase(Locale.ROOT));
     }
 
     /** id IN/NOT IN 조건을 개별 파라미터 바인딩으로 추가한다. null 이거나 비어 있으면 아무것도 안 한다. */
