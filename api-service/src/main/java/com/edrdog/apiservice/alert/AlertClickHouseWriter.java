@@ -33,6 +33,9 @@ public class AlertClickHouseWriter {
     private final String table;
     private volatile boolean schemaReady = false;
 
+    /** 보관기간 90일. 판정기록은 건수가 적어 events(7일)보다 길게 둔다. 정규형인 건 SHOW CREATE 와 비교하기 때문. */
+    private static final String TTL = "toDateTime(created_at) + toIntervalDay(90)";
+
     public AlertClickHouseWriter(
             @Value("${edrdog.clickhouse.url}") String url,
             @Value("${edrdog.clickhouse.database}") String database,
@@ -71,12 +74,23 @@ public class AlertClickHouseWriter {
                         created_at DateTime64(3) DEFAULT now64(3)
                     ) ENGINE = ReplacingMergeTree(created_at)
                     ORDER BY (tenant_id, host, id)
-                    """.formatted(table));
+                    TTL %s
+                    """.formatted(table, TTL));
+            ensureTtl();
             schemaReady = true;
             log.info("ClickHouse alerts 스키마 준비 완료: {}", table);
         } catch (Exception e) {
             log.warn("ClickHouse alerts 스키마 준비 실패. ClickHouse 상태를 확인하세요. 앱은 계속 뜹니다.", e);
         }
+    }
+
+    /** CREATE IF NOT EXISTS 는 기존 테이블을 안 바꾸니 TTL 은 ALTER 로 건다. 매번 걸면 전 파트 재계산이라 없을 때만. */
+    private void ensureTtl() {
+        if (query("SHOW CREATE TABLE " + table).contains(TTL)) {
+            return;
+        }
+        execute("ALTER TABLE " + table + " MODIFY TTL " + TTL);
+        log.info("ClickHouse TTL 적용: {} TTL {}", table, TTL);
     }
 
     /**
@@ -116,6 +130,16 @@ public class AlertClickHouseWriter {
                 .body(sql)
                 .retrieve()
                 .toBodilessEntity();
+    }
+
+    private String query(String sql) {
+        String body = client.post()
+                .uri("/")
+                .contentType(MediaType.TEXT_PLAIN)
+                .body(sql)
+                .retrieve()
+                .body(String.class);
+        return body == null ? "" : body;
     }
 
     private static String nz(String s) {

@@ -2008,6 +2008,21 @@ spec:
             # 첫 화면을 EDRdog 대시보드로 (기본 Grafana 홈 대신)
             - name: GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH
               value: /otel-lgtm/edrdog-dashboards/edrdog-overview.json
+            # 기본값이 무제한이라 안 자르면 계속 쌓인다. 실측 ~63MiB/일 이라 30일이면 ~1.9GiB, size 는 안전망.
+            - name: PROMETHEUS_EXTRA_ARGS
+              value: --storage.tsdb.retention.time=30d --storage.tsdb.retention.size=2GB
+            # Loki 14일. retention 은 compactor 가 돌리고, 켜면 delete-request-store 를 요구한다.
+            - name: LOKI_EXTRA_ARGS
+              value: >-
+                -compactor.retention-enabled=true
+                -compactor.delete-request-store=filesystem
+                -compactor.working-directory=/data/loki/compactor
+                -store.retention=336h
+            # Tempo 6일. 기본값은 336h 이고, 3.0 부터 config 의 compactor 블록이 없어져 플래그로만 준다.
+            - name: TEMPO_EXTRA_ARGS
+              value: >-
+                -backend-scheduler.provider.work.compaction.block-retention=144h
+                -backend-worker.compaction.block-retention=144h
           # Alloy 가 인프라 메트릭을 밀어넣는 remote write 수신은 이미지 기본 실행 인자에
           # 이미 켜져 있다(--web.enable-remote-write-receiver). PROMETHEUS_EXTRA_ARGS 로
           # 같은 플래그를 또 주면 중복으로 Prometheus 가 아예 뜨지 않으니 넣지 말 것.

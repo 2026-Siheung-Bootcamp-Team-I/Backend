@@ -51,6 +51,9 @@ public class ClickHouseWriter {
             "sha256 String"
     );
 
+    /** 보관기간 7일. INTERVAL 7 DAY 가 아니라 정규형인 건 아래 SHOW CREATE 결과와 문자열 비교하기 때문. */
+    private static final String TTL = "toDateTime(ingested_at) + toIntervalDay(7)";
+
     /** 부팅 시 events 테이블 생성 (개발용: 매 기동마다 IF NOT EXISTS). */
     @PostConstruct
     void ensureSchema() {
@@ -71,7 +74,8 @@ public class ClickHouseWriter {
                     ingested_at DateTime64(3) DEFAULT now64(3)
                 ) ENGINE = MergeTree
                 ORDER BY (tenant_id, host, ts)
-                """.formatted(table));
+                TTL %s
+                """.formatted(table, TTL));
 
         // CREATE TABLE IF NOT EXISTS 는 이미 있는 테이블의 스키마를 바꾸지 않는다. 그래서 배포된 서버처럼
         // 예전 컬럼 구성으로 만들어진 테이블에는 위 DDL 로 새 컬럼이 붙지 않고, 그 컬럼을 담은 INSERT 가
@@ -79,7 +83,17 @@ public class ClickHouseWriter {
         for (String column : ADDED_COLUMNS) {
             execute("ALTER TABLE " + table + " ADD COLUMN IF NOT EXISTS " + column);
         }
+        ensureTtl();
         log.info("ClickHouse 스키마 준비 완료: {}", table);
+    }
+
+    /** TTL 도 위 컬럼과 같은 이유로 ALTER 가 필요하다. 매번 걸면 전 파트 재계산 mutation 이 돌아 없을 때만 건다. */
+    private void ensureTtl() {
+        if (query("SHOW CREATE TABLE " + table).contains(TTL)) {
+            return;
+        }
+        execute("ALTER TABLE " + table + " MODIFY TTL " + TTL);
+        log.info("ClickHouse TTL 적용: {} TTL {}", table, TTL);
     }
 
     /** 이벤트 한 건을 events 테이블에 적재. */
@@ -96,5 +110,15 @@ public class ClickHouseWriter {
                 .body(sql)
                 .retrieve()
                 .toBodilessEntity();
+    }
+
+    private String query(String sql) {
+        String body = client.post()
+                .uri("/")
+                .contentType(MediaType.TEXT_PLAIN)
+                .body(sql)
+                .retrieve()
+                .body(String.class);
+        return body == null ? "" : body;
     }
 }
