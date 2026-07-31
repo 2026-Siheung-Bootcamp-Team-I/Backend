@@ -83,7 +83,6 @@ public class HostService {
         }
     }
 
-    /** 오버레이의 트리아지된 id 를 제외한 host 별 열린 alert 집계를 ClickHouse 에서 뽑는다. */
     private List<HostAlertCount> openCounts(String tenantId) {
         List<String> triaged = statuses.findByTenantId(tenantId).stream()
                 .map(AlertStatusRecord::getId)

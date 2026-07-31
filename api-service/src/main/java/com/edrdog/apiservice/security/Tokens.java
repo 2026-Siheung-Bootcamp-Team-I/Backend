@@ -19,7 +19,7 @@ public final class Tokens {
     private Tokens() {
     }
 
-    /** 32바이트 랜덤을 URL-safe base64(패딩 없음)로. 충돌 확률 무시 가능. */
+    /** 충돌 확률 무시 가능. */
     public static String newToken() {
         byte[] buf = new byte[BYTES];
         RANDOM.nextBytes(buf);

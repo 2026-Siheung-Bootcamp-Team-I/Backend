@@ -6,7 +6,6 @@ import com.edrdog.archiverservice.dto.Event;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
-/** Event -> ClickHouse JSONEachRow 한 줄 매핑 순수 로직 검증. */
 class EventRowTest {
 
     private final ObjectMapper mapper = new ObjectMapper();

@@ -98,7 +98,6 @@ public class InstallController {
                 .body(body);
     }
 
-    /** 대시보드에 보여줄 링크의 앞부분. */
     private String publicBase() {
         return scripts.publicBase();
     }

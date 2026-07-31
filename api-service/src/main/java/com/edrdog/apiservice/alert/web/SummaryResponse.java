@@ -14,7 +14,6 @@ public record SummaryResponse(long total, Severity severity, List<ThreatCount> t
     public record Severity(long critical, long high, long medium) {
     }
 
-    /** 카테고리별 위협 건수. */
     public record ThreatCount(String category, long count) {
     }
 }

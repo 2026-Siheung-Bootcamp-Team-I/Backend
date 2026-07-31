@@ -26,8 +26,6 @@ class HostTargetClientTest {
     private static final String BASE = "http://api";
     private static final String KEY = "test-key";
 
-    // --- 순수 응답 매핑 ---
-
     @Test
     @DisplayName("null 응답은 empty")
     void toTarget_null() {
@@ -46,8 +44,6 @@ class HostTargetClientTest {
         assertThat(HostTargetClient.toTarget(new TargetResponse(10L, "https://hooks/u")))
                 .contains(new Target(10L, "https://hooks/u"));
     }
-
-    // --- HTTP ---
 
     @Test
     @DisplayName("404(소유자 없음) 는 empty, tenantId+host 를 쿼리로 GET")

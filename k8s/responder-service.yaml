@@ -21,16 +21,13 @@ spec:
           image: ghcr.io/2026-siheung-bootcamp-team-i/backend/responder-service:latest
           ports:
             - containerPort: 8082
-          # Infisical 이 동기화한 edrdog-secrets. api/alert/detector 등 다른 서비스와 같은 패턴이다.
-          # 아래 env 에 같은 이름이 있으면 그쪽이 이긴다.
+          # Infisical 이 동기화한 edrdog-secrets. api/alert/detector 등 다른 서비스와 같은 패턴이고, 아래 env 에 같은 이름이 있으면 그쪽이 이긴다.
           envFrom:
             - secretRef:
                 name: edrdog-secrets
           env:
             # --- 실제 조치(kill) 실행 ---
-            # 끄려면 이 값을 "false" 로 바꾸거나 env 를 지운다(지우면 edrdog-secrets 값이 쓰인다).
-            # 조치는 명령 큐에 넣고 에이전트가 하트비트로 가져갈 때까지 서버가 기다린다.
-            # 외부 관리 서버에 의존하지 않으므로 API 토큰이나 truststore 가 필요 없다.
+            # 끄려면 이 값을 "false" 로 바꾸거나 env 를 지운다(지우면 edrdog-secrets 값이 쓰인다). 조치는 명령 큐에 넣고 에이전트가 하트비트로 가져갈 때까지 서버가 기다리며, 외부 관리 서버에 의존하지 않으므로 API 토큰이나 truststore 가 필요 없다.
             - name: RESPONDER_EXECUTE_ENABLED
               value: "true"
             - name: SPRING_KAFKA_BOOTSTRAP_SERVERS

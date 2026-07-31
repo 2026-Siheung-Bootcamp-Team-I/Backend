@@ -32,8 +32,7 @@ class InstallScriptTest {
 
     @Test
     void 안_채운_자리표시자가_남으면_던진다() {
-        // 그대로 내보내면 엔드포인트에서 "{{SERVER}}" 라는 호스트에 붙으려다 죽는다.
-        // 그 시점엔 이미 바이너리가 깔린 뒤라 원인을 찾기 어렵다. 내보내기 전에 막는다.
+        // 그대로 내보내면 엔드포인트가 이미 바이너리 설치된 뒤에야 죽어서 원인 찾기 어렵다. 내보내기 전에 막는다.
         IllegalStateException e = assertThrows(IllegalStateException.class,
                 () -> InstallScript.render("{{SERVER}} {{SECRET}}", Map.of("SERVER", "h:1")));
 
@@ -42,16 +41,13 @@ class InstallScriptTest {
 
     @Test
     void 값이_자리표시자를_담고_있으면_거부한다() {
-        // 값에 심은 {{...}} 가 두 번째 바퀴에서 살아나 다른 값으로 바뀌는 걸 막아야 한다.
-        // render 는 한 번만 훑어서 애초에 두 번째 바퀴가 없지만, 중괄호를 값에서 아예 막는
-        // 쪽이 더 강한 보장이다. 나중에 누가 치환을 반복문으로 바꿔도 여기서 걸린다.
+        // 값에 심긴 {{...}} 가 재귀 치환으로 다른 값이 되는 걸 막는다. render 는 한 번만 훑지만, 값 자체를 막아 둬야 나중에 치환이 반복문으로 바뀌어도 안전하다.
         assertThrows(IllegalArgumentException.class, () -> InstallScript.render("{{A}}", Map.of("A", "{{B}}")));
     }
 
     @Test
     void 셸에서_위험한_값은_거부한다() {
-        // enroll secret 은 URL-safe base64 라 정상값은 여기 걸리지 않는다. 걸린다면 값이
-        // 우리가 만든 것이 아니라는 뜻이고, 그건 스크립트 안에서 명령이 되기 전에 막아야 한다.
+        // enroll secret 은 URL-safe base64 라 정상값은 안 걸린다. 걸리면 우리가 만든 값이 아니란 뜻이라 명령이 되기 전에 막는다.
         for (String bad : new String[]{"a\"b", "a'b", "a b", "a$b", "a`b", "a;b", "a\nb", "a\\b", "a|b"}) {
             assertThrows(IllegalArgumentException.class,
                     () -> InstallScript.render("{{A}}", Map.of("A", bad)), "거부해야 한다: " + bad);

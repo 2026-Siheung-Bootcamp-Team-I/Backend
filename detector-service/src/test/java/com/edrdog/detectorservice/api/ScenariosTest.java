@@ -20,7 +20,6 @@ class ScenariosTest {
     private static final String HOST = "demo-host-01";
     private static final String TENANT = "tenant-a";
 
-    /** 마지막 이벤트를 current, 나머지를 prior 버퍼로 넣어 판정. */
     private static Optional<Alert> detect(List<Event> events) {
         List<Event> prior = events.subList(0, events.size() - 1);
         Event current = events.get(events.size() - 1);

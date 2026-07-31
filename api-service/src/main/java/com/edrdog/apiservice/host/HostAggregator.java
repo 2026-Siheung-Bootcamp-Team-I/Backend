@@ -58,7 +58,6 @@ public final class HostAggregator {
                     isEnrolled, agentSeen));
         }
 
-        // 이벤트 없이 등록만 된 기기: 위협 없는 정상 상태로 목록 뒤에 붙인다.
         enrolledByHost.values().stream()
                 .filter(node -> !matched.contains(node.host().toLowerCase()))
                 .sorted(Comparator.comparingLong(EnrolledHost::agentSeen).reversed())

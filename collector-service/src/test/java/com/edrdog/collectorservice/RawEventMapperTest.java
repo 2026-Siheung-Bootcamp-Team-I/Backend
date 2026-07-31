@@ -198,8 +198,6 @@ class RawEventMapperTest {
         assertNull(map(raw).orElseThrow().domain());
     }
 
-    // --- sha256 형식 검증 ---
-
     @Test
     void sha256_이_64자리_16진수면_그대로_통과한다() {
         String raw = """

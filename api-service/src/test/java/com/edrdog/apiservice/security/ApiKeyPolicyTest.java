@@ -50,16 +50,13 @@ class ApiKeyPolicyTest {
 
     @Test
     void 설치_링크_발급은_세션_Bearer_예외() {
-        // 이걸 부르는 건 대시보드(또는 그 대신 쓰는 스크립트)뿐이고 Bearer 로 이미 인증한다.
-        // API 키까지 요구하면 기기 하나 추가하려고 사람이 키 두 개를 손에 쥐어야 한다.
-        // 설치하는 사람에게서 키를 없애 놓고 만드는 사람에게 남겨 두면 절반만 한 것이다.
+        // 호출자는 이미 Bearer 로 인증된 대시보드뿐이라 API 키까지 요구하면 키 두 개를 들어야 한다.
         assertTrue(policy.isExempt("/api/tenant/install-link"));
     }
 
     @Test
     void 나머지_tenant_경로는_여전히_API키가_필요하다() {
-        // enroll secret 은 그 자체가 배포 자격증명이고 webhook 은 알림이 나가는 곳이다.
-        // 설치 링크와 달리 한 번 새면 되돌릴 방법이 마땅치 않아 문을 더 좁게 둔다.
+        // enroll secret·webhook 은 한 번 새면 되돌릴 수 없는 자격증명이라 문을 더 좁게 둔다.
         assertFalse(policy.isExempt("/api/tenant/enroll-secret"));
         assertFalse(policy.isExempt("/api/tenant/webhook"));
     }

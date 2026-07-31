@@ -22,18 +22,14 @@ spec:
           ports:
             - containerPort: 8084
             - containerPort: 8443   # 에이전트 전용 HTTPS 커넥터 (agent-tls Secret 이 있을 때만 열린다)
-          # Infisical 이 동기화한 edrdog-secrets. EDRDOG_API_KEY(프론트 X-API-Key), INTERNAL_API_KEY
-          # (alert-service 내부 조회), CLICKHOUSE_PASSWORD 등이 여기서 온다. 이게 빠진 채로 apply 하면
-          # 프론트는 401, 알림은 전면 중단, 대시보드는 ClickHouse 인증 실패로 깨진다.
+          # Infisical 동기화 edrdog-secrets(EDRDOG_API_KEY/INTERNAL_API_KEY/CLICKHOUSE_PASSWORD 등). 없으면 프론트 401, 알림 전면 중단, 대시보드는 ClickHouse 인증 실패로 깨진다.
           # 아래 env 에 같은 이름이 있으면 그쪽이 이긴다(그래서 DB_PASSWORD 는 아래 평문 값이 쓰인다).
           envFrom:
             - secretRef:
                 name: edrdog-secrets
           env:
             # --- 에이전트 수집 HTTPS 커넥터 ---
-            # 에이전트는 서버 인증서를 고정해서 붙으므로 이 포트가 없으면 수집 자체가 불가능하다.
-            # 스위치와 비번은 agent-tls Secret 에서 온다. Secret 이 없으면 값이 안 들어와 커넥터는 꺼진 채(기본 false)
-            # 뜨므로 api-service 는 그대로 정상 기동한다. 생성 절차는 k8s/README.md 참고.
+            # 에이전트는 서버 인증서를 고정해서 붙으므로 이 포트가 없으면 수집 자체가 불가능하다. 스위치/비번은 agent-tls Secret 에서 오고, 없으면 커넥터가 꺼진 채(기본 false) api-service 는 그대로 정상 기동한다(생성 절차: k8s/README.md).
             - name: AGENT_TLS_ENABLED
               valueFrom:
                 secretKeyRef:
@@ -59,31 +55,21 @@ spec:
               value: "edrdog"
             - name: EDRDOG_CLICKHOUSE_URL
               value: "http://clickhouse:8123"
-            # 프론트 도메인. 서버 실제 값과 같게 둔다.
-            # CorsConfig 가 setAllowedOrigins 라 정확히 일치하는 출처만 통과한다(빠지면 브라우저만 403).
+            # 프론트 도메인(서버 실제 값과 같아야 함). CorsConfig 가 setAllowedOrigins 라 정확히 일치하는 출처만 통과한다(빠지면 브라우저만 403).
             - name: CORS_ALLOWED_ORIGINS
               value: "https://edrdog.duckdns.org,https://frontend1-ten-gamma.vercel.app,http://localhost:5173"
-            # 발표 환경에서만 true (데모 계정 test/1234 + 과거 7일 시드).
-            # 현재 배포서버가 true 라 그대로 맞춘다. 해커톤이 끝나면 false 로 되돌린다.
+            # 발표 환경에서만 true(데모 계정 test/1234 + 과거 7일 시드). 배포서버가 true 라 맞췄다. 해커톤 끝나면 false 로 되돌린다.
             - name: DEMO_SEED
               value: "true"
             # 메트릭/트레이스 OTLP 수집기 (k8s/otel-lgtm.yaml)
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: "http://otel-lgtm:4318"
-            # GeoLite2 mmdb 를 이미지 밖(호스트 디스크)에서 읽는다. GeoIpResolver 는 이 경로를
-            # 먼저 보고, 없으면 jar 에 번들된 것으로 넘어간다.
-            #
-            # 이미지 안에만 두면 MaxMind 다운로드가 429 로 막힌 날에는 배포 자체가 불가능하고
-            # (실제로 배포가 막혔다), 억지로 mmdb 없이 이미지를 올리면 위협 지도가 조용히 빈다.
-            # 파일을 호스트에 두면 이미지를 어떻게 갈아도 지도가 살아 있다.
+            # GeoLite2 mmdb 를 이미지 밖(호스트 디스크)에서 읽는다. GeoIpResolver 가 이 경로를 먼저 보고, 없으면 jar 에 번들된 것으로 넘어간다.
+            # 이미지 안에만 두면 MaxMind 429 로 배포 자체가 막힐 수 있고(실제로 막혔다) mmdb 없이 올리면 위협 지도가 조용히 빈다. 호스트에 두면 이미지를 갈아도 지도가 살아 있다.
             - name: GEOIP_DB_PATH
               value: "/etc/geoip/GeoLite2-Country.mmdb"
-            # 설치 링크(/i/<토큰>). 둘 다 비밀이 아니라 우리 서버 주소라서 Infisical 이 아니라
-            # 여기에 둔다. 사용자가 브라우저에 치는 값과 같아서 숨길 수가 없다.
-            #
-            # 두 값이 다른 이유: 앞은 Caddy 를 거치고(설치 스크립트를 curl 로 받는 곳),
-            # 뒤는 안 거친다(에이전트가 붙는 곳). 에이전트가 서버 인증서를 고정해서 붙기
-            # 때문에 중간에서 TLS 를 다시 종단하면 등록 단계에서 실패한다.
+            # 설치 링크(/i/<토큰>) 주소. 둘 다 비밀이 아니라 우리 서버 주소라서 Infisical 이 아니라 여기에 둔다(사용자가 브라우저에 치는 값과 같아서 숨길 수 없다).
+            # 두 값이 다른 이유: 앞(INSTALL_PUBLIC_BASE)은 Caddy 를 거치고(설치 스크립트를 curl 로 받는 곳), 뒤(INSTALL_AGENT_SERVER)는 안 거친다(에이전트가 붙는 곳). 에이전트가 서버 인증서를 고정해서 붙기 때문에 중간에서 TLS 를 다시 종단하면 등록 단계에서 실패한다.
             - name: INSTALL_PUBLIC_BASE
               value: "https://edrdog-api.duckdns.org"
             - name: INSTALL_AGENT_SERVER
@@ -123,18 +109,14 @@ spec:
             items:
               - key: keystore.p12
                 path: keystore.p12
-        # 단일 노드 k3s 라 hostPath 로 충분하다. 파일이 없어도 파드는 그대로 뜨고
-        # (DirectoryOrCreate 로 빈 디렉터리가 만들어진다) GeoIpResolver 가 jar 번들로 넘어간다.
-        # 배치 절차는 k8s/README.md 참고.
+        # 단일 노드 k3s 라 hostPath 로 충분하다. 파일이 없어도 파드는 뜨고(DirectoryOrCreate 로 빈 디렉터리 생성) GeoIpResolver 가 jar 번들로 넘어간다(배치 절차: k8s/README.md).
         - name: geoip
           hostPath:
             path: /opt/edrdog/geoip
             type: DirectoryOrCreate
 ---
-# 프론트/외부 API 진입점. NodePort 30084 — 호스트(EC2)에서 도는 Caddy 가 localhost:30084 로 프록시한다.
-# 배포서버가 이미 이 형태로 떠 있는데 여기가 ClusterIP 로 남아 있어서, 이 파일을 apply 하면
-# NodePort 가 벗겨져 사이트가 죽었다(그래서 CD 가 이 매니페스트를 통째로 건너뛰고 있다).
-# 실제 상태에 맞춰 둔다. 포트를 바꾸려면 Caddy 설정도 같이 바꿔야 한다.
+# 프론트/외부 API 진입점. NodePort 30084, 호스트(EC2)에서 도는 Caddy 가 localhost:30084 로 프록시한다.
+# 배포서버가 이미 이 형태로 떠 있는데 한때 ClusterIP 로 남아 있어 apply 하자 NodePort 가 벗겨져 사이트가 죽었다(그래서 CD 가 이 매니페스트를 통째로 건너뛴다). 실제 상태에 맞춘 것이니 포트를 바꾸려면 Caddy 설정도 같이 바꿔야 한다.
 apiVersion: v1
 kind: Service
 metadata:
@@ -151,10 +133,8 @@ spec:
       targetPort: 8084
       nodePort: 30084
 ---
-# 에이전트가 붙는 수집 포트. NodePort 30443 로 직접 노출한다.
-# Caddy 로 프록시하면 안 된다: 에이전트가 서버 인증서를 고정해서 붙기 때문에
-# 중간에서 TLS 를 다시 종단하면 엔드포인트가 등록 단계에서 실패한다(프록시하려면 L4 TCP 통과여야 함).
-# EC2 보안그룹에 30443/TCP 를 열어야 외부 기기가 붙을 수 있다.
+# 에이전트가 붙는 수집 포트. NodePort 30443 으로 직접 노출한다.
+# Caddy 로 프록시하면 안 된다: 에이전트가 서버 인증서를 고정해서 붙어, 중간에서 TLS 를 다시 종단하면 등록 단계에서 실패한다(프록시하려면 L4 TCP 통과여야 함). EC2 보안그룹에 30443/TCP 를 열어야 외부 기기가 붙을 수 있다.
 apiVersion: v1
 kind: Service
 metadata:

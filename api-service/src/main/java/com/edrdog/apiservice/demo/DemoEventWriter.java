@@ -43,7 +43,6 @@ public class DemoEventWriter {
                 .build();
     }
 
-    /** events 를 JSONEachRow 로 나눠 적재한다. */
     public void insert(List<DemoEvent> events) {
         for (int i = 0; i < events.size(); i += BATCH) {
             List<DemoEvent> batch = events.subList(i, Math.min(i + BATCH, events.size()));

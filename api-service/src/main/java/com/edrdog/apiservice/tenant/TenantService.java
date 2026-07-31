@@ -22,7 +22,6 @@ public class TenantService {
         this.tenants = tenants;
     }
 
-    /** webhook 등록/갱신. URL 검증 실패 400, tenant 없음 404. */
     @Transactional
     public void setWebhook(Long tenantId, String url) {
         if (!WebhookValidation.valid(url)) {
@@ -34,7 +33,6 @@ public class TenantService {
         tenants.save(tenant);
     }
 
-    /** 현재 webhook 조회. tenant 없음 404, 미설정이면 빈 Optional. */
     @Transactional(readOnly = true)
     public Optional<String> getWebhook(Long tenantId) {
         Tenant tenant = tenants.findById(tenantId)
@@ -42,7 +40,6 @@ public class TenantService {
         return Optional.ofNullable(tenant.getSlackWebhookUrl());
     }
 
-    /** enroll secret 발급/회전. 새 랜덤 토큰을 저장하고 반환한다. tenant 없음 404. */
     @Transactional
     public String rotateEnrollSecret(Long tenantId) {
         Tenant tenant = tenants.findById(tenantId)

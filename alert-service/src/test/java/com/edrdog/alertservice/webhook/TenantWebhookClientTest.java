@@ -27,8 +27,6 @@ class TenantWebhookClientTest {
     private static final String BASE = "http://api";
     private static final String KEY = "test-key";
 
-    // --- 순수 응답 매핑 ---
-
     @Test
     @DisplayName("null 응답은 미등록(empty)")
     void toWebhook_null() {
@@ -47,8 +45,6 @@ class TenantWebhookClientTest {
         assertThat(TenantWebhookClient.toWebhook(new WebhookResponse(1L, "https://hooks/x")))
                 .contains("https://hooks/x");
     }
-
-    // --- HTTP ---
 
     @Test
     @DisplayName("404 tenant 는 empty")
@@ -92,7 +88,7 @@ class TenantWebhookClientTest {
 
         assertThat(client.resolve("7")).isEmpty();
         assertThat(client.resolve("7")).isEmpty();
-        server.verify();  // 호출이 1회뿐이어야 통과
+        server.verify();
     }
 
     @Test
@@ -107,7 +103,7 @@ class TenantWebhookClientTest {
 
         assertThat(client.resolve("7")).isEmpty();
         assertThat(client.resolve("7")).isEmpty();
-        server.verify();  // 2회 호출돼야 통과 (캐시 안 함)
+        server.verify();
     }
 
     @Test

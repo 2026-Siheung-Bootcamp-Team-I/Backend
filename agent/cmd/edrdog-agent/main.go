@@ -46,8 +46,7 @@ func main() {
 
 	out, closeLog, err := openLogWriter(opts.logPath)
 	if err != nil {
-		// 여기서만 stderr 로 적는다. 로그를 파일에 쓰기로 해 놓고 못 열었다는 사실은
-		// 어디엔가는 남아야 한다.
+		// 여기서만 stderr 로 적는다: 로그 파일을 못 열었다는 사실은 어디엔가는 남아야 한다.
 		fmt.Fprintf(os.Stderr, "로그 파일을 열지 못했다: %v\n", err)
 		os.Exit(1)
 	}
@@ -71,7 +70,7 @@ func main() {
 	}
 }
 
-// runAgent 는 등록부터 수집과 조치까지 전부 돌린다. ctx 가 끝나면 정리하고 돌아온다.
+// runAgent 는 ctx 가 끝나면 정리하고 돌아온다.
 func runAgent(ctx context.Context, opts options, log *slog.Logger) error {
 	if opts.configPath == "" {
 		return fmt.Errorf("-config 가 필요하다")
@@ -100,7 +99,7 @@ func runAgent(ctx context.Context, opts options, log *slog.Logger) error {
 	}
 	log.Info("등록 완료", "host", cfg.HostIdentifier, "platform", goruntime.GOOS, "version", version)
 
-	// 첫 하트비트로 수집 설정을 받는다. 어떤 센서를 켤지와 어디를 감시할지가 여기서 온다.
+	// 첫 하트비트로 어떤 센서를 켤지·어디를 감시할지 수집 설정을 받는다.
 	beat, err := client.Heartbeat(ctx)
 	if err != nil {
 		return fmt.Errorf("수집 설정을 받지 못했다: %w", err)
@@ -116,8 +115,7 @@ func runAgent(ctx context.Context, opts options, log *slog.Logger) error {
 		names[i] = s.Name()
 	}
 
-	// 전송 주기는 서버가 정한다. 엔드포인트에 손대지 않고 조절할 수 있어야 하기 때문이다.
-	// 서버가 값을 안 주면 설정 파일 값을 쓴다.
+	// 전송 주기는 서버가 정한다(엔드포인트에 손대지 않고 조절 가능해야 함). 서버가 값을 안 주면 설정 파일 값을 쓴다.
 	flush := cfg.FlushInterval()
 	if beat.Config.FlushIntervalSeconds > 0 {
 		flush = time.Duration(beat.Config.FlushIntervalSeconds) * time.Second
@@ -131,8 +129,7 @@ func runAgent(ctx context.Context, opts options, log *slog.Logger) error {
 	})
 	commands := command.New(client, command.NewKiller(), command.Options{Logger: log})
 
-	// 위 하트비트 응답에 대기 중인 명령이 실려 왔을 수 있다. 서버는 한 번 내준 명령을 다시 주지
-	// 않으므로 여기서 처리하지 않으면 조치가 실행되지 않고 서버는 결과를 기다리다 시한을 넘긴다.
+	// 하트비트 응답에 실려 온 대기 명령. 서버는 한 번 내준 명령을 다시 주지 않으므로 여기서 처리해야 한다.
 	commands.Execute(ctx, beat.Commands)
 
 	log.Info("수집 시작", "sensors", names, "flush", flush, "watch", beat.Config.WatchPaths)

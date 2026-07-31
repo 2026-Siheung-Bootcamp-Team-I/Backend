@@ -74,8 +74,7 @@ class DemoScenarioTest {
 
     @Test
     void 배경_로그에는_network_이벤트가_없다() {
-        // R2(다운로드 후 실행)는 "선행 network(80/443/8080) + 이후 process" 만으로 CRITICAL 을 낸다.
-        // 배경 소음에 network 를 섞으면 뒤따르는 정상 프로세스가 R2 오탐으로 잡힌다.
+        // R2 는 선행 network + 이후 process 만으로 CRITICAL 을 내므로, 배경 소음에 network 를 섞으면 뒤 프로세스가 오탐된다.
         for (String name : DemoScenario.names()) {
             List<CollectedEvent> background = DemoScenario.build(name, "PC-01", BASE, TENANT).stream()
                     .filter(e -> e.ts() < BASE)
@@ -86,9 +85,7 @@ class DemoScenarioTest {
 
     @Test
     void 배경_프로세스는_detector_baseline_억제_대상_이름만_쓴다() {
-        // detector Rules.BASELINE_SAFE = {onedrive.exe, teams.exe, gupdate.exe, msedgeupdate.exe, update.exe}.
-        // 같은 시나리오를 5분 안에 재실행하면 앞 회차 network 이벤트가 버퍼에 남아 R2 가 배경 프로세스에
-        // CRITICAL 오탐을 낸다. 억제 대상 이름만 쓰면 그 경로가 막힌다.
+        // 배경 프로세스는 detector Rules.BASELINE_SAFE 목록에 있는 이름만 써야, 재실행으로 남은 network 이벤트가 R2 오탐(CRITICAL)을 내지 않는다.
         Set<String> baselineSafe = Set.of("onedrive.exe", "teams.exe", "gupdate.exe", "msedgeupdate.exe", "update.exe");
         for (String name : DemoScenario.names()) {
             List<CollectedEvent> background = DemoScenario.build(name, "PC-01", BASE, TENANT).stream()
@@ -131,8 +128,7 @@ class DemoScenarioTest {
 
     @Test
     void 시나리오별_기본_host_가_서로_다르다() {
-        // detector 상관 버퍼는 host 별 5분이라 같은 host 로 다른 시나리오를 연달아 돌리면
-        // 앞 시나리오의 선행 이벤트가 남아 다른 룰이 먼저 매칭될 수 있다.
+        // detector 상관 버퍼는 host 별 5분이라 같은 host 로 시나리오를 연달아 돌리면 앞 이벤트가 남아 다른 룰이 먼저 매칭될 수 있다.
         Set<String> hosts = new HashSet<>();
         for (String name : DemoScenario.names()) {
             assertTrue(hosts.add(DemoScenario.defaultHost(name)), name + " host 중복");

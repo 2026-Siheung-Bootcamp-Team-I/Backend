@@ -37,7 +37,6 @@ public class UserNotifyService {
         this.slackWebhookClient = slackWebhookClient;
     }
 
-    /** 개인 webhook 등록/갱신. URL 검증 실패 400, 유저 없음 404. */
     @Transactional
     public void setWebhook(Long userId, String url) {
         if (!WebhookValidation.valid(url)) {
@@ -48,17 +47,12 @@ public class UserNotifyService {
         users.save(user);
     }
 
-    /** 개인 webhook 조회. 유저 없음 404, 미설정이면 빈 Optional. */
     @Transactional(readOnly = true)
     public Optional<String> getWebhook(Long userId) {
         return Optional.ofNullable(user(userId).getSlackWebhookUrl());
     }
 
-    /**
-     * 저장된 개인 webhook 으로 테스트 메시지를 실제로 보내 도달 여부를 확인한다.
-     * webhook 미등록 404, Slack 이 4xx/5xx 를 주거나 연결 자체가 실패하면 502.
-     * 성공 시 Slack 이 준 HTTP 상태코드를 그대로 돌려준다.
-     */
+    /** 저장된 개인 webhook 으로 테스트 메시지를 실제로 보내 도달 여부를 확인한다. */
     @Transactional(readOnly = true)
     public int sendTestWebhook(Long userId) {
         String url = getWebhook(userId)
@@ -75,10 +69,6 @@ public class UserNotifyService {
         return status;
     }
 
-    /**
-     * 소유 host 등록. 이미 내가 소유면 멱등(no-op), 같은 tenant 안에서 다른 유저가 소유 중이면 409.
-     * host blank 400.
-     */
     @Transactional
     public void registerHost(Long tenantId, Long userId, String host) {
         if (host == null || host.isBlank()) {
@@ -99,7 +89,6 @@ public class UserNotifyService {
         }
     }
 
-    /** 내가 소유한 host 목록. */
     @Transactional(readOnly = true)
     public List<String> listHosts(Long userId) {
         return hostOwners.findByUserId(userId).stream()
@@ -107,7 +96,7 @@ public class UserNotifyService {
                 .toList();
     }
 
-    /** 소유 host 해제. 내 host 가 아니면(미등록 포함) 404. */
+    /** 내 host 가 아니면(미등록 포함) 404. */
     @Transactional
     public void unregisterHost(Long tenantId, Long userId, String host) {
         HostOwner owner = hostOwners.findByTenantIdAndHost(tenantId, host)

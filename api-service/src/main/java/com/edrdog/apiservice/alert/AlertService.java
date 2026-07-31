@@ -76,10 +76,8 @@ public class AlertService {
         List<String> includeIds = null;
         List<String> excludeIds = null;
         if (AlertStatus.OPEN.equals(status)) {
-            // open = 트리아지된 것 전부 제외
             excludeIds = triagedIds(tenantId, null);
         } else if (status != null && !status.isBlank()) {
-            // confirmed / false_positive = 해당 status 로 트리아지된 것만
             includeIds = triagedIds(tenantId, status);
             if (includeIds.isEmpty()) {
                 return List.of();
@@ -138,7 +136,6 @@ public class AlertService {
     private static final String SEV_HIGH = "HIGH";
     private static final String SEV_MEDIUM = "MEDIUM";
 
-    /** 카테고리 topThreats 상위 개수. */
     static final int TOP_THREATS = 5;
 
     /**

@@ -60,7 +60,6 @@ public class Tenant {
         return slackWebhookUrl;
     }
 
-    /** Slack webhook URL 을 갱신한다. */
     public void updateWebhook(String url) {
         this.slackWebhookUrl = url;
     }
@@ -69,7 +68,6 @@ public class Tenant {
         return enrollSecret;
     }
 
-    /** enroll secret 을 발급/회전한다. */
     public void updateEnrollSecret(String secret) {
         this.enrollSecret = secret;
     }

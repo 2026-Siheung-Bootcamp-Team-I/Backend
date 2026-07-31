@@ -40,8 +40,7 @@ class DemoApiWithoutSeedTest {
 
     @Test
     void 데모_계정이_없으면_403_이고_이벤트를_발행하지_않는다() throws Exception {
-        // 404 가 아니라 403 이어야 한다. 404 면 빈이 안 올라온 것이고, 그러면 발표 환경에서
-        // 시드만 켜서 쓸 수 있다는 성질(파드 재시작 불필요)이 깨진다.
+        // 404 면 빈이 안 올라온 것이라 시드만 켜서 재시작 없이 쓴다는 성질이 깨진다.
         mvc.perform(post("/api/demo/collect/script-exec"))
                 .andExpect(status().isForbidden());
 

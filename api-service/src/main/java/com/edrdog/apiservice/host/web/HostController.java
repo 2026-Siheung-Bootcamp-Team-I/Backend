@@ -53,7 +53,6 @@ public class HostController {
         return String.valueOf(principal.tenantId());
     }
 
-    /** "Bearer " 접두어를 떼서 토큰만 반환. 없으면 null. */
     private static String bearerToken(String authorization) {
         if (authorization == null || !authorization.startsWith(BEARER_PREFIX)) {
             return null;

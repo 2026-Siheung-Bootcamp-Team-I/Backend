@@ -161,10 +161,7 @@ class DemoCollectContractTest {
         return alerts.readValue();
     }
 
-    /**
-     * api-service 의 CollectedEvent 를 Jackson 이 직렬화한 형태 그대로. 필드명을 손으로 적는 것이 요점이다
-     * (레코드를 공유하면 이름이 같이 바뀌어 어긋남을 못 잡는다).
-     */
+    /** api-service 의 CollectedEvent 를 Jackson 이 직렬화한 형태 그대로 (필드명을 손으로 적는 이유는 클래스 설명 참고). */
     private static String json(String host, String type, long ts, String process, String parent,
                                String cmdline, String destIp, int destPort) {
         return "{\"host\":" + quoted(host)

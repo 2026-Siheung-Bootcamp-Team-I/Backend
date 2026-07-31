@@ -33,6 +33,9 @@ public class AlertClickHouseWriter {
     private final String table;
     private volatile boolean schemaReady = false;
 
+    /** 보관기간 90일. 판정기록은 건수가 적어 events(7일)보다 길게 둔다. 정규형인 건 SHOW CREATE 와 비교하기 때문. */
+    private static final String TTL = "toDateTime(created_at) + toIntervalDay(90)";
+
     public AlertClickHouseWriter(
             @Value("${edrdog.clickhouse.url}") String url,
             @Value("${edrdog.clickhouse.database}") String database,
@@ -71,7 +74,9 @@ public class AlertClickHouseWriter {
                         created_at DateTime64(3) DEFAULT now64(3)
                     ) ENGINE = ReplacingMergeTree(created_at)
                     ORDER BY (tenant_id, host, id)
-                    """.formatted(table));
+                    TTL %s
+                    """.formatted(table, TTL));
+            ensureTtl();
             schemaReady = true;
             log.info("ClickHouse alerts 스키마 준비 완료: {}", table);
         } catch (Exception e) {
@@ -79,10 +84,16 @@ public class AlertClickHouseWriter {
         }
     }
 
-    /**
-     * 판정기록 한 건을 alerts 테이블에 적재한다. id 는 결정적(AlertId)이라 재소비돼도 병합 시 한 행만 남는다.
-     * created_at 은 CH 기본값(now64)에 맡겨 재삽입 시 최신본이 이기게 한다.
-     */
+    /** CREATE IF NOT EXISTS 는 기존 테이블을 안 바꾸니 TTL 은 ALTER 로 건다. 매번 걸면 전 파트 재계산이라 없을 때만. */
+    private void ensureTtl() {
+        if (query("SHOW CREATE TABLE " + table).contains(TTL)) {
+            return;
+        }
+        execute("ALTER TABLE " + table + " MODIFY TTL " + TTL);
+        log.info("ClickHouse TTL 적용: {} TTL {}", table, TTL);
+    }
+
+    /** id 는 결정적(AlertId)이라 재소비돼도 병합 시 한 행만 남는다. created_at 은 CH 기본값(now64)에 맡겨 재삽입 시 최신본이 이기게 한다. */
     public void insert(String id, Alert alert) {
         if (!schemaReady) {
             // CH 가 부팅 시점에 죽어있었으면 테이블이 아직 없다. 첫 적재 때 한 번 더 시도해 자가복구한다.
@@ -116,6 +127,16 @@ public class AlertClickHouseWriter {
                 .body(sql)
                 .retrieve()
                 .toBodilessEntity();
+    }
+
+    private String query(String sql) {
+        String body = client.post()
+                .uri("/")
+                .contentType(MediaType.TEXT_PLAIN)
+                .body(sql)
+                .retrieve()
+                .body(String.class);
+        return body == null ? "" : body;
     }
 
     private static String nz(String s) {
