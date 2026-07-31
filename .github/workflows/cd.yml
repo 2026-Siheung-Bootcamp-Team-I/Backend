@@ -230,10 +230,28 @@ jobs:
           sudo kubectl -n "$NS" rollout status "deployment/$m" --timeout=120s
           done
 
+          # rollout status 는 파드가 떴는지만 본다. api-service 는 ClickHouse 연결이 깨져도 예외를 삼키고
+          # /actuator/health 는 그대로 UP 이라(CH 항목이 없다) 판정기록이 하나도 안 쌓이는 채로 배포가
+          # 초록으로 끝난다. 실제로 비번이 갈려 alerts 테이블이 안 만들어진 걸 몇 시간 뒤에야 알았다.
+          # 그래서 부팅했으면 반드시 참이어야 할 사실 하나를 직접 확인한다.
+          SMOKE_FAILED=""
+          case " $DEPLOYED " in *" api-service "*)
+          CHPW=$(sudo kubectl -n "$NS" get secret edrdog-secrets -o jsonpath='{.data.CLICKHOUSE_PASSWORD}' 2>/dev/null | base64 -d 2>/dev/null || true)
+          [ -n "$CHPW" ] || CHPW=edrdog
+          if ! sudo kubectl -n "$NS" exec deploy/clickhouse -- \
+          clickhouse-client --user edrdog --password "$CHPW" -q "EXISTS TABLE edrdog.alerts" 2>/dev/null | grep -qx 1; then
+          SMOKE_FAILED="api-service 가 떴는데 edrdog.alerts 테이블이 없다. ClickHouse 인증/연결을 확인한다(로그: ClickHouse alerts 스키마 준비 실패)."
+          fi
+          ;;
+          esac
+
           # 앱은 다 올린 뒤에 인프라 실패를 알린다. 여기서 죽어야 CD 가 초록으로 안 끝난다.
-          if [ -n "$INFRA_FAILED" ]; then
-          echo "인프라 롤아웃 실패:$INFRA_FAILED" >&2
-          echo "kafka-ui·portainer 라면 edrdog-secrets 에 계정 키가 없는 것이다(k8s/README.md)." >&2
+          if [ -n "$SMOKE_FAILED" ]; then
+          echo "배포 후 점검 실패: $SMOKE_FAILED" >&2
+          fi
+          if [ -n "$INFRA_FAILED" ] || [ -n "$SMOKE_FAILED" ]; then
+          [ -z "$INFRA_FAILED" ] || echo "인프라 롤아웃 실패:$INFRA_FAILED" >&2
+          [ -z "$INFRA_FAILED" ] || echo "kafka-ui·portainer 라면 edrdog-secrets 에 계정 키가 없는 것이다(k8s/README.md)." >&2
           exit 1
           fi
           REMOTE
