@@ -82,10 +82,12 @@ install -m 755 "$TMP/agent" "$BIN_PATH"
 step "2/4 설정을 쓴다 ($SERVER)"
 mkdir -p "$CONF_DIR"
 chmod 755 "$CONF_DIR"
-# 에이전트가 이 인증서로 서버를 고정한다.
+# 에이전트가 이 인증서로 서버를 고정한다. 여기서는 받아오기만 한다.
+# 서버 인증서가 self-signed 라 openssl 은 받아 놓고도 검증 실패로 종료코드 1 을 낸다.
+# pipefail 이 켜져 있어 그 코드를 그대로 믿으면 정상 수신도 실패로 끝난다. 파일로 판단한다.
 openssl s_client -connect "$SERVER" -servername "${SERVER%%:*}" </dev/null 2>/dev/null \
-  | sed -n '/BEGIN CERTIFICATE/,/END CERTIFICATE/p' > "$CERT_PATH" || fail "서버 인증서를 받지 못했다"
-[[ -s "$CERT_PATH" ]] || fail "받아온 인증서가 비어 있다. $SERVER 가 열려 있는지 확인해라"
+  | sed -n '/BEGIN CERTIFICATE/,/END CERTIFICATE/p' > "$CERT_PATH" || true
+[[ -s "$CERT_PATH" ]] || fail "서버 인증서를 받지 못했다. $SERVER 가 열려 있는지 확인해라"
 chmod 644 "$CERT_PATH"
 
 # enroll secret 이 들어가므로 다른 사용자가 읽으면 안 된다.
