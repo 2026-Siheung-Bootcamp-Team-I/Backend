@@ -61,7 +61,7 @@ public class IncidentController {
     }
 
     @Operation(summary = "사건 상세",
-            description = "구성 알림 전체와 사건 체인만 남긴 계보 그래프(nodes/edges)를 함께 준다. "
+            description = "구성 알림 전체와 사건 체인의 이벤트로만 그린 계보 그래프(nodes/edges)를 함께 준다. "
                     + "기간(from/to) 밖의 사건이거나 남의 tenant 것이면 404.")
     @GetMapping("/{id}")
     public IncidentResponse detail(

@@ -14,7 +14,8 @@ import java.util.List;
  * @param ruleIds      구성 알림의 rule (중복 제거, 시간순 첫 등장 순서)
  * @param threatNames  ruleIds 를 화면 표시용 한글로 옮긴 값(같은 순서)
  * @param alerts       구성 알림 전체(시간 오름차순). 목록에서는 null 이다
- * @param lineage      사건 체인만 남긴 계보 그래프. 목록에서는 null 이다
+ * @param lineage      사건 체인의 이벤트로만 그린 계보 그래프. 체인 맨 위 프로세스의 부모는 어디서 시작됐는지
+ *                     보이도록 노드로 남는다. 목록에서는 null 이다
  */
 public record IncidentResponse(
         String id,
