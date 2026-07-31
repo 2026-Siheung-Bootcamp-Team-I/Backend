@@ -137,6 +137,89 @@ class AlertQueryBuilderTest {
         assertTrue(!q.sql().contains(" IN ("), q.sql());
     }
 
+    // --- 페이지 조회(offset) / 총 건수 ---
+
+    @Test
+    void 페이지조회는_offset_이_없으면_OFFSET_절을_붙이지_않는다() {
+        ClickHouseQuery q = b.searchPage("A", null, null, null, null, null, null, null, null, null, null);
+        assertTrue(!q.sql().contains("OFFSET"), q.sql());
+    }
+
+    @Test
+    void 페이지조회는_offset_을_그대로_건너뛴다() {
+        ClickHouseQuery q = b.searchPage("A", null, null, null, null, null, null, 50, 100, null, null);
+        assertTrue(q.sql().contains("OFFSET 100"), q.sql());
+    }
+
+    @Test
+    void 페이지조회는_다음페이지_확인용으로_한_행을_더_읽는다() {
+        // FINAL + count 는 비싸다. 다음 페이지 유무만 알면 되는 경우는 한 행 더 읽어 해결한다.
+        assertTrue(b.searchPage("A", null, null, null, null, null, null, 50, null, null, null)
+                .sql().contains("LIMIT 51"));
+        assertTrue(b.searchPage("A", null, null, null, null, null, null, 5000, null, null, null)
+                .sql().contains("LIMIT 1001"));
+    }
+
+    @Test
+    void 페이지크기는_limit_클램프_결과와_같다() {
+        assertEquals(100, AlertQueryBuilder.pageSize(null));
+        assertEquals(250, AlertQueryBuilder.pageSize(250));
+        assertEquals(1000, AlertQueryBuilder.pageSize(5000));
+    }
+
+    @Test
+    void offset_이_상한을_넘거나_음수면_예외() {
+        assertThrows(IllegalArgumentException.class,
+                () -> b.searchPage("A", null, null, null, null, null, null, 100,
+                        AlertQueryBuilder.MAX_OFFSET + 1, null, null));
+        assertThrows(IllegalArgumentException.class,
+                () -> b.searchPage("A", null, null, null, null, null, null, 100, -1, null, null));
+    }
+
+    @Test
+    void 같은_시간범위를_고정하면_페이지끼리_OFFSET_만_다르다() {
+        ClickHouseQuery p1 = b.searchPage("A", "h1", null, null, null, 100L, 300L, 100, null, null, null);
+        ClickHouseQuery p2 = b.searchPage("A", "h1", null, null, null, 100L, 300L, 100, 100, null, null);
+        assertEquals(p1.params(), p2.params());
+        assertEquals(p1.sql() + " OFFSET 100", p2.sql());
+    }
+
+    @Test
+    void 페이지조회도_FINAL과_tenant격리_최신순() {
+        ClickHouseQuery q = b.searchPage("A", null, null, null, null, null, null, null, 100, null, null);
+        assertTrue(q.sql().contains("FROM edrdog.alerts FINAL"), q.sql());
+        assertTrue(q.sql().contains("tenant_id = {tenant:String}"), q.sql());
+        assertTrue(q.sql().contains("ORDER BY ts DESC"), q.sql());
+        assertEquals("A", q.params().get("tenant"));
+    }
+
+    @Test
+    void 총건수는_페이지조회와_같은_WHERE_로_센다() {
+        ClickHouseQuery page = b.searchPage("A", "h1", "HIGH", "evil.example.com", "203.0.113.9",
+                100L, 300L, 100, 100, List.of("x"), List.of("y"));
+        ClickHouseQuery count = b.countSearch("A", "h1", "HIGH", "evil.example.com", "203.0.113.9",
+                100L, 300L, List.of("x"), List.of("y"));
+        assertTrue(count.sql().contains("count() AS cnt"), count.sql());
+        assertTrue(count.sql().contains("FROM edrdog.alerts FINAL"), count.sql());
+        assertEquals(page.params(), count.params());
+    }
+
+    @Test
+    void 총건수는_tenant_밖을_세지_않는다() {
+        ClickHouseQuery q = b.countSearch("A", null, null, null, null, null, null, null, null);
+        assertTrue(q.sql().contains("tenant_id = {tenant:String}"), q.sql());
+        assertEquals("A", q.params().get("tenant"));
+        assertThrows(IllegalArgumentException.class,
+                () -> b.countSearch(null, null, null, null, null, null, null, null, null));
+    }
+
+    @Test
+    void 총건수는_LIMIT_이나_정렬을_붙이지_않는다() {
+        ClickHouseQuery q = b.countSearch("A", null, null, null, null, null, null, null, null);
+        assertTrue(!q.sql().contains("LIMIT"), q.sql());
+        assertTrue(!q.sql().contains("ORDER BY"), q.sql());
+    }
+
     @Test
     void byId_는_id바인딩과_LIMIT1() {
         ClickHouseQuery q = b.byId("A", "the-id");

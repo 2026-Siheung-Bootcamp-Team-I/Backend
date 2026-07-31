@@ -71,12 +71,25 @@ public class AlertService {
     }
 
     /**
-     * tenant 격리 하에 필터로 최신순 조회. status 필터는 오버레이(MySQL) 기준으로 id 목록을 구해
+     * 한 페이지 분량의 조회 결과. 본문(items)은 배열 그대로 나가고 나머지는 응답 헤더로 실린다.
+     * total 은 화면이 요청했을 때만 채워진다(null = 안 셈).
+     */
+    public record AlertPage(List<AlertResponse> items, boolean hasMore, Long total) {
+    }
+
+    /**
+     * tenant 격리 하에 필터로 최신순 한 페이지 조회. status 필터는 오버레이(MySQL) 기준으로 id 목록을 구해
      * ClickHouse 쿼리의 IN/NOT IN 으로 옮긴다. 반환 행들의 status 는 오버레이에서 병합한다(없으면 open).
+     *
+     * <p>offset 은 ORDER BY ts DESC 안에서 앞에서부터 건너뛰므로 호출부가 to 를 고정해 줘야 페이지가
+     * 겹치거나 빠지지 않는다. 다음 페이지 유무는 한 행을 더 읽어 판단하고, 총 건수는 withTotal 일 때만
+     * 센다: alerts 는 FINAL(중복 제거) 위에서 도는 조회라 count() 를 매번 한 번 더 도는 값이 싸지 않고,
+     * 화면은 대개 "다음 페이지가 있는지" 만 알면 되기 때문이다.
      */
     @Transactional(readOnly = true)
-    public List<AlertResponse> query(String tenantId, String host, String severity, String status,
-                                     String domain, String destIp, Long from, Long to, Integer limit) {
+    public AlertPage query(String tenantId, String host, String severity, String status,
+                           String domain, String destIp, Long from, Long to, Integer limit,
+                           Integer offset, boolean withTotal) {
         List<String> includeIds = null;
         List<String> excludeIds = null;
         if (AlertStatus.OPEN.equals(status)) {
@@ -84,18 +97,35 @@ public class AlertService {
         } else if (status != null && !status.isBlank()) {
             includeIds = triagedIds(tenantId, status);
             if (includeIds.isEmpty()) {
-                return List.of();
+                return new AlertPage(List.of(), false, withTotal ? 0L : null);
             }
         }
-        List<Map<String, Object>> rows = reader.query(
-                alertBuilder.search(tenantId, host, severity, domain, destIp, from, to, limit, includeIds, excludeIds));
+        int size = AlertQueryBuilder.pageSize(limit);
+        List<Map<String, Object>> rows = reader.query(alertBuilder.searchPage(
+                tenantId, host, severity, domain, destIp, from, to, limit, offset, includeIds, excludeIds));
+        boolean hasMore = rows.size() > size;
+        if (hasMore) {
+            rows = rows.subList(0, size);   // 탐침으로 더 읽은 한 행은 화면에 주지 않는다
+        }
         // open 경로는 반환 행이 이미 전부 트리아지 제외분(=open)이라 오버레이 조회가 불필요하다.
         Map<String, String> overlay = AlertStatus.OPEN.equals(status)
                 ? Map.of()
                 : statusByIds(rowIds(rows));
-        return rows.stream()
+        List<AlertResponse> items = rows.stream()
                 .map(r -> AlertResponse.fromRow(r, overlay.getOrDefault(str(r, "id"), AlertStatus.OPEN)))
                 .toList();
+        Long total = withTotal
+                ? countOf(tenantId, host, severity, domain, destIp, from, to, includeIds, excludeIds)
+                : null;
+        return new AlertPage(items, hasMore, total);
+    }
+
+    /** 같은 필터·같은 tenant 로 총 건수를 센다(남의 조직 건수가 총계에 섞이면 그 자체로 정보가 샌다). */
+    private long countOf(String tenantId, String host, String severity, String domain, String destIp,
+                         Long from, Long to, List<String> includeIds, List<String> excludeIds) {
+        List<Map<String, Object>> rows = reader.query(alertBuilder.countSearch(
+                tenantId, host, severity, domain, destIp, from, to, includeIds, excludeIds));
+        return rows.isEmpty() ? 0L : asLong(rows.get(0), "cnt");
     }
 
     /** 단건 상세. 없거나 다른 tenant 것이면 404(존재 은닉). 판정을 유발한 원본 이벤트를 같이 싣는다. */

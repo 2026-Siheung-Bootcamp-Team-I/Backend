@@ -21,6 +21,9 @@ public class AlertQueryBuilder {
     static final int DEFAULT_LIMIT = 100;
     static final int MAX_LIMIT = 1000;
 
+    /** offset 상한. 근거는 EventQueryBuilder.MAX_OFFSET 과 같고, FINAL 이 얹혀 여기가 더 비싸다. */
+    public static final int MAX_OFFSET = 10_000;
+
     // domain/dest_ip 는 판정을 유발한 목적지. "이 엔드포인트가 어디에 붙어서 걸렸나" 를 세려면 조회 컬럼에 있어야 한다.
     private static final String COLUMNS =
             "id, tenant_id, host, rule_id, mitre, severity, action, ts, matched, domain, dest_ip";
@@ -44,15 +47,62 @@ public class AlertQueryBuilder {
     public ClickHouseQuery search(String tenantId, String host, String severity, String domain, String destIp,
                                   Long from, Long to, Integer limit, List<String> includeIds, List<String> excludeIds) {
         Map<String, String> params = new LinkedHashMap<>();
+        List<String> conds = pageConds(tenantId, host, severity, domain, destIp, from, to,
+                includeIds, excludeIds, params);
+        String sql = "SELECT " + COLUMNS + " FROM " + table + " FINAL"
+                + where(conds)
+                + " ORDER BY ts DESC LIMIT " + clampLimit(limit);
+        return new ClickHouseQuery(sql, params);
+    }
+
+    /**
+     * 화면 페이지 조회. search 와 같은 WHERE·정렬에 offset 만 얹되, 페이지 크기보다 한 행을 더 읽는다.
+     * 그 한 행이 다음 페이지가 있다는 뜻이라 FINAL + count() 를 한 번 더 돌지 않아도 된다.
+     *
+     * <p>offset 은 ORDER BY ts DESC 안에서 앞에서부터 건너뛰므로, to 를 고정하지 않고 페이지를 넘기면
+     * 그사이 들어온 새 알림이 맨 위에 쌓여 행이 겹치거나 건너뛰어진다. 호출부는 첫 페이지가 실제로
+     * 적용한 to 를 다음 페이지에 그대로 실어야 한다.
+     */
+    public ClickHouseQuery searchPage(String tenantId, String host, String severity, String domain, String destIp,
+                                      Long from, Long to, Integer limit, Integer offset,
+                                      List<String> includeIds, List<String> excludeIds) {
+        Map<String, String> params = new LinkedHashMap<>();
+        List<String> conds = pageConds(tenantId, host, severity, domain, destIp, from, to,
+                includeIds, excludeIds, params);
+        String sql = "SELECT " + COLUMNS + " FROM " + table + " FINAL"
+                + where(conds)
+                + " ORDER BY ts DESC LIMIT " + (pageSize(limit) + 1)
+                + offsetClause(offset);
+        return new ClickHouseQuery(sql, params);
+    }
+
+    /**
+     * searchPage 와 같은 WHERE 로 총 건수만 센다(tenant 격리도 그대로다).
+     * FINAL 이라 조회를 한 번 더 도는 비용이 작지 않으므로, 화면이 명시적으로 총계를 요청할 때만 부른다.
+     */
+    public ClickHouseQuery countSearch(String tenantId, String host, String severity, String domain, String destIp,
+                                       Long from, Long to, List<String> includeIds, List<String> excludeIds) {
+        Map<String, String> params = new LinkedHashMap<>();
+        List<String> conds = pageConds(tenantId, host, severity, domain, destIp, from, to,
+                includeIds, excludeIds, params);
+        return new ClickHouseQuery("SELECT count() AS cnt FROM " + table + " FINAL" + where(conds), params);
+    }
+
+    /** 클램프가 적용된 실제 페이지 크기. 호출부가 탐침 행을 잘라내려면 이 값을 알아야 한다. */
+    public static int pageSize(Integer limit) {
+        return clampLimit(limit);
+    }
+
+    /** searchPage 와 countSearch 가 같은 WHERE 를 쓰도록 조건 조립을 한곳에 둔다. */
+    private static List<String> pageConds(String tenantId, String host, String severity, String domain, String destIp,
+                                          Long from, Long to, List<String> includeIds, List<String> excludeIds,
+                                          Map<String, String> params) {
         List<String> conds = base(tenantId, host, severity, from, to, params);
         addDomain(domain, conds, params);
         addDestIp(destIp, conds, params);
         addIdSet("inc", includeIds, false, conds, params);
         addIdSet("exc", excludeIds, true, conds, params);
-        String sql = "SELECT " + COLUMNS + " FROM " + table + " FINAL"
-                + where(conds)
-                + " ORDER BY ts DESC LIMIT " + clampLimit(limit);
-        return new ClickHouseQuery(sql, params);
+        return conds;
     }
 
     /** tenant 격리 하에 단건 조회(존재/소유 확인용). 없으면 빈 결과. */
@@ -190,6 +240,17 @@ public class AlertQueryBuilder {
             return DEFAULT_LIMIT;
         }
         return Math.min(limit, MAX_LIMIT);
+    }
+
+    /** limit 과 달리 범위를 벗어난 offset 은 클램프하지 않고 거절한다(조용히 자르면 화면은 빈 페이지로 읽는다). */
+    private static String offsetClause(Integer offset) {
+        if (offset == null || offset == 0) {
+            return "";
+        }
+        if (offset < 0 || offset > MAX_OFFSET) {
+            throw new IllegalArgumentException("offset 은 0..." + MAX_OFFSET + " 여야 합니다: " + offset);
+        }
+        return " OFFSET " + offset;
     }
 
     private static boolean hasText(String s) {
