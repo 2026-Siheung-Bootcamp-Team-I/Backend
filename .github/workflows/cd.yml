@@ -12,38 +12,35 @@ jobs:
     outputs:
       modules: ${{ steps.list.outputs.modules }}
     steps:
+      # git diff 로 직접 비교하므로 전체 히스토리가 필요하다.
       - uses: actions/checkout@v4
-      - uses: dorny/paths-filter@v3
-        id: filter
         with:
-          filters: |
-            shared: &shared
-              - 'build.gradle'
-              - 'settings.gradle'
-              - 'gradle/**'
-              - 'gradlew'
-              - '.github/workflows/cd.yml'
-            detector-service:
-              - *shared
-              - 'detector-service/**'
-            responder-service:
-              - *shared
-              - 'responder-service/**'
-            archiver-service:
-              - *shared
-              - 'archiver-service/**'
-            api-service:
-              - *shared
-              - 'api-service/**'
-            alert-service:
-              - *shared
-              - 'alert-service/**'
-            collector-service:
-              - *shared
-              - 'collector-service/**'
-      # shared 는 "전 모듈 공통" 을 앵커로 재사용하려고 만든 항목이라 모듈이 아니다. matrix 에서 뺀다.
+          fetch-depth: 0
+      # dorny/paths-filter 를 썼다가 뺐다. 그 액션의 기본 base 는 레포 기본 브랜치(dev)인데,
+      # main push 는 항상 dev 를 머지해서 생기니 dev...main 차이가 언제나 0 이다. 결과가 늘 비어
+      # 아무것도 안 구워지고 옛 이미지로 배포되는데, CD 는 초록불이라 아무도 모른다.
       - id: list
-        run: echo "modules=$(jq -cn --argjson c '${{ steps.filter.outputs.changes }}' '$c - ["shared"]')" >> "$GITHUB_OUTPUT"
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          ALL='["detector-service","responder-service","archiver-service","api-service","alert-service","collector-service"]'
+          # 판단이 안 서면 전부 굽는다. 느린 배포가 낡은 이미지 배포보다 낫다.
+          if [ -z "$BEFORE" ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            echo "직전 커밋($BEFORE)을 못 찾아 전 모듈을 다시 굽는다" >&2
+            echo "modules=$ALL" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          FILES=$(git diff --name-only "$BEFORE" "$GITHUB_SHA")
+          echo "바뀐 파일:" >&2; echo "$FILES" | sed 's/^/  /' >&2
+          # 공통 파일은 어느 모듈이 영향받을지 알 수 없으므로 전부 굽는다.
+          if echo "$FILES" | grep -qE '^(build\.gradle|settings\.gradle|gradlew|gradle/|\.github/workflows/cd\.yml)'; then
+            echo "공통 파일이 바뀌어 전 모듈을 다시 굽는다" >&2
+            echo "modules=$ALL" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          MODS=$(echo "$FILES" | awk -F/ '{print $1}' | sort -u \
+            | grep -E '^(detector|responder|archiver|api|alert|collector)-service$' || true)
+          MODULES=$(jq -Rc -s 'split("\n") | map(select(length > 0))' <<<"$MODS")
+          echo "다시 구울 모듈: $MODULES" >&2
+          echo "modules=$MODULES" >> "$GITHUB_OUTPUT"
 
   # 빌드 + 테스트 후 boot jar 를 다음 잡으로 넘긴다 (바뀐 모듈만)
   # settings.gradle 의 모듈끼리 의존이 하나도 없어서(project(...) 참조 0건) 모듈별로 잘라 돌려도
