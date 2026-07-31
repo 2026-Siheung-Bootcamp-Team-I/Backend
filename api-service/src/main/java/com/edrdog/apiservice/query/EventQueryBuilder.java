@@ -73,6 +73,33 @@ public class EventQueryBuilder {
         return new ClickHouseQuery(sql, params);
     }
 
+    /**
+     * 단건(id) 조회용 창의 반폭(ms). ts 한 점으로 못 박지 않는 이유는, 링크가 나르는 ts 가 화면을
+     * 거치며 초 단위로 잘려 오는 등 원본과 몇 밀리초 어긋날 수 있어서다. 점으로 잡으면 그때 조용히
+     * 404 가 된다. 창을 넓혀도 엉뚱한 이벤트가 나오지는 않는다. 창은 후보를 긁는 범위일 뿐이고
+     * 무엇을 돌려줄지는 행의 실제 값으로 다시 접은 id 가 정하기 때문이다. 창은 스캔 비용만 정한다.
+     */
+    static final long POINT_WINDOW_MS = 1000;
+
+    /**
+     * tenant+host 격리 하에 ts 주변 좁은 창의 events 를 뽑는다(id 로 단건을 지목하는 경로).
+     * events 에는 id 컬럼이 없어 WHERE 로 못 거르므로, 여기서는 후보만 좁히고 id 대조는 호출부가 한다.
+     * 그래서 id 씨앗 컬럼이 다 실린 전체 COLUMNS 를 뽑고, 창 안이 붐벼도 찾는 행이 잘리지 않게
+     * 상한(MAX_LIMIT)까지 연다. tenantId 와 host 는 필수 — host 가 없으면 tenant 전체를 훑게 된다.
+     */
+    public ClickHouseQuery eventAt(String tenantId, String host, long ts) {
+        if (!hasText(host)) {
+            throw new IllegalArgumentException("host 는 필수입니다(단건 조회 범위)");
+        }
+        Map<String, String> params = new LinkedHashMap<>();
+        String where = where(tenantId, host, null, null,
+                Math.max(0, ts - POINT_WINDOW_MS), ts + POINT_WINDOW_MS, params);
+        String sql = "SELECT " + COLUMNS + " FROM " + table
+                + where
+                + " ORDER BY ts DESC LIMIT " + MAX_LIMIT;
+        return new ClickHouseQuery(sql, params);
+    }
+
     /** tenant 격리 하에 type 별 건수 집계. 시간범위 필터(옵션) 지원. tenantId 는 필수. */
     public ClickHouseQuery summaryByType(String tenantId, Long from, Long to) {
         Map<String, String> params = new LinkedHashMap<>();

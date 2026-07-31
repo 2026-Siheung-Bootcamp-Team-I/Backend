@@ -1,5 +1,6 @@
 package com.edrdog.apiservice.web;
 
+import com.edrdog.apiservice.auth.exception.AuthException;
 import com.edrdog.apiservice.auth.service.AuthService;
 import com.edrdog.apiservice.auth.service.Principal;
 import com.edrdog.apiservice.clickhouse.ClickHouseReader;
@@ -8,6 +9,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -56,6 +58,31 @@ public class EventQueryController {
         String tenantId = currentTenantId(authorization);
         List<Map<String, Object>> rows = reader.query(builder.events(tenantId, host, type, sha256, from, to, limit));
         return rows.stream().map(row -> EventResponse.fromRow(row, mapper)).toList();
+    }
+
+    @Operation(summary = "이벤트 단건 조회",
+            description = "id 로 이벤트 하나를 지목해 연다(조사 화면 공유 링크). 응답은 목록과 같은 EventResponse 다. "
+                    + "id 는 저장된 값이 아니라 이벤트 내용을 접어 만든 것이라 WHERE 로 못 거른다. 그래서 host 와 "
+                    + "ts(epoch millis)를 필수로 받아 그 주변 좁은 범위만 조회하고, 그 안에서 id 가 일치하는 행만 준다. "
+                    + "host/ts 가 없으면 400, id 가 안 맞거나 남의 tenant 것이면 404.")
+    @GetMapping("/events/{id}")
+    public EventResponse event(
+            @RequestHeader(name = "Authorization", required = false) String authorization,
+            @PathVariable String id,
+            @RequestParam String host,
+            @RequestParam Long ts) {
+        String tenantId = currentTenantId(authorization);
+        if (host.isBlank()) {
+            throw AuthException.invalidInput("host 는 필수입니다");
+        }
+        List<Map<String, Object>> rows = reader.query(builder.eventAt(tenantId, host, ts));
+        // 같은 host 의 같은 밀리초에 이벤트가 여럿일 수 있다. 창 안에서 시각으로 아무거나 고르는 대신
+        // 행마다 id 를 다시 접어 정확히 일치하는 것만 고른다. 링크가 조작되면 다른 이벤트 대신 404 다.
+        return rows.stream()
+                .map(row -> EventResponse.fromRow(row, mapper))
+                .filter(event -> event.id().equals(id))
+                .findFirst()
+                .orElseThrow(() -> AuthException.notFound("이벤트를 찾을 수 없습니다"));
     }
 
     @Operation(summary = "이벤트 요약",
