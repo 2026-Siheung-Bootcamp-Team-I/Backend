@@ -155,7 +155,18 @@ public final class DemoData {
                 actionFor(severity),
                 last.ts(),
                 evidence.stream().map(DemoData::summary).toList(),
-                tenantId);
+                tenantId,
+                "",   // 데모 이벤트에는 도메인이 없다
+                destIpOf(evidence));
+    }
+
+    /** 목적지는 detector Rules.destinationOf 와 같이 근거 이벤트 중 관측된 것에서 가져온다(없으면 빈 값). */
+    private static String destIpOf(List<DemoEvent> evidence) {
+        return evidence.stream()
+                .map(DemoEvent::destIp)
+                .filter(ip -> !ip.isBlank())
+                .findFirst()
+                .orElse("");
     }
 
     /** detector Rules 의 심각도와 동일하게 맞춘다. */

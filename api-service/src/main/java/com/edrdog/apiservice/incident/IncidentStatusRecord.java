@@ -1,0 +1,62 @@
+package com.edrdog.apiservice.incident;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+
+import java.time.Instant;
+
+/**
+ * 사건 트리아지 status 오버레이(MySQL). alert_status 와 같은 구조다.
+ * 사건 본체는 저장하지 않고 조회할 때 알림을 묶어 만들며, 여기에는 가변인 status 만 둔다.
+ * 행이 있으면 트리아지된 것(confirmed/false_positive), 없으면 open 으로 본다.
+ * id 는 다시 묶어도 같은 값이 나오는 결정적 id(IncidentId)라 계산된 사건에 이 행을 붙일 수 있다.
+ */
+@Entity
+@Table(name = "incident_status")
+public class IncidentStatusRecord {
+
+    @Id
+    private String id;
+
+    @Column(name = "tenant_id", nullable = false)
+    private String tenantId;
+
+    @Column(nullable = false)
+    private String status;
+
+    @Column(name = "updated_at", nullable = false)
+    private Instant updatedAt;
+
+    protected IncidentStatusRecord() {
+    }
+
+    private IncidentStatusRecord(String id, String tenantId, String status, Instant updatedAt) {
+        this.id = id;
+        this.tenantId = tenantId;
+        this.status = status;
+        this.updatedAt = updatedAt;
+    }
+
+    /** status 는 confirmed/false_positive 만 들어온다. */
+    public static IncidentStatusRecord of(String id, String tenantId, String status, Instant now) {
+        return new IncidentStatusRecord(id, tenantId, status, now);
+    }
+
+    public String getId() {
+        return id;
+    }
+
+    public String getTenantId() {
+        return tenantId;
+    }
+
+    public String getStatus() {
+        return status;
+    }
+
+    public Instant getUpdatedAt() {
+        return updatedAt;
+    }
+}

@@ -93,6 +93,19 @@ class CorsIntegrationTest {
     }
 
     @Test
+    void 페이지네이션_헤더는_브라우저가_읽을_수_있게_노출된다() throws Exception {
+        // 페이지 정보는 본문이 아니라 헤더로 나간다. exposedHeaders 에 없으면 브라우저가 아예 못 읽어서
+        // 서버는 정상인데 화면에서만 값이 안 보이고, 그건 원인을 찾기 어렵다.
+        var res = mvc.perform(get("/api/alerts").header("Origin", "http://localhost:5173"))
+                .andExpect(header().exists("Access-Control-Expose-Headers"))
+                .andReturn();
+        String exposed = res.getResponse().getHeader("Access-Control-Expose-Headers");
+        for (String name : com.edrdog.apiservice.web.PageHeaders.ALL) {
+            org.junit.jupiter.api.Assertions.assertTrue(exposed.contains(name), name + " 가 " + exposed + " 에 없다");
+        }
+    }
+
+    @Test
     void API키_거부_401_에도_허용_출처_헤더가_붙는다() throws Exception {
         // 헤더가 없으면 브라우저는 본문을 못 읽고 네트워크 오류로만 받는다. 그러면 화면에
         // "유효한 X-API-Key 가 필요합니다" 대신 정체불명의 연결 실패가 뜨고, 키를 잘못 맞춘

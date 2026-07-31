@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -40,7 +41,8 @@ class AlertServiceTest {
             new LineageGraphBuilder());
 
     private static Alert alert(String tenantId, long ts) {
-        return new Alert("h1", "RULE_A", "T1059", "HIGH", "notify", ts, List.of("m1"), tenantId);
+        return new Alert("h1", "RULE_A", "T1059", "HIGH", "notify", ts, List.of("m1"), tenantId,
+                "evil.example.com", "203.0.113.9");
     }
 
     private static Map<String, Object> row(String id, String tenant, String host, long ts) {
@@ -84,7 +86,7 @@ class AlertServiceTest {
         when(reader.query(any())).thenReturn(List.of(row("r1", "A", "h1", 100L)));
         when(statuses.findAllById(any())).thenReturn(List.of());
 
-        List<AlertResponse> out = service.query("A", null, null, "open", null, null, null);
+        List<AlertResponse> out = service.query("A", null, null, "open", null, null, null, null, null, null, false).items();
 
         ArgumentCaptor<ClickHouseQuery> cap = ArgumentCaptor.forClass(ClickHouseQuery.class);
         verify(reader).query(cap.capture());
@@ -98,7 +100,8 @@ class AlertServiceTest {
     void query_confirmed_인데_트리아지가_없으면_CH조회없이_빈결과() {
         when(statuses.findByTenantId("A")).thenReturn(List.of());
 
-        assertTrue(service.query("A", null, null, AlertStatus.CONFIRMED, null, null, null).isEmpty());
+        assertTrue(service.query("A", null, null, AlertStatus.CONFIRMED, null, null, null, null, null, null, false)
+                .items().isEmpty());
         verify(reader, never()).query(any());
     }
 
@@ -108,7 +111,8 @@ class AlertServiceTest {
         when(reader.query(any())).thenReturn(List.of(row("r1", "A", "h1", 100L)));
         when(statuses.findAllById(any())).thenReturn(List.of(triaged("r1", "A", AlertStatus.CONFIRMED)));
 
-        List<AlertResponse> out = service.query("A", null, null, AlertStatus.CONFIRMED, null, null, null);
+        List<AlertResponse> out = service.query("A", null, null, AlertStatus.CONFIRMED, null, null, null, null, null, null, false)
+                .items();
 
         assertEquals(1, out.size());
         assertEquals(AlertStatus.CONFIRMED, out.get(0).status());
@@ -129,6 +133,103 @@ class AlertServiceTest {
         when(statuses.findById("r1")).thenReturn(java.util.Optional.of(triaged("r1", "A", AlertStatus.FALSE_POSITIVE)));
 
         assertEquals(AlertStatus.FALSE_POSITIVE, service.get("A", "r1").status());
+    }
+
+    @Test
+    void get_은_같은_host_events에서_판정을_유발한_이벤트를_찾아_싣는다() {
+        Map<String, Object> alert = new java.util.HashMap<>(row("r1", "A", "h1", 100L));
+        alert.put("matched", List.of("process evil.exe (parent explorer.exe)"));
+        when(reader.query(any())).thenAnswer(inv -> {
+            ClickHouseQuery q = inv.getArgument(0);
+            if (q.sql().contains("edrdog.alerts")) {
+                return List.of(alert);
+            }
+            return List.of(Map.of("host", "h1", "type", "process", "ts", "100",
+                    "process", "evil.exe", "parent", "explorer.exe"));
+        });
+
+        AlertResponse res = service.get("A", "r1");
+
+        assertEquals("evil.exe", res.sourceEvent().process());
+        // events 조회도 tenant/host 로 격리돼야 한다
+        ArgumentCaptor<ClickHouseQuery> cap = ArgumentCaptor.forClass(ClickHouseQuery.class);
+        verify(reader, times(2)).query(cap.capture());
+        ClickHouseQuery eventQuery = cap.getAllValues().get(1);
+        assertEquals("A", eventQuery.params().get("tenant"));
+        assertEquals("h1", eventQuery.params().get("host"));
+    }
+
+    @Test
+    void get_은_원본이벤트를_못찾으면_null_이다() {
+        when(reader.query(any())).thenAnswer(inv -> {
+            ClickHouseQuery q = inv.getArgument(0);
+            return q.sql().contains("edrdog.alerts") ? List.of(row("r1", "A", "h1", 100L)) : List.of();
+        });
+
+        assertNull(service.get("A", "r1").sourceEvent());
+    }
+
+    @Test
+    void 목록에는_원본이벤트를_싣지_않는다() {
+        // 행마다 events 를 조회하면 목록이 느려진다.
+        when(reader.query(any())).thenReturn(List.of(row("r1", "A", "h1", 100L)));
+        when(statuses.findAllById(any())).thenReturn(List.of());
+
+        List<AlertResponse> out = service.query("A", null, null, null, null, null, null, null, null, null, false).items();
+
+        assertNull(out.get(0).sourceEvent());
+        verify(reader, times(1)).query(any());
+    }
+
+    @Test
+    void query_는_domain_destIp_필터를_alertBuilder에_그대로_전달한다() {
+        when(reader.query(any())).thenReturn(List.of());
+
+        service.query("A", null, null, null, "EVIL.EXAMPLE.COM", "203.0.113.9", null, null, null, null, false);
+
+        ArgumentCaptor<ClickHouseQuery> cap = ArgumentCaptor.forClass(ClickHouseQuery.class);
+        verify(reader).query(cap.capture());
+        // 소문자 정규화는 AlertQueryBuilder 몫이라 여기서는 그대로 전달만 되는지 본다(SQL 상세는 AlertQueryBuilderTest).
+        assertEquals("evil.example.com", cap.getValue().params().get("domain"));
+        assertEquals("203.0.113.9", cap.getValue().params().get("destIp"));
+    }
+
+    @Test
+    void 총계를_요청하지_않으면_count_쿼리를_아예_돌지_않는다() {
+        // FINAL + count 는 비싸다. 화면이 안 물어보면 안 세는 게 이 설계의 핵심이다.
+        when(reader.query(any())).thenReturn(List.of(row("r1", "A", "h1", 100L)));
+        when(statuses.findAllById(any())).thenReturn(List.of());
+
+        AlertService.AlertPage page = service.query("A", null, null, null, null, null, null, null, null, null, false);
+
+        assertNull(page.total());
+        verify(reader, times(1)).query(any());
+    }
+
+    @Test
+    void 총계를_요청하면_같은_tenant_로_한_번_더_센다() {
+        when(reader.query(any())).thenReturn(List.of(Map.of("cnt", "42")));
+        when(statuses.findAllById(any())).thenReturn(List.of());
+
+        AlertService.AlertPage page = service.query("A", null, null, null, null, null, null, null, null, null, true);
+
+        ArgumentCaptor<ClickHouseQuery> cap = ArgumentCaptor.forClass(ClickHouseQuery.class);
+        verify(reader, times(2)).query(cap.capture());
+        ClickHouseQuery count = cap.getAllValues().get(1);
+        assertTrue(count.sql().contains("count() AS cnt"), count.sql());
+        assertEquals("A", count.params().get("tenant"));
+        assertEquals(42L, page.total());
+    }
+
+    @Test
+    void status_필터에_해당하는_알림이_없으면_총계도_0이다() {
+        when(statuses.findByTenantId("A")).thenReturn(List.of());
+
+        AlertService.AlertPage page = service.query("A", null, null, AlertStatus.CONFIRMED,
+                null, null, null, null, null, null, true);
+
+        assertEquals(0L, page.total());
+        verify(reader, never()).query(any());
     }
 
     // --- triage ---

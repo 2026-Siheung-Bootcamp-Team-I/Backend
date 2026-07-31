@@ -3,6 +3,7 @@ package com.edrdog.detectorservice.rule;
 import com.edrdog.detectorservice.dto.Alert;
 import com.edrdog.detectorservice.dto.Event;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -107,16 +108,8 @@ public final class Rules {
         if (officeExec.isEmpty()) {
             return Optional.empty();
         }
-        return Optional.of(new Alert(
-                current.host(),
-                "SUSPICIOUS_PROCESS_CHAIN",
-                "T1059",
-                Alert.SEV_HIGH,
-                Alert.actionFor(Alert.SEV_HIGH),
-                current.ts(),
-                List.of(summary(officeExec.get()), summary(current)),
-                current.tenantId(),
-                actTarget(current)));
+        return Optional.of(alertOf("SUSPICIOUS_PROCESS_CHAIN", "T1059", Alert.SEV_HIGH,
+                current, List.of(officeExec.get())));
     }
 
     /**
@@ -137,16 +130,8 @@ public final class Rules {
                     .filter(e -> executableHasMarker(e.cmdline(), SCRIPT_TEMP_MARKERS))
                     .filter(e -> e.ts() >= current.ts())   // 시각상 다운로드가 먼저여야 한다
                     .findFirst()
-                    .map(exec -> new Alert(
-                            exec.host(),
-                            "DOWNLOAD_AND_EXECUTE",
-                            "T1105+T1204",
-                            Alert.SEV_CRITICAL,
-                            Alert.actionFor(Alert.SEV_CRITICAL),
-                            exec.ts(),
-                            List.of(summary(current), summary(exec)),
-                            exec.tenantId(),
-                            actTarget(exec)));
+                    .map(exec -> alertOf("DOWNLOAD_AND_EXECUTE", "T1105+T1204", Alert.SEV_CRITICAL,
+                            exec, List.of(current)));
         }
         if (!isProcess(current) || isBaseline(lower(current.process()))) {
             return Optional.empty();
@@ -166,16 +151,8 @@ public final class Rules {
         if (download.isEmpty()) {
             return Optional.empty();
         }
-        return Optional.of(new Alert(
-                current.host(),
-                "DOWNLOAD_AND_EXECUTE",
-                "T1105+T1204",
-                Alert.SEV_CRITICAL,
-                Alert.actionFor(Alert.SEV_CRITICAL),
-                current.ts(),
-                List.of(summary(download.get()), summary(current)),
-                current.tenantId(),
-                actTarget(current)));
+        return Optional.of(alertOf("DOWNLOAD_AND_EXECUTE", "T1105+T1204", Alert.SEV_CRITICAL,
+                current, List.of(download.get())));
     }
 
     /** R3 T1059: 임시/다운로드 경로에서 실행된 스크립트 (저심각 point 룰). */
@@ -183,16 +160,8 @@ public final class Rules {
         if (!isScript(current) || !pathArgumentHasMarker(current.cmdline(), SCRIPT_TEMP_MARKERS)) {
             return Optional.empty();
         }
-        return Optional.of(new Alert(
-                current.host(),
-                "SCRIPT_FROM_TEMP_PATH",
-                "T1059",
-                Alert.SEV_MEDIUM,
-                Alert.actionFor(Alert.SEV_MEDIUM),
-                current.ts(),
-                List.of(summary(current)),
-                current.tenantId(),
-                actTarget(current)));
+        return Optional.of(alertOf("SCRIPT_FROM_TEMP_PATH", "T1059", Alert.SEV_MEDIUM,
+                current, List.of()));
     }
 
     /** R4 T1547: 자동실행/시작 경로에 생성된 파일 (지속성 확보, 저심각 point 룰). */
@@ -200,16 +169,51 @@ public final class Rules {
         if (!isFile(current) || !pathHasMarker(current.cmdline(), FILE_AUTORUN_MARKERS)) {
             return Optional.empty();
         }
-        return Optional.of(new Alert(
-                current.host(),
-                "FILE_IN_AUTORUN_PATH",
-                "T1547",
-                Alert.SEV_MEDIUM,
-                Alert.actionFor(Alert.SEV_MEDIUM),
-                current.ts(),
-                List.of(summary(current)),
-                current.tenantId(),
-                actTarget(current)));
+        return Optional.of(alertOf("FILE_IN_AUTORUN_PATH", "T1547", Alert.SEV_MEDIUM,
+                current, List.of()));
+    }
+
+    /**
+     * 판정 결과 조립. 근거는 선행(prior) 뒤에 트리거를 붙인 순서이고, 따라서 <b>matched 의 마지막은 항상
+     * 트리거</b>(= alert.ts 인 이벤트)다. api-service 가 알림에서 원본 이벤트를 되찾을 때 이 순서에 기댄다
+     * (SourceEventMatcher). 서비스 경계를 넘는 규약이라 호출부가 순서를 틀릴 수 없도록 트리거를 여기서 붙인다.
+     */
+    private static Alert alertOf(String ruleId, String mitre, String severity, Event trigger, List<Event> prior) {
+        List<Event> evidence = new ArrayList<>(prior);
+        evidence.add(trigger);
+        Event destination = destinationOf(evidence);
+        return new Alert(
+                trigger.host(),
+                ruleId,
+                mitre,
+                severity,
+                Alert.actionFor(severity),
+                trigger.ts(),
+                evidence.stream().map(Rules::summary).toList(),
+                trigger.tenantId(),
+                actTarget(trigger),
+                destination == null ? "" : nz(destination.domain()),
+                destination == null ? "" : nz(destination.destIp()));
+    }
+
+    /**
+     * 근거 중 목적지를 관측한 이벤트 (없으면 null).
+     *
+     * <p>방금 도착한 이벤트 하나만 보면 안 된다. R2 는 다운로드(network)와 실행(process)을 상관하는데
+     * 목적지를 아는 건 다운로드 쪽뿐이다. 네트워크가 늦게 도착한 갈래는 도착한 이벤트가 network 라
+     * 목적지가 실리고, 정상 순서로 도착한 갈래는 process 라 목적지가 빈다. 같은 공격인데 도착 순서에
+     * 따라 값이 갈리면 topology 화면에서 절반만 그려진다. 룰이 도착 순서에 독립적으로 판정하는 만큼
+     * 목적지도 그래야 한다.
+     */
+    private static Event destinationOf(List<Event> evidence) {
+        return evidence.stream()
+                .filter(e -> !nz(e.destIp()).isBlank() || !nz(e.domain()).isBlank())
+                .findFirst()
+                .orElse(null);
+    }
+
+    private static String nz(String s) {
+        return s == null ? "" : s;
     }
 
     private static boolean isProcess(Event e) {

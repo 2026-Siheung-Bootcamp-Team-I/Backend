@@ -26,16 +26,18 @@ public final class HostAggregator {
     }
 
     /**
-     * events 행(host, last_seen)에 host 별 alert 집계와 등록 노드 정보를 붙여 목록을 만든다.
+     * events 행(host, last_seen)에 host 별 alert 집계, severity 분포(위험 점수), 등록 노드 정보를 붙여 목록을 만든다.
      * events 쿼리가 last_seen DESC 로 정렬돼 오므로 그 순서를 그대로 유지하고,
      * events 는 없고 등록만 된 host 는 agentSeen DESC 로 정렬해 뒤에 붙인다.
      * host 이름은 엔드포인트가 OS 원본 그대로 보내 대소문자가 어긋나는 사례가 있어
      * 매칭은 소문자로 하되, 화면 표시명은 events 쪽 원본을 우선한다.
      */
     public static List<HostResponse> hosts(List<Map<String, Object>> eventRows, List<HostAlertCount> alertCounts,
-                                            List<EnrolledHost> enrolledHosts) {
+                                            List<HostRisk> risks, List<EnrolledHost> enrolledHosts) {
         Map<String, HostAlertCount> byHost = alertCounts.stream()
                 .collect(Collectors.toMap(HostAlertCount::host, Function.identity()));
+        Map<String, HostRisk> riskByHost = risks.stream()
+                .collect(Collectors.toMap(HostRisk::host, Function.identity(), (a, b) -> a));
         Map<String, EnrolledHost> enrolledByHost = enrolledHosts.stream()
                 .collect(Collectors.toMap(e -> e.host().toLowerCase(), Function.identity(), (a, b) -> a));
 
@@ -48,6 +50,7 @@ public final class HostAggregator {
             long critical = c == null ? 0 : c.openCritical();
             long high = c == null ? 0 : c.openHigh();
             long threats = c == null ? 0 : c.openTotal();
+            HostRisk risk = riskByHost.get(host);
 
             EnrolledHost node = enrolledByHost.get(host.toLowerCase());
             boolean isEnrolled = node != null;
@@ -55,16 +58,21 @@ public final class HostAggregator {
             matched.add(host.toLowerCase());
 
             out.add(new HostResponse(host, lastSeen, HostStatus.classify(critical, high), threats,
-                    isEnrolled, agentSeen));
+                    risk == null ? 0 : risk.score(), isEnrolled, agentSeen, platformOf(node)));
         }
 
         enrolledByHost.values().stream()
                 .filter(node -> !matched.contains(node.host().toLowerCase()))
                 .sorted(Comparator.comparingLong(EnrolledHost::agentSeen).reversed())
                 .forEach(node -> out.add(new HostResponse(node.host(), 0L, HostStatus.HEALTHY, 0L,
-                        true, node.agentSeen())));
+                        0, true, node.agentSeen(), platformOf(node))));
 
         return out;
+    }
+
+    /** 미등록이거나 예전에 platform 없이 등록된 노드는 OS 를 모른다(빈 문자열). */
+    private static String platformOf(EnrolledHost node) {
+        return node == null || node.platform() == null ? "" : node.platform();
     }
 
     /**

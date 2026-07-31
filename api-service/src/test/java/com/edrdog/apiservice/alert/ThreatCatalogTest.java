@@ -3,9 +3,12 @@ package com.edrdog.apiservice.alert;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * ruleId → 한글 위협명/카테고리 매핑 순수 로직. 미등록 ruleId 는 원문/"기타" 로 fallback.
+ * ruleId → 한글 위협명/카테고리/MITRE/설명 매핑 순수 로직. 미등록 ruleId 는 이름/원문, 카테고리/"기타",
+ * mitre·description/null 로 fallback.
  */
 class ThreatCatalogTest {
 
@@ -25,14 +28,38 @@ class ThreatCatalogTest {
     }
 
     @Test
+    void 등록된_ruleId_는_mitre_태그와_설명을_돌려준다() {
+        assertEquals("T1059", ThreatCatalog.mitre("SUSPICIOUS_PROCESS_CHAIN"));
+        assertEquals("T1105+T1204", ThreatCatalog.mitre("DOWNLOAD_AND_EXECUTE"));
+        assertEquals("T1059", ThreatCatalog.mitre("SCRIPT_FROM_TEMP_PATH"));
+        assertEquals("T1547", ThreatCatalog.mitre("FILE_IN_AUTORUN_PATH"));
+
+        // 설명 문구 자체을 전부 고정하면 사소한 표현 수정에도 테스트가 깨지므로, 발화 조건의 핵심만 포함 여부로 검증한다.
+        assertTrue(ThreatCatalog.description("DOWNLOAD_AND_EXECUTE").contains("실행된 파일 자체"));
+    }
+
+    @Test
     void 미등록_ruleId_는_이름은_원문_카테고리는_기타() {
         assertEquals("UNKNOWN_RULE", ThreatCatalog.threatName("UNKNOWN_RULE"));
         assertEquals("기타", ThreatCatalog.category("UNKNOWN_RULE"));
+        assertNull(ThreatCatalog.mitre("UNKNOWN_RULE"));
+        assertNull(ThreatCatalog.description("UNKNOWN_RULE"));
     }
 
     @Test
     void null_ruleId_도_안전하게_fallback() {
         assertEquals(null, ThreatCatalog.threatName(null));
         assertEquals("기타", ThreatCatalog.category(null));
+        assertNull(ThreatCatalog.mitre(null));
+        assertNull(ThreatCatalog.description(null));
+    }
+
+    @Test
+    void all_은_네_개_룰을_ruleId_포함해_돌려준다() {
+        var entries = ThreatCatalog.all();
+
+        assertEquals(4, entries.size());
+        assertTrue(entries.stream().allMatch(e ->
+                e.ruleId() != null && e.threatName() != null && e.mitre() != null && e.description() != null));
     }
 }

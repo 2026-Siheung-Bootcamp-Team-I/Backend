@@ -1,5 +1,6 @@
 package com.edrdog.apiservice.security;
 
+import com.edrdog.apiservice.web.PageHeaders;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -21,6 +22,9 @@ import java.util.List;
  *
  * <p>허용 출처는 설정값({@code edrdog.cors.allowed-origins}, 쉼표 구분)으로만 받는다.
  * 인증은 Bearer 토큰(헤더)이라 쿠키가 필요 없어 allowCredentials 는 켜지 않는다.
+ *
+ * <p>페이지네이션 정보는 응답 본문이 아니라 헤더로 나가는데({@link PageHeaders}), 브라우저는
+ * exposedHeaders 에 올린 헤더만 읽을 수 있다. 안 올리면 서버는 정상인데 화면에서만 값이 안 보인다.
  */
 @Configuration
 public class CorsConfig {
@@ -47,6 +51,7 @@ public class CorsConfig {
         config.setAllowedOrigins(allowedOrigins);
         config.setAllowedMethods(ALLOWED_METHODS);
         config.setAllowedHeaders(ALLOWED_HEADERS);
+        config.setExposedHeaders(PageHeaders.ALL);
         config.setMaxAge(MAX_AGE_SECONDS);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

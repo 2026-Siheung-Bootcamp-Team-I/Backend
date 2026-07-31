@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.edrdog.archiverservice.dto.Event;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class EventRowTest {
@@ -90,5 +91,29 @@ class EventRowTest {
 
         assertThat(json).contains(
                 "\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"");
+    }
+
+    @Test
+    void 여러_건은_개행으로_이어붙인다() {
+        Event a = new Event("host-1", "process", 1000L,
+                "a.exe", null, null, null, 0, null, null, null, "tenant-a");
+        Event b = new Event("host-2", "process", 2000L,
+                "b.exe", null, null, null, 0, null, null, null, "tenant-a");
+
+        String rows = EventRow.toJsonRows(List.of(a, b), mapper);
+
+        assertThat(rows).isEqualTo(
+                EventRow.toJson(a, mapper) + "\n" + EventRow.toJson(b, mapper));
+    }
+
+    @Test
+    void 한_건이면_개행이_붙지_않는다() {
+        Event a = new Event("host-1", "process", 1000L,
+                "a.exe", null, null, null, 0, null, null, null, "tenant-a");
+
+        String rows = EventRow.toJsonRows(List.of(a), mapper);
+
+        assertThat(rows).isEqualTo(EventRow.toJson(a, mapper));
+        assertThat(rows).doesNotContain("\n");
     }
 }
