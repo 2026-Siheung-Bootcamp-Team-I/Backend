@@ -100,25 +100,60 @@ curl -sk https://localhost:8443/api/agent/enroll -H 'Content-Type: application/j
 
 | 파일 | 왜 빼는가 |
 |---|---|
-| `*-service.yaml` | 아래처럼 이미지 태그까지 맞춰 따로 다룬다 |
+| `*-service.yaml` | 이미지 태그를 끼워 넣어야 해서 바로 다음 단계에서 따로 apply 한다 |
 | `kind-cluster.yaml` | 로컬 kind 설정이라 apply 대상이 아니다 |
 | `infisical.yaml` | CRD 가 있을 때만 적용한다 |
 
 인프라가 안 떠도 앱 배포는 막지 않고, 대신 CD 가 맨 끝에서 실패한다. `kafka-ui`·`portainer` 는
 시크릿이 없으면 일부러 안 뜨는데 그것 때문에 앱 배포가 멈추면 곤란해서다.
 
-서비스 매니페스트만 손으로 적용한다. CD 가 apply 하면 image 가 `:latest` 로 되돌아갔다가
-`set image` 로 다시 `:sha` 가 되면서 롤아웃이 두 번 돈다. `k8s/api-service.yaml` 을 고쳤으면
-지금 떠 있는 이미지 태그를 지키면서 적용한다:
+**서비스 매니페스트도 CD 가 apply 한다.** 그래서 `env`·`envFrom`·probe·리소스를 고치면 머지만으로
+서버에 반영된다. 예전에는 `set image` 만 해서 그런 변경이 영영 안 갔고, 머지도 CD 도 초록불인데
+서버만 옛 설정으로 남았다(`archiver-service` 의 `envFrom` 이 이렇게 누락돼 CrashLoopBackOff 가 났다).
+
+이미지 태그는 매니페스트의 `:latest` 를 쓰지 않고 CD 가 apply 직전에 갈아 끼운다.
+
+| | 태그 |
+|---|---|
+| 이번 커밋에서 코드가 바뀐 모듈 | `:<sha>` (새로 구운 것) |
+| 안 바뀐 모듈 | 지금 떠 있는 태그 그대로 |
+
+두 번째가 필요한 이유는, 안 바꾼 모듈은 이미지를 굽지 않아서 그 커밋의 `:<sha>` 이미지가 GHCR 에
+아예 없기 때문이다. 매니페스트만 고친 배포도 이 규칙 덕분에 롤아웃 없이 통과한다.
+
+⚠️ **`:latest` 는 GHCR 에 올리지 않는다.** 매니페스트의 `:latest` 는 자리표시용이라 그대로 apply 하면
+이미지를 못 받는다. 손으로 적용해야 하면 지금 떠 있는 태그를 끼워서 넣는다:
 
 ```bash
 IMG=$(sudo kubectl -n edrdog get deploy/api-service -o jsonpath='{.spec.template.spec.containers[0].image}')
-sudo kubectl -n edrdog apply -f k8s/api-service.yaml
-sudo kubectl -n edrdog set image deployment/api-service api-service="$IMG"
+sed "s#^\( *\)image: ghcr.io/.*#\1image: $IMG#" k8s/api-service.yaml | sudo kubectl -n edrdog apply -f -
 sudo kubectl -n edrdog rollout status deployment/api-service
 ```
 
 Service 는 매니페스트가 서버 실제 상태(NodePort 30084)와 같아 apply 해도 그대로다.
+
+### 롤백
+
+이미지 태그가 커밋 `:<sha>` 라 되돌릴 지점이 명확하다. 직전 버전으로만 돌리면 되면:
+
+```bash
+sudo kubectl -n edrdog rollout undo deployment/api-service
+sudo kubectl -n edrdog rollout status deployment/api-service
+```
+
+특정 커밋으로 찍어서 돌리려면(어느 리비전이 어느 이미지였는지 먼저 본다):
+
+```bash
+sudo kubectl -n edrdog rollout history deployment/api-service
+sudo kubectl -n edrdog set image deployment/api-service api-service=ghcr.io/edrdog/backend/api-service:<되돌릴-sha>
+```
+
+⚠️ `set image` 로 돌린 것은 **다음 배포 때 매니페스트 apply 로 덮인다.** 임시 조치라는 뜻이고,
+문제가 코드에 있으면 `main` 에서 revert 해서 정상 경로로 다시 배포해야 한다.
+
+DB 스키마가 바뀐 릴리스는 이미지만 되돌려도 원상복구가 안 된다. ClickHouse 는 `CREATE TABLE IF NOT
+EXISTS` + `ALTER` 로만 진화시키므로 컬럼이 늘어나는 방향은 안전하지만, 줄이는 변경은 롤백 계획을
+따로 세운다.
 
 - kind 로컬에서는 `kind-cluster.yaml` 의 `30443 -> hostPort 8443` 매핑을 쓴다.
   **`extraPortMappings` 는 클러스터 생성 시에만 반영**되므로 기존 클러스터라면 다시 만들거나
@@ -150,8 +185,7 @@ ls -l /opt/edrdog/geoip/GeoLite2-Country.mmdb
 
 # 3) 매니페스트를 적용한다 (위 "매니페스트 변경을 배포서버에 반영하기" 와 같은 순서)
 IMG=$(sudo kubectl -n edrdog get deploy/api-service -o jsonpath='{.spec.template.spec.containers[0].image}')
-sudo kubectl -n edrdog apply -f k8s/api-service.yaml
-sudo kubectl -n edrdog set image deployment/api-service api-service="$IMG"
+sed "s#^\( *\)image: ghcr.io/.*#\1image: $IMG#" k8s/api-service.yaml | sudo kubectl -n edrdog apply -f -
 sudo kubectl -n edrdog rollout status deployment/api-service
 
 # 4) 파일에서 읽었는지 로그로 확인한다

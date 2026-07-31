@@ -17,8 +17,8 @@ spec:
     spec:
       containers:
         - name: api-service
-          # 배포 시 CI 가 kubectl set image 로 실제 태그(:<sha>) 주입
-          image: ghcr.io/2026-siheung-bootcamp-team-i/backend/api-service:latest
+          # 태그는 CD 가 apply 직전에 :<sha> 로 갈아 끼운다. :latest 는 GHCR 에 안 올라가므로 이 값 그대로는 못 뜬다.
+          image: ghcr.io/edrdog/backend/api-service:latest
           ports:
             - containerPort: 8084
             - containerPort: 8443   # 에이전트 전용 HTTPS 커넥터 (agent-tls Secret 이 있을 때만 열린다)
