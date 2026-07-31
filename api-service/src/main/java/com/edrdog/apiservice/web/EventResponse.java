@@ -18,8 +18,12 @@ import java.util.Map;
  * dnsAnswers/dnsResponseCode 로 접두어를 붙인다. 평평하게 펴진 최상위 자리에서는 status 만으로
  * "DNS 응답 코드"인지 알 수 없고, 이 API 에는 alert 트리아지 status 라는 다른 개념도 있어서다.
  * detail 원본 JSON 의 키는 에이전트와의 계약이라 바꾸지 않는다(EventDetail 참고).
+ *
+ * id 는 저장된 값이 아니라 이벤트 내용에서 접어 만든 것이다(EventId). 알림 상세의 원본 이벤트,
+ * 사건 타임라인의 이벤트 줄과 같은 값이 나오므로 화면이 셋을 같은 이벤트로 이을 수 있다.
  */
 public record EventResponse(
+        String id,
         String host,
         String type,
         long ts,
@@ -50,8 +54,11 @@ public record EventResponse(
     public static EventResponse fromRow(Map<String, Object> row, ObjectMapper mapper) {
         String rawDetail = str(row, "detail");
         EventDetail d = EventDetail.parse(rawDetail, mapper);
+        long ts = asLong(row, "ts");
         return new EventResponse(
-                str(row, "host"), str(row, "type"), asLong(row, "ts"), str(row, "process"), str(row, "parent"),
+                EventId.of(str(row, "host"), ts, str(row, "type"), str(row, "process"), d.pid(),
+                        str(row, "parent"), str(row, "dest_ip"), asInt(row, "dest_port")),
+                str(row, "host"), str(row, "type"), ts, str(row, "process"), str(row, "parent"),
                 str(row, "cmdline"), str(row, "dest_ip"), asInt(row, "dest_port"), str(row, "domain"),
                 str(row, "sha256"), parseIngestedAt(str(row, "ingested_at")), rawDetail,
                 d.pid(), d.ppid(), d.protocol(), d.action(), d.queryType(), d.answers(), d.status(),
