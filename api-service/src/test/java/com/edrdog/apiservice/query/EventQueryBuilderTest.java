@@ -199,6 +199,14 @@ class EventQueryBuilderTest {
         assertTrue(q.sql().contains("ORDER BY ts ASC"), q.sql());
     }
 
+    // detail 은 pid/ppid 가 든 칸이다. 지금 계보 빌더는 pid/ppid 를 못 써서 동명 프로세스를
+    // 한 노드로 합치는데, 이 컬럼이 열려 있어야 나중에 pid 기반으로 정확히 나눌 수 있다.
+    @Test
+    void lineage_는_pid_ppid_가_든_detail_도_뽑는다() {
+        ClickHouseQuery q = builder.lineageEvents(TENANT, "host-01", 1000L, 2000L);
+        assertTrue(q.sql().contains("detail"), q.sql());
+    }
+
     @Test
     void lineage도_상한으로_클램프해_폭주를_막는다() {
         ClickHouseQuery q = builder.lineageEvents(TENANT, "host-01", 1000L, 2000L);

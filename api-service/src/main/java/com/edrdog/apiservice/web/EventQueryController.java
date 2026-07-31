@@ -4,6 +4,7 @@ import com.edrdog.apiservice.auth.service.AuthService;
 import com.edrdog.apiservice.auth.service.Principal;
 import com.edrdog.apiservice.clickhouse.ClickHouseReader;
 import com.edrdog.apiservice.query.EventQueryBuilder;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -29,18 +30,22 @@ public class EventQueryController {
     private final ClickHouseReader reader;
     private final EventQueryBuilder builder;
     private final AuthService auth;
+    private final ObjectMapper mapper;
 
-    public EventQueryController(ClickHouseReader reader, EventQueryBuilder builder, AuthService auth) {
+    public EventQueryController(ClickHouseReader reader, EventQueryBuilder builder, AuthService auth,
+                                 ObjectMapper mapper) {
         this.reader = reader;
         this.builder = builder;
         this.auth = auth;
+        this.mapper = mapper;
     }
 
     @Operation(summary = "이벤트 조회",
             description = "로그인 유저의 tenant 것만 host/type/sha256/from/to(epoch millis) 필터로 최신순 조회. "
-                    + "sha256 은 파일 해시 완전일치이며 대소문자를 가리지 않는다. limit 기본 100, 상한 1000.")
+                    + "sha256 은 파일 해시 완전일치이며 대소문자를 가리지 않는다. limit 기본 100, 상한 1000. "
+                    + "detail(타입별 부가정보) 은 named 필드로 펴서 주고, 원본 JSON 문자열도 detail 에 같이 준다.")
     @GetMapping("/events")
-    public List<Map<String, Object>> events(
+    public List<EventResponse> events(
             @RequestHeader(name = "Authorization", required = false) String authorization,
             @RequestParam(required = false) String host,
             @RequestParam(required = false) String type,
@@ -49,7 +54,8 @@ public class EventQueryController {
             @RequestParam(required = false) Long to,
             @RequestParam(required = false) Integer limit) {
         String tenantId = currentTenantId(authorization);
-        return reader.query(builder.events(tenantId, host, type, sha256, from, to, limit));
+        List<Map<String, Object>> rows = reader.query(builder.events(tenantId, host, type, sha256, from, to, limit));
+        return rows.stream().map(row -> EventResponse.fromRow(row, mapper)).toList();
     }
 
     @Operation(summary = "이벤트 요약",

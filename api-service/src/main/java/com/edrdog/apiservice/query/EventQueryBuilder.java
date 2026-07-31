@@ -60,11 +60,14 @@ public class EventQueryBuilder {
      * lineage 재구성용: tenant+host 격리 하에 시간 윈도우[from,to] events 를 시간순으로 조회.
      * 그래프 빌드에 필요한 컬럼만 뽑고, ts 오름차순(부모->자식 체인 순)으로 정렬한다.
      * 상한(MAX_LIMIT)으로 클램프해 폭주를 막는다. tenantId 는 필수.
+     *
+     * detail 을 여기 열어 두는 이유: pid/ppid 는 에이전트가 이미 보내지만 detail(JSON) 안에
+     * 있어 이 컬럼이 없으면 못 쓴다. 동명 프로세스를 pid 로 구분하는 것은 다음 작업 몫이다.
      */
     public ClickHouseQuery lineageEvents(String tenantId, String host, Long from, Long to) {
         Map<String, String> params = new LinkedHashMap<>();
         String where = where(tenantId, host, null, null, from, to, params);
-        String sql = "SELECT type, ts, process, parent, dest_ip, dest_port FROM " + table
+        String sql = "SELECT type, ts, process, parent, dest_ip, dest_port, detail FROM " + table
                 + where
                 + " ORDER BY ts ASC LIMIT " + MAX_LIMIT;
         return new ClickHouseQuery(sql, params);
