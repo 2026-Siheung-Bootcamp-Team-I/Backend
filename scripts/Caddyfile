@@ -31,3 +31,8 @@ edrdog-api.duckdns.org {
 portainer.edrdog-api.duckdns.org {
 	reverse_proxy localhost:30777
 }
+
+# Grafana(otel-lgtm). 이미지 기본이 익명 Admin 이라 k8s/otel-lgtm.yaml 에서 끄고 로그인을 켠 뒤에 연다.
+grafana.edrdog-api.duckdns.org {
+	reverse_proxy localhost:30300
+}

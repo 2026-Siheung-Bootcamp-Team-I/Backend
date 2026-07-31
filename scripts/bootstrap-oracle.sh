@@ -271,9 +271,10 @@ cat <<EOF
      KAFKA_UI_USER / KAFKA_UI_PASSWORD              <- Kafka UI 로그인
      EDRDOG_SWAGGER_USER / EDRDOG_SWAGGER_PASSWORD  <- Swagger 로그인
      PORTAINER_ADMIN_PASSWORD                       <- Portainer 관리자 (아이디는 admin 고정)
+     GRAFANA_ADMIN_PASSWORD                         <- Grafana 관리자 (아이디는 admin 고정)
    넣은 뒤 edrdog-secrets 를 다시 만든다(위 7단계의 명령). 그리고:
-     kubectl -n $NS rollout restart deploy/kafka-ui deploy/portainer
-   kafka-ui 와 portainer 는 이 키가 없으면 파드가 뜨지 않는다. 인증이 꺼진 채로 떠 있으면
+     kubectl -n $NS rollout restart deploy/kafka-ui deploy/portainer deploy/otel-lgtm
+   kafka-ui·portainer·otel-lgtm 은 이 키가 없으면 파드가 뜨지 않는다. 인증이 꺼진 채로 떠 있으면
    토픽 메시지가 그대로 공개돼서, 멈추는 편이 낫다고 보고 일부러 그렇게 뒀다.
    Swagger 는 비번이 없으면 열리는 게 아니라 닫힌다.
    PORTAINER_ADMIN_PASSWORD 는 첫 기동에만 먹는다. 계정이 생긴 뒤에 바꾸려면 Portainer UI 에서 바꾼다.
@@ -284,6 +285,7 @@ cat <<EOF
    curl -sS -o /dev/null -w '%{http_code}\n' https://$DOMAIN/kafka-ui/          # -> 302 (로그인으로)
    curl -sS -o /dev/null -w '%{http_code}\n' https://$DOMAIN/swagger-ui.html    # -> 401
    curl -sS -o /dev/null -w '%{http_code}\n' https://portainer.$DOMAIN/api/users/admin/check  # -> 204 (계정 생성됨)
+   curl -sS -o /dev/null -w '%{http_code}\n' https://grafana.$DOMAIN/api/dashboards/home      # -> 401 (익명이 꺼졌다)
    openssl s_client -connect $DOMAIN:$AGENT_PORT </dev/null 2>/dev/null | head -3
 
    Portainer 는 admin / PORTAINER_ADMIN_PASSWORD 로 로그인한다.

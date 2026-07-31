@@ -8,7 +8,10 @@
 ```bash
 kind create cluster --config k8s/kind-cluster.yaml   # 클러스터 생성 (name: edrdog)
 # kind-cluster.yaml 은 kind 전용이라 apply 대상에서 제외 (아래는 실제 매니페스트만)
-kubectl apply -f k8s/00-namespace.yaml -f k8s/kafka.yaml -f k8s/clickhouse.yaml \
+kubectl apply -f k8s/00-namespace.yaml
+# Grafana 로그인 비번. 없으면 otel-lgtm 파드가 안 뜬다 (로컬은 아무 값이나)
+kubectl -n edrdog create secret generic edrdog-secrets --from-literal=GRAFANA_ADMIN_PASSWORD=admin
+kubectl apply -f k8s/kafka.yaml -f k8s/clickhouse.yaml \
               -f k8s/otel-lgtm.yaml -f k8s/alloy.yaml
 kubectl -n edrdog get pods                            # Running 확인
 ```
@@ -20,7 +23,7 @@ kubectl -n edrdog get pods                            # Running 확인
 | Kafka | `localhost:9092` | detector 등 (EXTERNAL 리스너) |
 | ClickHouse HTTP | `http://localhost:8123` | user/pw/db = `edrdog` |
 | ClickHouse native | `localhost:9000` | JDBC/드라이버용 |
-| Grafana | `http://localhost:3000` | admin / admin. 첫 화면이 EDRdog Overview |
+| Grafana | `http://localhost:3000` | `admin` / `GRAFANA_ADMIN_PASSWORD`. 첫 화면이 EDRdog Overview |
 | OTLP HTTP | `http://localhost:4318` | 서비스가 메트릭·트레이스를 보내는 곳 |
 | OTLP gRPC | `localhost:4317` | 〃 |
 | 에이전트 수집 HTTPS | `localhost:8443` (NodePort 30443) | 엔드포인트 에이전트가 붙는 곳. 아래 시크릿을 만들어야 열린다 |
@@ -195,17 +198,18 @@ sudo kubectl -n edrdog logs deploy/api-service | grep 'GeoIP DB 로드'
 4번이 `GeoIP DB 로드(파일)` 이면 성공이다. `(클래스패스)` 면 볼륨의 파일을 못 읽어 jar 번들로
 넘어간 것이고, 그 상태로 mmdb 없는 이미지가 배포되면 지도가 빈다.
 
-## 운영 UI (Portainer / Kafka UI / Swagger)
+## 운영 UI (Portainer / Kafka UI / Grafana / Swagger)
 
-배포서버 전용이다. 셋 다 Caddy 뒤에 있고 NodePort 를 방화벽에 열지 않으므로 Caddy 를 통해서만 들어간다.
+배포서버 전용이다. 넷 다 Caddy 뒤에 있고 NodePort 를 방화벽에 열지 않으므로 Caddy 를 통해서만 들어간다.
 
 | 대상 | 주소 | 인증 | Infisical 키 | NodePort |
 |---|---|---|---|---|
 | Portainer | `https://portainer.<도메인>` | 자체 로그인 (`admin`) | `PORTAINER_ADMIN_PASSWORD` | 30777 |
 | Kafka UI | `https://<도메인>/kafka-ui` | 자체 로그인 폼 | `KAFKA_UI_USER` / `KAFKA_UI_PASSWORD` | 30901 |
+| Grafana | `https://grafana.<도메인>` | 자체 로그인 (`admin`) | `GRAFANA_ADMIN_PASSWORD` | 30300 |
 | Swagger | `https://<도메인>/swagger-ui.html` | Basic (`SwaggerAuthFilter`) | `EDRDOG_SWAGGER_USER` / `EDRDOG_SWAGGER_PASSWORD` | (api 30084) |
 
-**Caddy 는 인증을 하지 않는다.** 셋 다 자기 안에서 막고 계정은 `edrdog-secrets` 에서 받는다. Caddy 에
+**Caddy 는 인증을 하지 않는다.** 넷 다 자기 안에서 막고 계정은 `edrdog-secrets` 에서 받는다. Caddy 에
 basic auth 를 걸면 비번이 Infisical 과 호스트 파일 두 군데로 갈라지고, Infisical 에서 바꿔도 호스트의
 Caddyfile 은 그대로라 반영되지 않는다.
 
@@ -214,10 +218,10 @@ Caddyfile 은 그대로라 반영되지 않는다.
 고치면 다음 CD 가 덮어쓴다. 전에는 bootstrap 이 최초 1회 쓰고 아무도 다시 보지 않아서, 레포에 portainer
 블록을 넣고도 서버는 모른 채였고 서브도메인이 인증서가 없어 TLS 핸드셰이크부터 깨졌다.
 
-- **Kafka UI 와 Portainer 는 키가 없으면 파드가 뜨지 않는다** (`optional` 을 안 줬다). 인증이 꺼진 채로
+- **Kafka UI·Portainer·Grafana 는 키가 없으면 파드가 뜨지 않는다** (`optional` 을 안 줬다). 인증이 꺼진 채로
   멀쩡히 떠 있는 것보다 멈추는 편이 낫다. 키를 넣은 뒤
-  `kubectl -n edrdog rollout restart deploy/kafka-ui deploy/portainer`.
-  `/kafka-ui/actuator/health` 는 로그인 없이 200 이라 readinessProbe 는 그대로 통과한다.
+  `kubectl -n edrdog rollout restart deploy/kafka-ui deploy/portainer deploy/otel-lgtm`.
+  `/kafka-ui/actuator/health` 와 Grafana `/api/health` 는 로그인 없이 200 이라 readinessProbe 는 그대로 통과한다.
 - **Swagger 는 비번이 없으면 열리는 게 아니라 닫힌다.** `application.yml` 에 기본값을 두지 않았다.
   레포에 박아 두면 그게 곧 공개 비번이라서다. 로컬에서 보려면 `EDRDOG_SWAGGER_PASSWORD` 를 넣고 띄운다.
 - Swagger 가 `ApiKeyPolicy` 의 인증 예외로 남아 있는 건 그대로다. 브라우저로 여는 화면이라 `X-API-Key`
@@ -239,6 +243,39 @@ Caddyfile 은 그대로라 반영되지 않는다.
 - `--trusted-origins` 가 없으면 Caddy 뒤에서 로그인할 때 `Origin invalid` 로 막힌다. 도메인을 바꾸면
   매니페스트의 이 값도 같이 바꿔야 한다.
 - 계정과 설정은 PVC 에 있다(k3s `local-path`). 지우면 다음 기동에서 Infisical 값으로 다시 만들어진다.
+
+### Grafana
+
+`k8s/otel-lgtm.yaml`. `admin` / `GRAFANA_ADMIN_PASSWORD` 로 로그인한다. 이미지 기본값이 **익명 Admin** 이라
+(`run-grafana.sh` 가 `GF_AUTH_ANONYMOUS_ENABLED` 를 `true` 로 둔다) 그대로 밖에 열면 로그인 없이 아무나
+로그·트레이스·메트릭을 다 보고 대시보드도 고친다. 그래서 `GF_AUTH_ANONYMOUS_ENABLED=false` 로 끄고
+비번을 받는다.
+
+- **이미 쓰던 PVC 에서는 `GRAFANA_ADMIN_PASSWORD` 가 안 먹는다.** `grafana.db` 가 `/data`(PVC) 에 있고
+  Grafana 는 이 값을 **DB 가 없을 때만** 쓴다. 지금 서버의 DB 에는 기본 `admin` / `admin` 이 들어 있어서,
+  익명만 끄고 끝내면 비번이 `admin` 인 채로 밖에 열리게 된다. 순서를 지켜야 한다.
+
+  ```bash
+  # 1) Infisical(prod)에 GRAFANA_ADMIN_PASSWORD 를 넣고 edrdog-secrets 를 갱신한다
+  # 2) 지금 도는 파드에서 같은 값으로 비번을 바꾼다 (익명이 아직 켜져 있을 때 해 둔다)
+  #    --homepath 는 conf/defaults.ini 가 있는 곳이고, DB 는 PVC 쪽이라 paths.data 를 따로 얹는다.
+  #    /data/grafana 에는 data/ 만 있고 conf/ 가 없어서, 거기를 homepath 로 주면 기동부터 실패한다.
+  sudo kubectl -n edrdog exec deploy/otel-lgtm -- \
+    /otel-lgtm/grafana/bin/grafana cli \
+      --homepath /otel-lgtm/grafana \
+      --configOverrides cfg:default.paths.data=/data/grafana/data \
+      admin reset-admin-password '<넣은-비번>'
+  # 3) 그 다음 이 매니페스트를 배포한다 (CD 든 손이든)
+  ```
+
+  재시작은 필요 없다. 비번은 DB 에 바로 반영된다.
+
+  순서를 뒤집으면 Grafana 가 뜰 때 자기 API 로 서비스 계정을 만드는 단계에서 비번이 안 맞아 401 이 난다
+  (`run-all.sh` 가 `GF_SECURITY_ADMIN_USER`/`PASSWORD` 로 자기 API 를 호출한다).
+- 대시보드는 ConfigMap 으로 프로비저닝되므로 PVC 를 지워도 다시 생긴다. 대신 지표·로그·트레이스 기록이
+  통째로 날아가니 비번 때문에 PVC 를 지우지는 않는다.
+- `GF_SERVER_ROOT_URL` 이 없으면 Grafana 가 만드는 절대 URL 이 `localhost:3000` 이 된다. 도메인을 바꾸면
+  이 값과 `scripts/Caddyfile` 을 같이 바꾼다.
 
 ## 시크릿 (Infisical)
 
@@ -300,6 +337,12 @@ Machine Identity 자격증명 Secret 생성 1회, `kubectl apply -f k8s/infisica
 - 지표는 **PVC(`otel-lgtm-data`, 5Gi)** 에 남는다. 여기만 emptyDir 이 아니다. 파드가 재시작돼도 그동안의
   지표·로그·트레이스가 살아 있어야 발표 중에 그래프가 비지 않기 때문이다. 기본 StorageClass 를 쓴다.
   RWO 볼륨이라 Deployment 전략은 `Recreate`(롤링이면 새 파드가 볼륨을 못 잡고 서로 기다린다).
-- **Grafana 는 비번 없이 들어가진다.** otel-lgtm 이미지가 익명 접속을 Admin 권한으로 열어두기 때문이다
-  (`GF_AUTH_ANONYMOUS_ENABLED=true`, `GF_AUTH_ANONYMOUS_ORG_ROLE=Admin`). 데모용으로 편한 대신,
-  포트에 닿는 사람은 누구나 설정을 바꿀 수 있다. 오래 띄워둘 거면 이 두 env 를 Deployment 에서 꺼야 한다.
+- **Grafana 는 로그인을 받는다** (`admin` / `GRAFANA_ADMIN_PASSWORD`). 이미지 기본값은 익명 Admin 이라
+  포트에 닿는 사람 누구나 설정을 바꿀 수 있는데, 배포서버는 `https://grafana.<도메인>` 으로 밖에 열려
+  있어서 껐다. 자세한 건 위 "운영 UI" 의 Grafana 절.
+- **kind 로컬에서도 이 키가 필요하다.** 없으면 파드가 `CreateContainerConfigError` 로 멈춘다.
+  로컬은 아무 값이나 넣으면 된다.
+
+  ```bash
+  kubectl -n edrdog create secret generic edrdog-secrets --from-literal=GRAFANA_ADMIN_PASSWORD=admin
+  ```
