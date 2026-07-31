@@ -108,8 +108,20 @@ curl -sk https://localhost:8443/api/agent/enroll -H 'Content-Type: application/j
 시크릿이 없으면 일부러 안 뜨는데 그것 때문에 앱 배포가 멈추면 곤란해서다.
 
 서비스 매니페스트만 손으로 적용한다. CD 가 apply 하면 image 가 `:latest` 로 되돌아갔다가
-`set image` 로 다시 `:sha` 가 되면서 롤아웃이 두 번 돈다. `k8s/api-service.yaml` 을 고쳤으면
-지금 떠 있는 이미지 태그를 지키면서 적용한다:
+`set image` 로 다시 `:sha` 가 되면서 롤아웃이 두 번 돈다.
+
+⚠️ **그래서 `k8s/<서비스>.yaml` 의 `env`·`envFrom` 을 고쳐도 배포로는 서버에 안 간다.** CD 는
+Deployment 가 이미 있으면 `set image` 만 하고 매니페스트를 apply 하지 않는다. 머지도 CD 도 초록불인데
+서버만 옛 설정인 채로 남고, 짝이 되는 다른 변경(예: ClickHouse 비번)만 반영되면 그때 터진다.
+실제로 `archiver-service` 의 `envFrom` 이 이렇게 누락돼 CrashLoopBackOff 가 났다.
+아래 절차를 밟거나, env 만 바꾸는 거면 patch 가 더 안전하다:
+
+```bash
+sudo kubectl -n edrdog patch deployment alert-service --type=strategic \
+  -p '{"spec":{"template":{"spec":{"containers":[{"name":"alert-service","envFrom":[{"secretRef":{"name":"edrdog-secrets"}}]}]}}}}'
+```
+
+`k8s/api-service.yaml` 처럼 매니페스트 전체를 적용해야 하면 지금 떠 있는 이미지 태그를 지키면서 적용한다:
 
 ```bash
 IMG=$(sudo kubectl -n edrdog get deploy/api-service -o jsonpath='{.spec.template.spec.containers[0].image}')

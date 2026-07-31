@@ -21,6 +21,10 @@ spec:
           image: ghcr.io/2026-siheung-bootcamp-team-i/backend/alert-service:latest
           ports:
             - containerPort: 8083
+          # INTERNAL_API_KEY 를 여기서 안 받으면 코드 기본값(dev-internal-key)으로 붙어, api-service 가 401 을 낸다.
+          envFrom:
+            - secretRef:
+                name: edrdog-secrets
           env:
             - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
               value: "kafka:9094"
