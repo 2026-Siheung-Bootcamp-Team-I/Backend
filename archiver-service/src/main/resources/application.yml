@@ -8,10 +8,12 @@ spring:
       auto-offset-reset: earliest       # 적재는 유실 없이 처음부터 (detector 와 독립 그룹)
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      max-poll-records: 500             # INSERT 한 번에 묶이는 상한 (본문 크기·재시도 시 중복 범위를 이 선으로 제한)
       properties:
         spring.json.value.default.type: com.edrdog.archiverservice.dto.Event
         spring.json.trusted.packages: com.edrdog.archiverservice.dto
     listener:
+      type: batch                       # poll 단위로 묶어 ClickHouse INSERT 1회 → 파트가 이벤트 건수만큼 안 생긴다
       observation-enabled: true         # 컨슈머 스팬 생성 → 발행 측 traceId 를 이어받아 한 트레이스로 연결
 
 server:

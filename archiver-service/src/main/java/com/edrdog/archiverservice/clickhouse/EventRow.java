@@ -4,7 +4,9 @@ import com.edrdog.archiverservice.dto.Event;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Event 를 ClickHouse JSONEachRow 한 줄(JSON object)로 변환하는 순수 매핑.
@@ -14,6 +16,13 @@ import java.util.Map;
 public final class EventRow {
 
     private EventRow() {
+    }
+
+    /** 여러 건을 JSONEachRow 본문으로 잇는다. 한 INSERT 로 묶어야 ClickHouse 파트가 건수만큼 생기지 않는다. */
+    public static String toJsonRows(List<Event> events, ObjectMapper mapper) {
+        return events.stream()
+                .map(e -> toJson(e, mapper))
+                .collect(Collectors.joining("\n"));
     }
 
     public static String toJson(Event e, ObjectMapper mapper) {
