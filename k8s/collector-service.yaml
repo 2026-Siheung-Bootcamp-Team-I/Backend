@@ -19,7 +19,7 @@ spec:
     spec:
       containers:
         - name: collector-service
-          # 배포 시 CI 가 kubectl set image 로 실제 태그(:<sha>) 주입
+          # 태그는 CD 가 apply 직전에 :<sha> 로 갈아 끼운다. :latest 는 GHCR 에 안 올라가므로 이 값 그대로는 못 뜬다.
           image: ghcr.io/2026-siheung-bootcamp-team-i/backend/collector-service:latest
           ports:
             - containerPort: 8082

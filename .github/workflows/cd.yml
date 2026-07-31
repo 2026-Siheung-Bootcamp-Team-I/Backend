@@ -5,7 +5,48 @@ on:
     branches: [main]
 
 jobs:
+  # 어느 모듈을 다시 구울지 고른다. 이미지 빌드가 QEMU 멀티아치라 모듈당 수 분씩 드는데,
+  # README 한 줄 고친 배포에도 6개를 다 굽고 있었다. 배포(apply)는 전부 하되 굽는 것만 줄인다.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      modules: ${{ steps.list.outputs.modules }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            shared: &shared
+              - 'build.gradle'
+              - 'settings.gradle'
+              - 'gradle/**'
+              - 'gradlew'
+              - '.github/workflows/cd.yml'
+            detector-service:
+              - *shared
+              - 'detector-service/**'
+            responder-service:
+              - *shared
+              - 'responder-service/**'
+            archiver-service:
+              - *shared
+              - 'archiver-service/**'
+            api-service:
+              - *shared
+              - 'api-service/**'
+            alert-service:
+              - *shared
+              - 'alert-service/**'
+            collector-service:
+              - *shared
+              - 'collector-service/**'
+      # shared 는 "전 모듈 공통" 을 앵커로 재사용하려고 만든 항목이라 모듈이 아니다. matrix 에서 뺀다.
+      - id: list
+        run: echo "modules=$(jq -cn --argjson c '${{ steps.filter.outputs.changes }}' '$c - ["shared"]')" >> "$GITHUB_OUTPUT"
+
   # 빌드 + 최소 테스트 후 boot jar 를 다음 잡으로 넘긴다 (전 모듈)
+  # 굽는 건 바뀐 모듈만이어도, 테스트는 전 모듈을 돌린다. 모듈 간 깨짐을 잡을 그물이 여기뿐이다.
   build:
     runs-on: ubuntu-latest
     steps:
@@ -41,9 +82,10 @@ jobs:
             alert-service/build/libs/*.jar
             collector-service/build/libs/*.jar
 
-  # 이미지 빌드 + GHCR 푸시 (모듈별 matrix)
+  # 이미지 빌드 + GHCR 푸시 (바뀐 모듈만)
   image:
-    needs: build
+    needs: [changes, build]
+    if: needs.changes.outputs.modules != '[]'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -52,7 +94,7 @@ jobs:
       # 한 모듈이 실패해도 나머지는 계속 빌드한다. Docker Hub 에서 베이스 이미지를 받다가 네트워크 타임아웃이 나면(실제로 발생했다) fail-fast 가 멀쩡한 모듈까지 취소시킨다.
       fail-fast: false
       matrix:
-        module: [detector-service, responder-service, archiver-service, api-service, alert-service, collector-service]
+        module: ${{ fromJSON(needs.changes.outputs.modules) }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -77,23 +119,26 @@ jobs:
           context: ${{ matrix.module }}
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: |
-            ${{ steps.vars.outputs.image_base }}:${{ github.sha }}
-            ${{ steps.vars.outputs.image_base }}:latest
+          # :latest 는 안 민다. 배포는 :sha 로만 하는데 :latest 가 같이 있으면, 손배포하는 사람이
+          # 그걸 집어 자기도 모르게 다른 버전을 띄운다(Infisical Operator 가 :latest 드리프트로 죽어 있었다).
+          tags: ${{ steps.vars.outputs.image_base }}:${{ github.sha }}
 
-  # EC2(k3s) 에 SSH 로 접속해 모니터링 매니페스트를 apply 하고 서비스는 새 이미지(:SHA)로 롤링.
-  # k3s API 를 외부에 노출하지 않는다.
+  # EC2(k3s) 에 SSH 로 접속해 k8s/ 매니페스트를 통째로 apply 한다. k3s API 를 외부에 노출하지 않는다.
   # 필요한 secret: EC2_HOST(도메인/공인IP), EC2_SSH_KEY(개인키). 선택: EC2_USER(기본 ubuntu).
-  # 서비스 매니페스트는 apply 하지 않는다(레포와 서버 상태가 어긋나 있어 실서비스가 죽는다).
   # 서비스 환경변수(OTEL_EXPORTER_OTLP_ENDPOINT 등)는 Infisical 로 주입한다.
+  #
+  # 바뀐 모듈이 없으면 image 잡이 skip 되는데, needs 만 두면 deploy 까지 딸려 skip 된다.
+  # 매니페스트만 고친 배포도 서버에 가야 하므로 image 가 "실패" 했을 때만 멈춘다.
   deploy:
-    needs: image
+    needs: [changes, build, image]
+    if: ${{ !cancelled() && needs.build.result == 'success' && needs.image.result != 'failure' }}
     runs-on: ubuntu-latest
     steps:
       - name: Deploy over SSH
         env:
           REPO: ${{ github.repository }}
           SHA: ${{ github.sha }}
+          BUILT_JSON: ${{ needs.changes.outputs.modules }}
           SSH_HOST: ${{ secrets.EC2_HOST }}
           SSH_USER: ${{ secrets.EC2_USER || 'ubuntu' }}
           SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
@@ -103,17 +148,18 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           # GHCR 는 소문자 경로만 받으므로 repo 이름을 소문자로 바꿔 원격에 넘긴다.
           REPO_LC="${REPO,,}"
+          # 이번에 실제로 구운 모듈. 나머지는 지금 떠 있는 태그를 그대로 유지한다.
+          BUILT=$(jq -r 'join(" ")' <<<"$BUILT_JSON")
           # ServerAliveInterval 이 없으면 rollout status 로 몇 분 조용히 기다리는 동안 세션이 Broken pipe 로 끊긴다(실제로 배포가 서비스 롤링 직전에 죽었다).
           ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 \
             -o ServerAliveInterval=30 -o ServerAliveCountMax=10 \
             -i ~/.ssh/deploy_key "$SSH_USER@$SSH_HOST" \
-            "REPO='$REPO_LC' SHA='$SHA' NS=edrdog bash -s" <<'REMOTE'
+            "REPO='$REPO_LC' SHA='$SHA' BUILT='$BUILT' NS=edrdog bash -s" <<'REMOTE'
           set -euo pipefail
           MODULES="detector-service responder-service archiver-service api-service alert-service collector-service"
 
           # 인프라 매니페스트는 목록을 적지 않고 k8s/ 를 훑어서 전부 적용한다. 파일을 추가할 때마다 여기도 같이 고쳐야 하면 잊게 되고, 그러면 서버에만 빠진 채로 조용히 지나간다(실제로 portainer.yaml 이 그랬다).
-          #   빼는 것: *-service.yaml 은 아래에서 이미지 태그까지 맞춰 따로 다룬다. 여기서 apply 하면
-          #            image 가 :latest 로 되돌아갔다가 set image 로 다시 :sha 가 되어 롤아웃이 두 번 돈다.
+          #   빼는 것: *-service.yaml 은 아래에서 이미지 태그를 끼워 넣어 따로 apply 한다.
           #            kind-cluster.yaml 은 로컬 kind 설정이라 apply 대상이 아니고,
           #            infisical.yaml 은 CRD 가 있을 때만 적용한다(바로 아래).
           # 서버 브랜치를 건드리지 않으려고 FETCH_HEAD 에서 파일만 꺼내 적용한다.
@@ -148,24 +194,31 @@ jobs:
           echo "~/Backend 클론이 없어 인프라 매니페스트 apply 를 건너뛴다" >&2
           fi
 
-          # Deployment 가 없으면(빈 클러스터, 새로 추가된 서비스) 매니페스트를 먼저 apply 한다. 있으면 apply 하지 않는다: image 가 :latest 로 되돌아갔다가 아래 set image 로 다시 :sha 가 되면서 롤아웃이 두 번 돌기 때문이다.
+          # 서비스도 매니페스트를 apply 한다. set image 만 하면 env·envFrom·probe·리소스 변경이 서버에
+          # 영영 안 간다. 머지도 CD 도 초록불인데 서버만 옛 설정으로 남고, 짝이 되는 다른 변경이 반영될 때
+          # 터진다(archiver-service 의 envFrom 이 이렇게 누락돼 CrashLoopBackOff 가 났다).
+          #
+          # 이미지 태그는 매니페스트의 placeholder 를 쓰지 않고 여기서 끼워 넣는다.
+          #   이번에 구운 모듈  -> :$SHA
+          #   안 구운 모듈      -> 지금 떠 있는 태그 그대로 (그 :$SHA 이미지는 아예 없다)
           DEPLOYED=""
-          for m in $MODULES; do
-          if ! sudo kubectl -n "$NS" get deploy "$m" >/dev/null 2>&1; then
           if [ -d ~/Backend/.git ]; then
-          echo "deployment/$m 없음 → k8s/$m.yaml 을 apply 한다" >&2
-          git -C ~/Backend show "FETCH_HEAD:k8s/$m.yaml" | sudo kubectl apply -f -
-          else
-          echo "deployment/$m 없음. ~/Backend 클론이 없어 apply 도 못 한다" >&2
-          continue
-          fi
-          fi
+          for m in $MODULES; do
+          CUR=$(sudo kubectl -n "$NS" get deploy "$m" -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || true)
+          case " $BUILT " in
+          *" $m "*) TAG="$SHA" ;;
+          *) TAG="${CUR##*:}"; [ -n "$CUR" ] || TAG="$SHA" ;;
+          esac
+          echo "apply k8s/$m.yaml (:${TAG})" >&2
+          git -C ~/Backend show "FETCH_HEAD:k8s/$m.yaml" \
+          | sed "s#^\( *\)image: ghcr.io/.*#\1image: ghcr.io/$REPO/$m:$TAG#" \
+          | sudo kubectl apply -f -
           DEPLOYED="$DEPLOYED $m"
           done
+          else
+          echo "~/Backend 클론이 없어 서비스 매니페스트 apply 를 건너뛴다" >&2
+          fi
 
-          for m in $DEPLOYED; do
-          sudo kubectl -n "$NS" set image "deployment/$m" "$m=ghcr.io/$REPO/$m:$SHA"
-          done
           for m in $DEPLOYED; do
           sudo kubectl -n "$NS" rollout status "deployment/$m" --timeout=120s
           done
