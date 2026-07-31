@@ -247,8 +247,12 @@ fi
 step "8/8 인프라 매니페스트"
 if [[ -d "$REPO_DIR/.git" ]]; then
   git -C "$REPO_DIR" fetch --quiet origin main || true
-  for f in k8s/00-namespace.yaml k8s/mysql.yaml k8s/kafka.yaml k8s/clickhouse.yaml \
-           k8s/otel-lgtm.yaml k8s/alloy.yaml k8s/kafka-ui.yaml k8s/portainer.yaml; do
+  # 목록을 적지 않고 k8s/ 를 훑는다. 파일을 추가할 때 여기도 같이 고쳐야 하면 잊게 되고,
+  # 그러면 서버에만 빠진 채로 지나간다. CD 도 같은 규칙으로 고른다(.github/workflows/cd.yml).
+  #   빼는 것: *-service.yaml 은 CD 가 이미지 태그까지 맞춰 올리고, kind-cluster.yaml 은
+  #            로컬 kind 설정이며, infisical.yaml 은 Operator 가 있어야 apply 된다.
+  for f in $(git -C "$REPO_DIR" ls-tree --name-only FETCH_HEAD k8s/ | grep '\.yaml$'); do
+    case "$(basename "$f" .yaml)" in *-service|kind-cluster|infisical) continue ;; esac
     git -C "$REPO_DIR" show "FETCH_HEAD:$f" | kubectl apply -f - >/dev/null && echo "  $f"
   done
 else

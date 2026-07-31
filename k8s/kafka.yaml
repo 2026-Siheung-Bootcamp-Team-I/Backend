@@ -1,4 +1,5 @@
-# Kafka (KRaft, 단일 노드) — 개발용. 영속성 없음(emptyDir).
+# Kafka (KRaft, 단일 노드) — 영속성 없음. mysql·clickhouse 와 달리 볼륨을 안 주는 이유는
+# 여기 남는 게 아직 소비되지 않은 메시지뿐이고, 토픽은 아래 init Job 이 다시 만들기 때문이다.
 # 리스너 2개:
 #   INTERNAL(9094) : 클러스터 내부용 -> kafka.edrdog.svc.cluster.local:9094
 #   EXTERNAL(9092) : 호스트용 (localhost:9092), NodePort 30092 로 노출
