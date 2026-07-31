@@ -33,9 +33,7 @@ GHCR_IMAGE_BASE="${GHCR_IMAGE_BASE:-ghcr.io/edrdog/backend}"
 
 # 에이전트가 붙는 포트. Caddy 를 거치지 않는다: 에이전트가 서버 인증서를 고정해서 붙어 중간에서 TLS 를 다시 종단하면 등록 단계에서 실패한다.
 AGENT_PORT=30443
-API_NODEPORT=30084
-KAFKA_UI_NODEPORT=30901
-PORTAINER_NODEPORT=30777
+# 나머지 NodePort(api·kafka-ui·portainer)는 scripts/Caddyfile 에만 적는다. 여기에도 적으면 두 군데가 어긋난다.
 
 fail() { echo "오류: $*" >&2; exit 1; }
 step() { echo; echo "== $*"; }
@@ -147,32 +145,18 @@ if ! command -v caddy >/dev/null 2>&1; then
   fi
 fi
 
-# 도메인 블록 안에서 벗은 reverse_proxy 와 handle 은 섞을 수 없다. 처음부터 전부 감싼다.
-#
-# Caddy 는 인증을 하지 않는다. 운영 UI 세 개가 각자 로그인을 갖고 그 계정은 Infisical 이 넣는다(Kafka UI 는 AUTH_TYPE=LOGIN_FORM, Swagger 는 api-service 의 SwaggerAuthFilter, Portainer 는 자체 로그인).
-# 여기서 또 막으면 비번이 두 군데로 갈라지고, Infisical 에서 비번을 바꿔도 호스트의 이 파일은 그대로라 반영이 안 된다.
-cat > /etc/caddy/Caddyfile <<EOF
-$DOMAIN {
-	handle /kafka-ui* {
-		reverse_proxy localhost:$KAFKA_UI_NODEPORT
-	}
-	handle {
-		reverse_proxy localhost:$API_NODEPORT
-	}
-}
-
-# Portainer. DuckDNS 는 하위 도메인이 전부 같은 IP 로 오므로 레코드를 따로 만들 필요 없고, Caddy 가 이 이름으로 인증서를 알아서 받는다(80 이 열려 있어야 받는다).
-portainer.$DOMAIN {
-	reverse_proxy localhost:$PORTAINER_NODEPORT
-}
-EOF
-# 설정이 틀리면 reload 가 조용히 실패하고 사이트가 옛 설정으로 남거나 죽는다. 여기서 잡는다.
-caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1 \
-  || fail "Caddyfile 이 잘못됐다: caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile"
+# 설정은 scripts/Caddyfile 하나만 본다. 여기서 다시 쓰면 원본이 둘이 되고, 레포만 고쳤을 때 서버가 그걸 모른 채로 남는다(portainer 블록이 실제로 그랬다). CD 도 같은 파일을 넣는다.
+CADDYFILE_SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/Caddyfile"
+[[ -f "$CADDYFILE_SRC" ]] || fail "$CADDYFILE_SRC 가 없다. 레포 클론 안에서 실행해야 한다"
+# 도메인을 바꿔서 돌리는 경우. 여기서 안 짚으면 Caddy 는 옛 도메인으로 멀쩡히 뜨고, 새 도메인만 인증서가 없어 TLS 에러가 난다.
+grep -q "^$DOMAIN {" "$CADDYFILE_SRC" || fail "DOMAIN=$DOMAIN 인데 $CADDYFILE_SRC 는 다른 도메인을 쓴다. 파일을 먼저 고쳐라"
+# 넣기 전에 본다. 넣고 나서 보면 돌던 서버의 설정을 이미 깨뜨린 뒤라 되돌릴 게 없다.
+caddy validate --config "$CADDYFILE_SRC" --adapter caddyfile >/dev/null 2>&1 \
+  || fail "Caddyfile 이 잘못됐다: caddy validate --config $CADDYFILE_SRC --adapter caddyfile"
+install -m 644 "$CADDYFILE_SRC" /etc/caddy/Caddyfile
 systemctl enable --now caddy >/dev/null 2>&1 || true
 systemctl reload caddy 2>/dev/null || systemctl restart caddy
-echo "  $DOMAIN -> localhost:$API_NODEPORT"
-echo "  portainer.$DOMAIN -> localhost:$PORTAINER_NODEPORT"
+echo "  $CADDYFILE_SRC -> /etc/caddy/Caddyfile"
 
 # --- 5. 에이전트 수집 TLS -----------------------------------------------------
 # 에이전트가 호스트명을 SAN 과 대조한다. 도메인을 바꾸면 여기도 다시 만들어야 한다.

@@ -209,6 +209,11 @@ sudo kubectl -n edrdog logs deploy/api-service | grep 'GeoIP DB 로드'
 basic auth 를 걸면 비번이 Infisical 과 호스트 파일 두 군데로 갈라지고, Infisical 에서 바꿔도 호스트의
 Caddyfile 은 그대로라 반영되지 않는다.
 
+**경로를 추가하거나 도메인을 바꿀 때는 `scripts/Caddyfile` 을 고친다.** 이 파일이 원본이고 CD 가
+배포서버의 `/etc/caddy/Caddyfile` 로 넣는다(달라졌을 때만 `install` + `systemctl reload`). 서버에서 직접
+고치면 다음 CD 가 덮어쓴다. 전에는 bootstrap 이 최초 1회 쓰고 아무도 다시 보지 않아서, 레포에 portainer
+블록을 넣고도 서버는 모른 채였고 서브도메인이 인증서가 없어 TLS 핸드셰이크부터 깨졌다.
+
 - **Kafka UI 와 Portainer 는 키가 없으면 파드가 뜨지 않는다** (`optional` 을 안 줬다). 인증이 꺼진 채로
   멀쩡히 떠 있는 것보다 멈추는 편이 낫다. 키를 넣은 뒤
   `kubectl -n edrdog rollout restart deploy/kafka-ui deploy/portainer`.
