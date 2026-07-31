@@ -9,11 +9,14 @@ import java.util.Map;
  * alert 조회/상세/트리아지 응답. 목록과 상세가 같은 형태를 쓴다(matched 포함).
  * threatName 은 ruleId 를 화면 표시용 한글로 옮긴 값이다(원문 ruleId/mitre 는 유지).
  * 판정기록은 ClickHouse 행(Map)으로 오고, status 는 오버레이(MySQL)에서 병합한 값을 넣는다.
- * sourceEvent 는 상세에서만 채운다(목록은 행마다 events 를 조회하면 느리다).
+ * sourceEvent 와 incidentId 는 상세에서만 채운다(목록은 행마다 events 를 조회하거나 사건을 묶으면 느리다).
  *
  * @param domain      이 알림과 관련된 목적지 도메인 (판정 근거 중 관측된 것, 없으면 빈 문자열)
  * @param destIp      이 알림과 관련된 목적지 IP (출처는 domain 과 같다)
  * @param sourceEvent 판정을 유발한 원본 이벤트 (목록이거나 못 찾았으면 null)
+ * @param incidentId  이 알림이 속한 사건의 id (목록이거나 조회 기간 안에서 못 찾았으면 null).
+ *                    프론트가 직접 계산할 수 없어서 싣는다: 사건 id 의 씨앗이 묶음의 최초 알림이라
+ *                    (IncidentId) 계보 묶기를 통째로 다시 구현해야 알 수 있다
  */
 public record AlertResponse(
         String id,
@@ -28,7 +31,8 @@ public record AlertResponse(
         List<String> matched,
         String domain,
         String destIp,
-        SourceEvent sourceEvent
+        SourceEvent sourceEvent,
+        String incidentId
 ) {
     public static AlertResponse fromRow(Map<String, Object> row, String status) {
         return fromRow(row, status, null);
@@ -38,7 +42,16 @@ public record AlertResponse(
         String ruleId = str(row, "rule_id");
         return new AlertResponse(str(row, "id"), str(row, "host"), ruleId, ThreatCatalog.threatName(ruleId),
                 str(row, "mitre"), str(row, "severity"), str(row, "action"), asLong(row, "ts"), status,
-                matched(row), str(row, "domain"), str(row, "dest_ip"), sourceEvent);
+                matched(row), str(row, "domain"), str(row, "dest_ip"), sourceEvent, null);
+    }
+
+    /**
+     * 사건 id 를 얹은 사본. 이 값은 alert 가 아니라 incident 쪽에서 오므로 조립을 웹 계층으로 미룬다
+     * (서비스끼리 alert ↔ incident 로 맞물리면 순환이다).
+     */
+    public AlertResponse withIncidentId(String incidentId) {
+        return new AlertResponse(id, host, ruleId, threatName, mitre, severity, action, ts, status,
+                matched, domain, destIp, sourceEvent, incidentId);
     }
 
     private static String str(Map<String, Object> row, String key) {

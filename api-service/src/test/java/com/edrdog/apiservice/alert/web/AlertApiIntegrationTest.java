@@ -77,8 +77,20 @@ class AlertApiIntegrationTest {
             return alertRows.stream()
                     .filter(r -> tenant.equals(r.get("tenant_id")))
                     .filter(r -> !q.params().containsKey("id") || q.params().get("id").equals(r.get("id")))
+                    .filter(r -> inRange(q.params(), r))
                     .toList();
         });
+    }
+
+    /**
+     * ClickHouse 의 ts >= from AND ts < to 를 그대로 흉내 낸다. 사건 묶기는 조회 기간에 따라 결과가
+     * 갈리므로(기간 밖 알림은 묶음에서 빠진다) 목이 기간을 무시하면 incidentId 를 검증할 수 없다.
+     */
+    private static boolean inRange(Map<String, String> params, Map<String, Object> row) {
+        long ts = Long.parseLong(String.valueOf(row.get("ts")));
+        String from = params.get("from");
+        String to = params.get("to");
+        return (from == null || ts >= Long.parseLong(from)) && (to == null || ts < Long.parseLong(to));
     }
 
     private String[] signup(String email) throws Exception {
@@ -189,6 +201,109 @@ class AlertApiIntegrationTest {
         mvc.perform(get("/api/alerts/" + id).header("Authorization", "Bearer " + a[0]))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.sourceEvent").doesNotExist());
+    }
+
+    // --- incidentId (알림이 속한 사건) ---
+
+    /** 기본 조회 구간(최근 7일) 안이라야 사건으로 묶인다. 다른 테스트의 ts(=100)는 구간 밖이라 null 이 된다. */
+    private static final long RECENT_TS = System.currentTimeMillis() - 60_000;
+
+    /** 최근 시각의 알림 하나와 그 판정을 유발한 프로세스 이벤트. 이 둘이 있어야 사건이 묶인다. */
+    private String seedRecentAlertWithEvent(String tenantId, String host) {
+        String id = seedAlert(tenantId, host, RECENT_TS, "process evil.exe (parent explorer.exe)");
+        eventRows = List.of(procEvent(host, "evil.exe", "explorer.exe", RECENT_TS));
+        return id;
+    }
+
+    /**
+     * 기본 구간(7일) 안에서 3일 벌어진 채로 이어진 알림 둘. 최근 알림의 id 를 준다.
+     *
+     * <p>간격이 핵심이다. 알림이 하나뿐이면 창을 좁혀도 그 알림이 그대로 최초 알림이라 id 가 안 변해서,
+     * 기간이 어긋난 걸 테스트가 못 잡는다. 3일 전 알림이 창 밖으로 밀리면 씨앗이 바뀌어 id 가 달라진다.
+     */
+    private String seedChainSpanningDays(String tenantId, String host) {
+        long firstTs = System.currentTimeMillis() - 3L * 24 * 60 * 60 * 1000;
+        seedAlert(tenantId, host, firstTs, "process winword.exe (parent explorer.exe)");
+        String recentId = seedAlert(tenantId, host, RECENT_TS, "process powershell.exe (parent winword.exe)");
+        eventRows = List.of(
+                procEvent(host, "winword.exe", "explorer.exe", firstTs),
+                procEvent(host, "powershell.exe", "winword.exe", RECENT_TS));
+        return recentId;
+    }
+
+    private static Map<String, Object> procEvent(String host, String process, String parent, long ts) {
+        return Map.of("host", host, "type", "process", "ts", String.valueOf(ts),
+                "process", process, "parent", parent, "cmdline", "", "dest_ip", "", "dest_port", 0);
+    }
+
+    private String incidentIdOfDetail(String token, String alertId) throws Exception {
+        MvcResult res = mvc.perform(get("/api/alerts/" + alertId).header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.incidentId").isNotEmpty())
+                .andReturn();
+        return om.readTree(res.getResponse().getContentAsString()).get("incidentId").asText();
+    }
+
+    @Test
+    void 상세가_준_incidentId_로_그_사건을_실제로_열_수_있다() throws Exception {
+        // 이 기능의 핵심 계약이다. 알림 상세와 사건 목록이 다른 기간을 쓰면 묶음의 최초 알림이 달라져
+        // id 가 갈리고, 링크는 404 도 없이 조용히 다른 사건을 가리킨다. 두 경로가 같은 창을 쓰는지 고정한다.
+        String[] a = signup("a-incid-link@edrdog.com");
+        String alertId = seedChainSpanningDays(a[1], "hostA");
+
+        String incidentId = incidentIdOfDetail(a[0], alertId);
+
+        mvc.perform(get("/api/incidents").header("Authorization", "Bearer " + a[0]))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].id").value(incidentId));
+        mvc.perform(get("/api/incidents/" + incidentId).header("Authorization", "Bearer " + a[0]))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(incidentId))
+                .andExpect(jsonPath("$.alerts.length()").value(2))
+                .andExpect(jsonPath("$.alerts[1].id").value(alertId));
+    }
+
+    @Test
+    void 목록에는_incidentId_가_없다() throws Exception {
+        // 행마다 사건을 묶으면 목록 조회가 느려진다. sourceEvent 와 같은 규칙이다.
+        String[] a = signup("a-incid-list@edrdog.com");
+        seedRecentAlertWithEvent(a[1], "hostA");
+
+        mvc.perform(get("/api/alerts").header("Authorization", "Bearer " + a[0]))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].incidentId").doesNotExist());
+    }
+
+    @Test
+    void 기본_기간_밖의_알림은_incidentId_가_null() throws Exception {
+        // 기본 목록에도 그 사건이 안 보이므로 없는 게 맞다. 지어낸 id 를 주면 링크가 404 난다.
+        String[] a = signup("a-incid-old@edrdog.com");
+        String id = seedAlert(a[1], "hostA", 100L, "process evil.exe (parent explorer.exe)");
+        eventRows = List.of(Map.of("host", "hostA", "type", "process", "ts", "100",
+                "process", "evil.exe", "parent", "explorer.exe",
+                "cmdline", "", "dest_ip", "", "dest_port", 0));
+
+        mvc.perform(get("/api/alerts/" + id).header("Authorization", "Bearer " + a[0]))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sourceEvent.process").value("evil.exe"))
+                .andExpect(jsonPath("$.incidentId").doesNotExist());
+    }
+
+    @Test
+    void 남의_tenant_에는_사건_id_가_새지_않는다() throws Exception {
+        String[] a = signup("a-incid-iso@edrdog.com");
+        String[] b = signup("b-incid-iso@edrdog.com");
+        String bAlertId = seedRecentAlertWithEvent(b[1], "hostB");
+
+        String bIncidentId = incidentIdOfDetail(b[0], bAlertId);
+
+        // 알림 상세부터 404 라 사건 id 를 얻을 길이 없고, 그 id 를 직접 들고 가도 열리지 않는다
+        mvc.perform(get("/api/alerts/" + bAlertId).header("Authorization", "Bearer " + a[0]))
+                .andExpect(status().isNotFound());
+        mvc.perform(get("/api/incidents/" + bIncidentId).header("Authorization", "Bearer " + a[0]))
+                .andExpect(status().isNotFound());
     }
 
     @Test

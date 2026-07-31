@@ -53,6 +53,15 @@ public class IncidentService {
     static final int DEFAULT_LIMIT = 100;
     static final int MAX_LIMIT = 1000;
 
+    /**
+     * 기본 조회 구간: 최근 7일. 사건은 알림보다 오래 들여다보는 단위라 24시간은 짧다.
+     *
+     * <p>여기 있는 이유는 사건 id 가 조회 기간에 딸려 나오기 때문이다. 기간이 다르면 묶음의 최초 알림이
+     * 달라지고 그러면 id 자체가 달라진다(IncidentId). 그래서 기본 기간을 쓰는 곳이 여럿이어도
+     * 값은 하나여야 한다. 복사해 두면 한쪽만 바뀌었을 때 서로 다른 id 를 주고, 그건 조용히 틀린다.
+     */
+    public static final long DEFAULT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000L;
+
     private final ClickHouseReader reader;
     private final AlertQueryBuilder alertBuilder;
     private final EventQueryBuilder events;
@@ -96,6 +105,35 @@ public class IncidentService {
                 .map(r -> AlertResponse.fromRow(r, perAlert.getOrDefault(str(r, "id"), AlertStatus.OPEN)))
                 .toList();
         return detail(incident, status, alerts, lineage.build(chain));
+    }
+
+    /**
+     * 알림 하나가 속한 사건의 id. 기본 기간 안에서 그 알림을 담은 사건이 없으면 null 이다.
+     *
+     * <p>기간을 알림 ts 중심의 좁은 창으로 잡지 않는다. 사건 id 의 씨앗이 묶음의 최초 알림이라
+     * (IncidentId) 창이 좁으면 더 이른 알림이 묶음에서 빠져 씨앗이 바뀌고, 목록이 주는 id 와 다른
+     * id 가 나온다. 그러면 알림에서 사건으로 넘어가는 링크가 404 도 없이 다른 사건을 가리킨다.
+     * 그래서 기간을 안 준 목록 조회와 같은 창을 쓴다.
+     */
+    @Transactional(readOnly = true)
+    public String incidentIdOf(String tenantId, String alertId) {
+        long to = resolveTo(null);
+        long from = resolveFrom(null, to);
+        return incidents(tenantId, from, to).stream()
+                .filter(i -> i.alerts().stream().anyMatch(a -> alertId.equals(str(a, "id"))))
+                .map(Incident::id)
+                .findFirst()
+                .orElse(null);
+    }
+
+    /** 조회 끝점. 안 주면 지금이다. */
+    public static long resolveTo(Long to) {
+        return to != null ? to : System.currentTimeMillis();
+    }
+
+    /** 조회 시작점. 안 주면 끝점에서 기본 구간만큼 거슬러 올라간다. */
+    public static long resolveFrom(Long from, long to) {
+        return from != null ? from : to - DEFAULT_WINDOW_MS;
     }
 
     /** 사건의 시간순 전개. 체인에 속한 이벤트와 그 위에서 난 알림을 섞어 시간 오름차순으로 준다. */

@@ -5,6 +5,7 @@ import com.edrdog.apiservice.alert.AlertStatus;
 import com.edrdog.apiservice.auth.exception.AuthException;
 import com.edrdog.apiservice.auth.service.AuthService;
 import com.edrdog.apiservice.auth.service.Principal;
+import com.edrdog.apiservice.incident.IncidentService;
 import com.edrdog.apiservice.query.TimeBucket;
 import com.edrdog.apiservice.responder.KillResult;
 import com.edrdog.apiservice.responder.ResponderClient;
@@ -41,11 +42,14 @@ public class AlertController {
     private final AlertService alerts;
     private final AuthService auth;
     private final ResponderClient responder;
+    private final IncidentService incidents;
 
-    public AlertController(AlertService alerts, AuthService auth, ResponderClient responder) {
+    public AlertController(AlertService alerts, AuthService auth, ResponderClient responder,
+                           IncidentService incidents) {
         this.alerts = alerts;
         this.auth = auth;
         this.responder = responder;
+        this.incidents = incidents;
     }
 
     @Operation(summary = "알림 목록", description = "로그인 유저의 tenant 것만 host/severity/status/from/to 필터로 최신순 조회. limit 기본 100, 상한 1000.")
@@ -96,13 +100,17 @@ public class AlertController {
             description = "단건 상세(matched + 판정을 유발한 원본 이벤트 sourceEvent 포함, 못 찾으면 null). "
                     + "sourceEvent.matchedBy 는 그 이벤트를 무엇으로 특정했는지이며 summary 가 rule_type 보다 확신이 강하다"
                     + "(rule_type 은 이벤트 종류만 맞춘 것이라 같은 종류가 여럿이면 시각으로 갈렸다). "
+                    + "이 알림이 속한 사건의 incidentId 도 함께 준다(기본 기간인 최근 7일 안에서 못 찾으면 null). "
                     + "남의 tenant 것이면 404.")
     @GetMapping("/{id}")
     public AlertResponse detail(
             @RequestHeader(name = "Authorization", required = false) String authorization,
             @PathVariable String id) {
         String tenantId = currentTenantId(authorization);
-        return alerts.get(tenantId, id);
+        // 사건 id 는 incident 쪽에서 오므로 조립을 여기서 한다. 지금 의존 방향이 incident → alert 라
+        // (IncidentService 가 AlertQueryBuilder 등을 쓴다) AlertService 가 IncidentService 를 부르면
+        // 서비스 계층에 양방향 순환이 생긴다. 웹 계층은 양쪽을 다 알아도 되는 자리다.
+        return alerts.get(tenantId, id).withIncidentId(incidents.incidentIdOf(tenantId, id));
     }
 
     @Operation(summary = "알림 공격 경로(lineage)",

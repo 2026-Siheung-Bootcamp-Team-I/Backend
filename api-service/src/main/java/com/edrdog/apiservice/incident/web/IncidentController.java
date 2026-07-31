@@ -31,9 +31,6 @@ public class IncidentController {
 
     private static final String BEARER_PREFIX = "Bearer ";
 
-    /** 기본 조회 구간: 최근 7일. 사건은 알림보다 오래 들여다보는 단위라 24시간은 짧다. */
-    private static final long DEFAULT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000L;
-
     private final IncidentService incidents;
     private final AuthService auth;
 
@@ -106,12 +103,13 @@ public class IncidentController {
         return incidents.triage(tenantId, id, request.status(), resolvedFrom(from, resolvedTo), resolvedTo);
     }
 
+    /** 기본 기간은 IncidentService 가 소유한다. 알림 상세의 incidentId 도 같은 창을 써야 id 가 일치한다. */
     private static long resolvedTo(Long to) {
-        return to != null ? to : System.currentTimeMillis();
+        return IncidentService.resolveTo(to);
     }
 
     private static long resolvedFrom(Long from, long to) {
-        return from != null ? from : to - DEFAULT_WINDOW_MS;
+        return IncidentService.resolveFrom(from, to);
     }
 
     /** Bearer 토큰을 검증해 현재 유저의 tenant 를 문자열로 반환. 토큰이 없거나 만료면 AuthService 가 401. */
