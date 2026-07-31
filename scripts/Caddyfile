@@ -1,0 +1,38 @@
+# 배포서버 호스트의 Caddy 설정. 이 파일이 원본이고, CD 가 배포서버의 /etc/caddy/Caddyfile 로 넣는다
+# (.github/workflows/cd.yml). 서버에서 직접 고치면 다음 CD 에서 덮어쓴다.
+#
+# 레포에 두는 이유: Caddy 는 k8s 밖이라 kubectl 로 닿지 않아, 예전에는 bootstrap 이 최초 1회 쓰고 아무도
+# 다시 보지 않았다. 그래서 레포에 portainer 블록을 넣고도 서버는 계속 모른 채였고, 서브도메인이 인증서가
+# 없어 TLS 핸드셰이크부터 깨졌다.
+#
+# Caddy 는 인증을 하지 않는다. 운영 UI 셋이 각자 로그인을 갖고 그 계정은 Infisical 이 넣는다(Kafka UI 는
+# AUTH_TYPE=LOGIN_FORM, Swagger 는 api-service 의 SwaggerAuthFilter, Portainer 는 자체 로그인). 여기서 또
+# 막으면 비번이 두 군데로 갈라지고, Infisical 에서 바꿔도 이 파일은 그대로라 반영이 안 된다.
+#
+# 에이전트 수집(30443)은 여기 없다. 에이전트가 서버 인증서를 고정해서 붙어, 중간에서 TLS 를 다시 종단하면
+# 등록 단계에서 실패한다.
+#
+# 도메인을 바꾸면 k8s/portainer.yaml 의 --trusted-origins 도 같이 바꿔야 한다. 안 바꾸면 화면은 뜨는데
+# 로그인이 Origin invalid 로 막힌다.
+
+# 도메인 블록 안에서 벗은 reverse_proxy 와 handle 은 섞을 수 없다. 처음부터 전부 감싼다.
+edrdog-api.duckdns.org {
+	handle /kafka-ui* {
+		reverse_proxy localhost:30901
+	}
+	handle {
+		reverse_proxy localhost:30084
+	}
+}
+
+# 서브패스가 아니라 서브도메인인 이유는 k8s/portainer.yaml 에 적어 뒀다.
+# DuckDNS 는 하위 도메인이 전부 같은 IP 로 오므로 레코드를 따로 만들 필요가 없고, Caddy 가 이 이름으로
+# 인증서를 알아서 받는다(80 이 열려 있어야 받는다).
+portainer.edrdog-api.duckdns.org {
+	reverse_proxy localhost:30777
+}
+
+# Grafana(otel-lgtm). 이미지 기본이 익명 Admin 이라 k8s/otel-lgtm.yaml 에서 끄고 로그인을 켠 뒤에 연다.
+grafana.edrdog-api.duckdns.org {
+	reverse_proxy localhost:30300
+}

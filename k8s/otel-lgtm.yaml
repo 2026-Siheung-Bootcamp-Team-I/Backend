@@ -2,7 +2,7 @@
 # 서비스들이 OTLP 로 메트릭/트레이스를 밀어넣고(로그·인프라 메트릭은 k8s/alloy.yaml 이 수집), Grafana 에서 본다.
 #
 #   기동:  kubectl apply -f k8s/otel-lgtm.yaml -f k8s/alloy.yaml
-#   접속:  http://localhost:3000  (익명 Admin 으로 열려 있음)
+#   접속:  http://localhost:3000  (admin / GRAFANA_ADMIN_PASSWORD, 배포서버는 https://grafana.<도메인>)
 #   OTLP:  호스트 실행 서비스 -> http://localhost:4318, 클러스터 내부 -> http://otel-lgtm:4318
 ---
 # 지표 보관용 볼륨. emptyDir 로 두면 파드 재시작 때 지표·로그·트레이스가 통째로 사라져 발표 중 그래프가 빈다. 기본 StorageClass 를 쓴다(kind: standard, k3s: local-path).
@@ -2007,6 +2007,19 @@ spec:
             # 첫 화면을 EDRdog 대시보드로 (기본 Grafana 홈 대신)
             - name: GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH
               value: /otel-lgtm/edrdog-dashboards/edrdog-overview.json
+            # 이미지 기본값이 익명 Admin 이다(run-grafana.sh). 배포서버는 Caddy 로 밖에 열려 있어서, 끄지 않으면 로그인 없이 아무나 로그·트레이스를 다 보고 대시보드도 고친다.
+            - name: GF_AUTH_ANONYMOUS_ENABLED
+              value: "false"
+            # optional 을 주지 않는다. 키가 없으면 익명으로 열린 채 뜨는 대신 파드가 멈춘다(kafka-ui·portainer 와 같은 이유).
+            # 아이디는 admin 고정. 이 값은 grafana.db 가 없을 때만 먹으므로, 이미 쓰던 PVC 에서는 한 번 재설정해야 한다(k8s/README.md).
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: edrdog-secrets
+                  key: GRAFANA_ADMIN_PASSWORD
+            # 리버스 프록시 뒤라 이게 없으면 Grafana 가 만드는 절대 URL 이 localhost:3000 이 된다.
+            - name: GF_SERVER_ROOT_URL
+              value: https://grafana.edrdog-api.duckdns.org
             # 기본값이 무제한이라 안 자르면 계속 쌓인다. 실측 ~63MiB/일 이라 30일이면 ~1.9GiB, size 는 안전망.
             - name: PROMETHEUS_EXTRA_ARGS
               value: --storage.tsdb.retention.time=30d --storage.tsdb.retention.size=2GB

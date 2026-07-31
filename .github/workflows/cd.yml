@@ -12,38 +12,35 @@ jobs:
     outputs:
       modules: ${{ steps.list.outputs.modules }}
     steps:
+      # git diff 로 직접 비교하므로 전체 히스토리가 필요하다.
       - uses: actions/checkout@v4
-      - uses: dorny/paths-filter@v3
-        id: filter
         with:
-          filters: |
-            shared: &shared
-              - 'build.gradle'
-              - 'settings.gradle'
-              - 'gradle/**'
-              - 'gradlew'
-              - '.github/workflows/cd.yml'
-            detector-service:
-              - *shared
-              - 'detector-service/**'
-            responder-service:
-              - *shared
-              - 'responder-service/**'
-            archiver-service:
-              - *shared
-              - 'archiver-service/**'
-            api-service:
-              - *shared
-              - 'api-service/**'
-            alert-service:
-              - *shared
-              - 'alert-service/**'
-            collector-service:
-              - *shared
-              - 'collector-service/**'
-      # shared 는 "전 모듈 공통" 을 앵커로 재사용하려고 만든 항목이라 모듈이 아니다. matrix 에서 뺀다.
+          fetch-depth: 0
+      # dorny/paths-filter 를 썼다가 뺐다. 그 액션의 기본 base 는 레포 기본 브랜치(dev)인데,
+      # main push 는 항상 dev 를 머지해서 생기니 dev...main 차이가 언제나 0 이다. 결과가 늘 비어
+      # 아무것도 안 구워지고 옛 이미지로 배포되는데, CD 는 초록불이라 아무도 모른다.
       - id: list
-        run: echo "modules=$(jq -cn --argjson c '${{ steps.filter.outputs.changes }}' '$c - ["shared"]')" >> "$GITHUB_OUTPUT"
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          ALL='["detector-service","responder-service","archiver-service","api-service","alert-service","collector-service"]'
+          # 판단이 안 서면 전부 굽는다. 느린 배포가 낡은 이미지 배포보다 낫다.
+          if [ -z "$BEFORE" ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            echo "직전 커밋($BEFORE)을 못 찾아 전 모듈을 다시 굽는다" >&2
+            echo "modules=$ALL" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          FILES=$(git diff --name-only "$BEFORE" "$GITHUB_SHA")
+          echo "바뀐 파일:" >&2; echo "$FILES" | sed 's/^/  /' >&2
+          # 공통 파일은 어느 모듈이 영향받을지 알 수 없으므로 전부 굽는다.
+          if echo "$FILES" | grep -qE '^(build\.gradle|settings\.gradle|gradlew|gradle/|\.github/workflows/cd\.yml)'; then
+            echo "공통 파일이 바뀌어 전 모듈을 다시 굽는다" >&2
+            echo "modules=$ALL" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          MODS=$(echo "$FILES" | awk -F/ '{print $1}' | sort -u \
+            | grep -E '^(detector|responder|archiver|api|alert|collector)-service$' || true)
+          MODULES=$(jq -Rc -s 'split("\n") | map(select(length > 0))' <<<"$MODS")
+          echo "다시 구울 모듈: $MODULES" >&2
+          echo "modules=$MODULES" >> "$GITHUB_OUTPUT"
 
   # 빌드 + 테스트 후 boot jar 를 다음 잡으로 넘긴다 (바뀐 모듈만)
   # settings.gradle 의 모듈끼리 의존이 하나도 없어서(project(...) 참조 0건) 모듈별로 잘라 돌려도
@@ -130,7 +127,7 @@ jobs:
           # 그걸 집어 자기도 모르게 다른 버전을 띄운다(Infisical Operator 가 :latest 드리프트로 죽어 있었다).
           tags: ${{ steps.vars.outputs.image_base }}:${{ github.sha }}
 
-  # EC2(k3s) 에 SSH 로 접속해 k8s/ 매니페스트를 통째로 apply 한다. k3s API 를 외부에 노출하지 않는다.
+  # 배포서버(k3s) 에 SSH 로 접속해 k8s/ 매니페스트와 호스트 Caddy 설정을 통째로 넣는다. k3s API 를 외부에 노출하지 않는다.
   # 필요한 secret: EC2_HOST(도메인/공인IP), EC2_SSH_KEY(개인키). 선택: EC2_USER(기본 ubuntu).
   # 서비스 환경변수(OTEL_EXPORTER_OTLP_ENDPOINT 등)는 Infisical 로 주입한다.
   #
@@ -188,6 +185,28 @@ jobs:
           echo "$APPLIED" >&2
           INFRA_DEPLOYS="$INFRA_DEPLOYS $(echo "$APPLIED" | grep '^deployment' || true)"
           done
+
+          # 호스트의 Caddy 설정. k8s 밖이라 kubectl 로는 안 닿아서, 여기서 안 하면 아무도 조정하지 않는 유일한 조각으로 남는다.
+          # 실제로 레포에 portainer 블록을 넣고도 서버는 계속 모른 채였고, 서브도메인이 인증서가 없어 TLS 핸드셰이크부터 깨졌다.
+          CADDYFILE=$(mktemp)
+          if ! git -C ~/Backend show "FETCH_HEAD:scripts/Caddyfile" > "$CADDYFILE" 2>/dev/null || [ ! -s "$CADDYFILE" ]; then
+          # 빈 파일도 validate 는 통과한다. 그대로 넣고 reload 하면 사이트가 통째로 사라지므로 여기서 막는다.
+          echo "scripts/Caddyfile 을 못 꺼냈다" >&2
+          INFRA_FAILED="$INFRA_FAILED caddy"
+          elif ! caddy validate --config "$CADDYFILE" --adapter caddyfile >/dev/null 2>&1; then
+          # 틀린 설정을 넣고 reload 하면 사이트가 통째로 죽는다. 넣지 않고 옛 설정으로 두는 편이 낫다.
+          echo "Caddyfile 이 잘못돼 적용하지 않는다" >&2
+          INFRA_FAILED="$INFRA_FAILED caddy"
+          elif sudo cmp -s "$CADDYFILE" /etc/caddy/Caddyfile; then
+          echo "Caddyfile 그대로" >&2
+          else
+          sudo install -m 644 "$CADDYFILE" /etc/caddy/Caddyfile
+          # reload 는 설정만 다시 읽어서 연결이 안 끊긴다. 새 도메인이면 여기서 인증서를 받느라 첫 접속이 잠깐 늦다.
+          sudo systemctl reload caddy || INFRA_FAILED="$INFRA_FAILED caddy"
+          echo "Caddyfile 갱신 후 reload" >&2
+          fi
+          rm -f "$CADDYFILE"
+
           # Infisical 연동은 Operator 가 깔려 있을 때만 한다. 없으면 CRD 가 없어 apply 가 실패하고 set -e 때문에 서비스 롤링까지 같이 죽는다.
           # 슬러그가 플레이스홀더면 apply 하지 않는다. 그대로 밀면 서버에 제대로 들어가 있던 설정을 덮어써서
           # Operator 가 인증을 못 하게 되고, 시크릿이 조용히 낡아간다(실제로 하루 동안 그랬다).
@@ -251,7 +270,8 @@ jobs:
           fi
           if [ -n "$INFRA_FAILED" ] || [ -n "$SMOKE_FAILED" ]; then
           [ -z "$INFRA_FAILED" ] || echo "인프라 롤아웃 실패:$INFRA_FAILED" >&2
-          [ -z "$INFRA_FAILED" ] || echo "kafka-ui·portainer 라면 edrdog-secrets 에 계정 키가 없는 것이다(k8s/README.md)." >&2
+          [ -z "$INFRA_FAILED" ] || echo "kafka-ui·portainer·otel-lgtm 이라면 edrdog-secrets 에 계정 키가 없는 것이다(k8s/README.md)." >&2
+          [ -z "$INFRA_FAILED" ] || echo "caddy 라면 scripts/Caddyfile 이 잘못됐거나 reload 가 실패한 것이다. 서버 설정은 옛 상태 그대로다." >&2
           exit 1
           fi
           REMOTE
