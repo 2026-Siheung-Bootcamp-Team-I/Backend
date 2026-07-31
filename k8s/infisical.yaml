@@ -45,7 +45,7 @@ spec:
         secretNamespace: edrdog
       secretsScope:
         # 프로젝트 슬러그는 Infisical 프로젝트 Settings 에서 확인한다. 비밀값이 아니다.
-        projectSlug: REPLACE_WITH_INFISICAL_PROJECT_SLUG
+        projectSlug: edrdog-a9kj
         envSlug: prod        # Infisical 의 Production 환경 슬러그
         secretsPath: /
 
