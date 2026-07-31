@@ -36,6 +36,16 @@ edrdog:
     alerts-topic: alerts                 # detector 가 발행한 판정 결과 (소비 → MySQL 적재)
     events-raw-topic: events-raw         # 에이전트가 보낸 이벤트 (발행 → collector 정규화)
     events-topic: events                 # 정규화된 이벤트 (발표용 데모 수집 API 가 발행 → detector 판정)
+    # 파이프라인 상태 화면(operations/health)이 토픽별 컨슈머 lag 를 볼 때 쓰는 컨슈머 그룹 목록(쉼표 구분).
+    # 토픽 하나를 여러 그룹이 각자 소비하기도 해서(events 는 detector 와 archiver 가, alerts 는 이 서비스와
+    # alert-service 가 따로 소비) 토픽당 하나가 아니라 목록으로 둔다 — 하나만 잡으면 나머지 소비자가 밀려도
+    # 화면에는 "정상"으로 보인다(archiver 가 밀려 ClickHouse 적재가 멈춘 적이 실제로 있었다).
+    # alerts 의 첫 항목은 이 서비스 자신의 그룹을 그대로 참조하고, 나머지는 다른 서비스
+    # (collector-service/detector-service/archiver-service/alert-service) application.yml 의
+    # group-id/application-id 값을 그대로 옮겨 적었다.
+    alerts-consumer-groups: ${spring.kafka.consumer.group-id}, alert
+    events-raw-consumer-groups: collector
+    events-consumer-groups: detector, archiver
   agent:
     tls:                                 # 에이전트 전용 HTTPS 커넥터 (프론트 HTTP 8084 와 별도 포트)
       enabled: ${AGENT_TLS_ENABLED:false}            # 켜면 keystore 필수 (scripts/gen-dev-keystore.sh)

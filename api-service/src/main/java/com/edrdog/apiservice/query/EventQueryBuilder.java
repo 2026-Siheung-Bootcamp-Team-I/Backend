@@ -18,6 +18,13 @@ public class EventQueryBuilder {
     static final int DEFAULT_LIMIT = 100;
     static final int MAX_LIMIT = 1000;
 
+    /**
+     * offset 상한. ClickHouse 의 OFFSET 은 건너뛸 행을 버리기 전에 실제로 읽으므로 값이 커질수록
+     * 조회가 그대로 길어진다. limit 상한(1000) 기준 10페이지까지는 열어 두고, 그보다 깊이 파야 하는
+     * 조사는 offset 을 키우는 대신 from/to 로 범위를 좁히게 한다.
+     */
+    public static final int MAX_OFFSET = 10_000;
+
     // domain/detail 은 dns/l7 이벤트용. 대시보드가 어떤 도메인을 물어봤는지 보려면 조회 컬럼에 있어야 한다.
     // sha256 은 파일 해시. 조회 결과에 실려야 어떤 파일이 걸린 건지 화면에서 확인할 수 있다.
     private static final String COLUMNS =
@@ -44,6 +51,39 @@ public class EventQueryBuilder {
     }
 
     /**
+     * 화면 페이지 조회. events() 와 같은 WHERE·정렬에 offset 만 얹되, 상한(MAX_LIMIT)보다 한 행을 더 읽는다.
+     * 그 한 행이 다음 페이지가 있다는 뜻이라 호출부는 count() 를 한 번 더 돌지 않고도 그것을 알 수 있다.
+     * 클램프한 뒤에 +1 이라야 상한을 요청한 화면에서도 탐침 행이 사라지지 않는다.
+     *
+     * <p>offset 은 ORDER BY ts DESC 안에서 앞에서부터 건너뛴다. 그래서 to 를 고정하지 않고 페이지를
+     * 넘기면 그사이 들어온 새 이벤트가 맨 위에 쌓여 행이 겹치거나 건너뛰어진다. 호출부는 첫 페이지가
+     * 실제로 적용한 to 를 다음 페이지에 그대로 실어야 한다.
+     */
+    public ClickHouseQuery eventsPage(String tenantId, String host, String type, String sha256,
+                                      Long from, Long to, Integer limit, Integer offset) {
+        Map<String, String> params = new LinkedHashMap<>();
+        String where = where(tenantId, host, type, sha256, from, to, params);
+        String sql = "SELECT " + COLUMNS + " FROM " + table
+                + where
+                + " ORDER BY ts DESC LIMIT " + (pageSize(limit) + 1)
+                + offsetClause(offset);
+        return new ClickHouseQuery(sql, params);
+    }
+
+    /** eventsPage 와 같은 WHERE 로 총 건수만 센다(tenant 격리도 그대로라 남의 조직은 총계에 안 섞인다). */
+    public ClickHouseQuery countEvents(String tenantId, String host, String type, String sha256,
+                                       Long from, Long to) {
+        Map<String, String> params = new LinkedHashMap<>();
+        String where = where(tenantId, host, type, sha256, from, to, params);
+        return new ClickHouseQuery("SELECT count() AS cnt FROM " + table + where, params);
+    }
+
+    /** 클램프가 적용된 실제 페이지 크기. 호출부가 탐침 행을 잘라내려면 이 값을 알아야 한다. */
+    public static int pageSize(Integer limit) {
+        return clampLimit(limit);
+    }
+
+    /**
      * tenant 격리 하에 관측된 host 목록과 각 host 의 last_seen(최신 ts)을 뽑는다. tenantId 는 필수.
      * 호스트 대장(registry) 없이 events 집계로만 관측 호스트를 얻는다(엔드포인트 목록의 데이터원).
      */
@@ -60,13 +100,43 @@ public class EventQueryBuilder {
      * lineage 재구성용: tenant+host 격리 하에 시간 윈도우[from,to] events 를 시간순으로 조회.
      * 그래프 빌드에 필요한 컬럼만 뽑고, ts 오름차순(부모->자식 체인 순)으로 정렬한다.
      * 상한(MAX_LIMIT)으로 클램프해 폭주를 막는다. tenantId 는 필수.
+     *
+     * detail 을 여기 열어 두는 이유: pid/ppid 는 에이전트가 이미 보내지만 detail(JSON) 안에
+     * 있어 이 컬럼이 없으면 못 쓴다. 동명 프로세스를 pid 로 구분하는 것은 다음 작업 몫이다.
      */
     public ClickHouseQuery lineageEvents(String tenantId, String host, Long from, Long to) {
         Map<String, String> params = new LinkedHashMap<>();
         String where = where(tenantId, host, null, null, from, to, params);
-        String sql = "SELECT type, ts, process, parent, dest_ip, dest_port FROM " + table
+        String sql = "SELECT type, ts, process, parent, dest_ip, dest_port, detail FROM " + table
                 + where
                 + " ORDER BY ts ASC LIMIT " + MAX_LIMIT;
+        return new ClickHouseQuery(sql, params);
+    }
+
+    /**
+     * 단건(id) 조회용 창의 반폭(ms). ts 한 점으로 못 박지 않는 이유는, 링크가 나르는 ts 가 화면을
+     * 거치며 초 단위로 잘려 오는 등 원본과 몇 밀리초 어긋날 수 있어서다. 점으로 잡으면 그때 조용히
+     * 404 가 된다. 창을 넓혀도 엉뚱한 이벤트가 나오지는 않는다. 창은 후보를 긁는 범위일 뿐이고
+     * 무엇을 돌려줄지는 행의 실제 값으로 다시 접은 id 가 정하기 때문이다. 창은 스캔 비용만 정한다.
+     */
+    static final long POINT_WINDOW_MS = 1000;
+
+    /**
+     * tenant+host 격리 하에 ts 주변 좁은 창의 events 를 뽑는다(id 로 단건을 지목하는 경로).
+     * events 에는 id 컬럼이 없어 WHERE 로 못 거르므로, 여기서는 후보만 좁히고 id 대조는 호출부가 한다.
+     * 그래서 id 씨앗 컬럼이 다 실린 전체 COLUMNS 를 뽑고, 창 안이 붐벼도 찾는 행이 잘리지 않게
+     * 상한(MAX_LIMIT)까지 연다. tenantId 와 host 는 필수 — host 가 없으면 tenant 전체를 훑게 된다.
+     */
+    public ClickHouseQuery eventAt(String tenantId, String host, long ts) {
+        if (!hasText(host)) {
+            throw new IllegalArgumentException("host 는 필수입니다(단건 조회 범위)");
+        }
+        Map<String, String> params = new LinkedHashMap<>();
+        String where = where(tenantId, host, null, null,
+                Math.max(0, ts - POINT_WINDOW_MS), ts + POINT_WINDOW_MS, params);
+        String sql = "SELECT " + COLUMNS + " FROM " + table
+                + where
+                + " ORDER BY ts DESC LIMIT " + MAX_LIMIT;
         return new ClickHouseQuery(sql, params);
     }
 
@@ -135,6 +205,20 @@ public class EventQueryBuilder {
             return DEFAULT_LIMIT;
         }
         return Math.min(limit, MAX_LIMIT);
+    }
+
+    /**
+     * limit 과 달리 범위를 벗어난 offset 은 클램프하지 않고 거절한다. 조용히 잘라 상한 페이지를
+     * 돌려주면 화면은 자기가 요청한 페이지가 비어 있다고 읽는다.
+     */
+    private static String offsetClause(Integer offset) {
+        if (offset == null || offset == 0) {
+            return "";
+        }
+        if (offset < 0 || offset > MAX_OFFSET) {
+            throw new IllegalArgumentException("offset 은 0..." + MAX_OFFSET + " 여야 합니다: " + offset);
+        }
+        return " OFFSET " + offset;
     }
 
     private static boolean hasText(String s) {

@@ -8,6 +8,8 @@ dependencies {
     runtimeOnly 'com.mysql:mysql-connector-j'                           // auth: MySQL 드라이버
     implementation 'org.springframework.security:spring-security-crypto'      // auth: BCrypt 비밀번호 해시(필터체인 없이)
     implementation 'com.maxmind.geoip2:geoip2:4.2.1'                   // GeoLite2-Country mmdb 로 dest_ip -> 국가 코드 (world map)
+    implementation 'dnsjava:dnsjava:3.6.3'                             // intelligence: 정방향/역방향 DNS 실시간 조회 (관측 데이터와 대조)
+    implementation 'com.google.guava:guava:33.4.0-jre'                 // intelligence: InternetDomainName 으로 서브도메인을 등록가능 도메인으로 묶음(PSL 내장)
     testImplementation 'com.h2database:h2'                             // auth: 테스트용 임베디드 DB
     implementation 'io.micrometer:micrometer-registry-otlp'            // 메트릭 OTLP 전송 (프론트 진입점이라 RED 지표 필요)
 }

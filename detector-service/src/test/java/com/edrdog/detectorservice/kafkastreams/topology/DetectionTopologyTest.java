@@ -61,6 +61,11 @@ class DetectionTopologyTest {
         return new Event(host, Event.TYPE_NETWORK, ts, null, null, null, "203.0.113.9", destPort, null, null, null, "tenant-a");
     }
 
+    /** 목적지 도메인까지 관측된 network 이벤트. */
+    private Event networkTo(String host, String destIp, String domain, int destPort, long ts) {
+        return new Event(host, Event.TYPE_NETWORK, ts, null, null, null, destIp, destPort, domain, null, null, "tenant-a");
+    }
+
     @Test
     @DisplayName("office → shell 시퀀스 → alerts 에 T1059 1건 발행")
     void processChain_emitsAlert() {
@@ -82,6 +87,36 @@ class DetectionTopologyTest {
 
         assertThat(alerts.getQueueSize()).isEqualTo(1);
         assertThat(alerts.readValue().severity()).isEqualTo(Alert.SEV_CRITICAL);
+    }
+
+    @Test
+    @DisplayName("근거 이벤트의 목적지가 alert 에 실리고, 도착 순서가 달라도 같은 값이다")
+    void destination_isIndependentOfArrivalOrder() {
+        // 룰은 도착 순서에 독립적으로 판정한다. 목적지도 같아야 한다(안 그러면 같은 공격이 절반만 그려진다).
+        events.pipeInput("k", processFrom("host-4", "evil.exe", "C:\\Users\\me\\Downloads\\evil.exe", 2000));
+        events.pipeInput("k", networkTo("host-4", "203.0.113.9", "evil.example.com", 443, 1000));
+        Alert late = alerts.readValue();
+
+        events.pipeInput("k", networkTo("host-5", "203.0.113.9", "evil.example.com", 443, 1000));
+        events.pipeInput("k", processFrom("host-5", "evil.exe", "C:\\Users\\me\\Downloads\\evil.exe", 2000));
+        Alert inOrder = alerts.readValue();
+
+        assertThat(late.ruleId()).isEqualTo("DOWNLOAD_AND_EXECUTE");
+        assertThat(late.destIp()).isEqualTo("203.0.113.9");
+        assertThat(late.domain()).isEqualTo("evil.example.com");
+        assertThat(inOrder.destIp()).isEqualTo(late.destIp());
+        assertThat(inOrder.domain()).isEqualTo(late.domain());
+    }
+
+    @Test
+    @DisplayName("판정 근거가 어떤 목적지도 관측하지 못했으면 빈 문자열 (지어내지 않는다)")
+    void noDestinationObserved_isEmpty() {
+        events.pipeInput("k", process("host-5", "winword.exe", "explorer.exe", 1000));
+        events.pipeInput("k", process("host-5", "powershell.exe", "winword.exe", 2000));
+
+        Alert alert = alerts.readValue();
+        assertThat(alert.destIp()).isEmpty();
+        assertThat(alert.domain()).isEmpty();
     }
 
     @Test

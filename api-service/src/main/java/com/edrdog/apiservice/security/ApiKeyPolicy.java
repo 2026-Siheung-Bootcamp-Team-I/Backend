@@ -15,6 +15,9 @@ public class ApiKeyPolicy {
             "/api/events",  // 조회는 세션 Bearer 로 인증하고 tenant 를 뽑는다(EventQueryController)
             "/api/alerts",  // 알림 조회·트리아지도 세션 Bearer 로 인증(AlertController)
             "/api/hosts",   // 호스트 목록·요약도 세션 Bearer 로 인증(HostController)
+            "/api/operations",  // 파이프라인 상태 조회도 세션 Bearer 로 인증(OperationsHealthController)
+            "/api/intelligence",  // 관계 분석 조회도 세션 Bearer 로 인증(intelligence 패키지 컨트롤러들)
+            "/api/incidents",  // 사건 조회·트리아지도 세션 Bearer 로 인증(IncidentController)
             "/api/me",      // 유저 개인 알림 설정도 세션 Bearer 로 인증(UserNotifyController)
             "/api/demo/",   // 발표용 데모 시연도 세션 Bearer 로 인증하고 데모 계정만 통과시킨다(DemoController)
             "/api/internal/",  // 서비스 간 조회는 별도 X-Internal-Key 로 인증(TenantController), 프론트 키와 분리

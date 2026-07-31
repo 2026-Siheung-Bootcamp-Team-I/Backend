@@ -46,6 +46,124 @@ class EventQueryBuilderTest {
         assertTrue(q.sql().contains("LIMIT 250"), q.sql());
     }
 
+    // --- 페이지 조회(offset) ---
+
+    @Test
+    void 페이지조회는_offset_이_없으면_OFFSET_절을_붙이지_않는다() {
+        ClickHouseQuery q = builder.eventsPage(TENANT, null, null, null, null, null, null, null);
+        assertFalse(q.sql().contains("OFFSET"), q.sql());
+    }
+
+    @Test
+    void 페이지조회는_offset_0_도_OFFSET_절을_붙이지_않는다() {
+        assertFalse(builder.eventsPage(TENANT, null, null, null, null, null, null, 0).sql().contains("OFFSET"));
+    }
+
+    @Test
+    void 페이지조회는_offset_을_그대로_건너뛴다() {
+        ClickHouseQuery q = builder.eventsPage(TENANT, null, null, null, null, null, 50, 100);
+        assertTrue(q.sql().contains("OFFSET 100"), q.sql());
+    }
+
+    @Test
+    void 페이지조회는_다음페이지_확인용으로_한_행을_더_읽는다() {
+        // 다음 페이지가 있는지 알려고 count() 를 한 번 더 도는 것보다 한 행 더 읽는 게 싸다.
+        assertTrue(builder.eventsPage(TENANT, null, null, null, null, null, 50, null).sql().contains("LIMIT 51"));
+        assertTrue(builder.eventsPage(TENANT, null, null, null, null, null, null, null).sql().contains("LIMIT 101"));
+    }
+
+    @Test
+    void 페이지조회는_상한_limit_이어도_탐침_행이_사라지지_않는다() {
+        // 클램프한 뒤에 +1 이라야 상한(1000)을 요청한 화면도 다음 페이지 유무를 알 수 있다.
+        assertTrue(builder.eventsPage(TENANT, null, null, null, null, null, 5000, null).sql().contains("LIMIT 1001"));
+    }
+
+    @Test
+    void 페이지크기는_limit_클램프_결과와_같다() {
+        // 호출부가 탐침 행을 잘라내려면 실제 페이지 크기를 알아야 한다.
+        assertEquals(100, EventQueryBuilder.pageSize(null));
+        assertEquals(100, EventQueryBuilder.pageSize(0));
+        assertEquals(250, EventQueryBuilder.pageSize(250));
+        assertEquals(1000, EventQueryBuilder.pageSize(5000));
+    }
+
+    @Test
+    void offset_이_상한을_넘으면_예외() {
+        // 조용히 잘라내면 화면은 데이터가 없다고 읽는다. 명확히 거절해야 한다.
+        assertThrows(IllegalArgumentException.class,
+                () -> builder.eventsPage(TENANT, null, null, null, null, null, 100, EventQueryBuilder.MAX_OFFSET + 1));
+    }
+
+    @Test
+    void offset_이_상한과_같으면_통과() {
+        ClickHouseQuery q = builder.eventsPage(TENANT, null, null, null, null, null, 100, EventQueryBuilder.MAX_OFFSET);
+        assertTrue(q.sql().contains("OFFSET " + EventQueryBuilder.MAX_OFFSET), q.sql());
+    }
+
+    @Test
+    void offset_이_음수면_예외() {
+        assertThrows(IllegalArgumentException.class,
+                () -> builder.eventsPage(TENANT, null, null, null, null, null, 100, -1));
+    }
+
+    @Test
+    void 같은_시간범위를_고정하면_페이지끼리_OFFSET_만_다르다() {
+        // 페이지가 겹치거나 빠지지 않으려면 두 요청의 WHERE 가 완전히 같아야 한다.
+        ClickHouseQuery p1 = builder.eventsPage(TENANT, "host-01", null, null, 1000L, 2000L, 100, null);
+        ClickHouseQuery p2 = builder.eventsPage(TENANT, "host-01", null, null, 1000L, 2000L, 100, 100);
+        assertEquals(p1.params(), p2.params());
+        assertEquals(p1.sql() + " OFFSET 100", p2.sql());
+    }
+
+    @Test
+    void 페이지조회도_tenant_격리와_필터를_그대로_건다() {
+        ClickHouseQuery q = builder.eventsPage(TENANT, "host-01", "dns", null, 1000L, 2000L, 100, 100);
+        assertTrue(q.sql().contains("tenant_id = {tenant:String}"), q.sql());
+        assertTrue(q.sql().contains("host = {host:String}"), q.sql());
+        assertTrue(q.sql().contains("type = {type:String}"), q.sql());
+        assertTrue(q.sql().contains("ORDER BY ts DESC"), q.sql());
+        assertEquals(TENANT, q.params().get("tenant"));
+    }
+
+    @Test
+    void 페이지조회도_tenant_가_없으면_예외() {
+        assertThrows(IllegalArgumentException.class,
+                () -> builder.eventsPage(null, null, null, null, null, null, 100, 0));
+    }
+
+    // --- 총 건수 ---
+
+    @Test
+    void 총건수는_같은_WHERE_로_센다() {
+        ClickHouseQuery page = builder.eventsPage(TENANT, "host-01", "dns", HASH, 1000L, 2000L, 100, 100);
+        ClickHouseQuery count = builder.countEvents(TENANT, "host-01", "dns", HASH, 1000L, 2000L);
+        assertTrue(count.sql().contains("count() AS cnt"), count.sql());
+        assertEquals(page.params(), count.params());
+    }
+
+    @Test
+    void 총건수는_tenant_밖을_세지_않는다() {
+        ClickHouseQuery q = builder.countEvents(TENANT, null, null, null, null, null);
+        assertTrue(q.sql().contains("tenant_id = {tenant:String}"), q.sql());
+        assertEquals(TENANT, q.params().get("tenant"));
+    }
+
+    @Test
+    void 총건수도_tenant_가_없으면_예외() {
+        assertThrows(IllegalArgumentException.class,
+                () -> builder.countEvents(null, null, null, null, null, null));
+        assertThrows(IllegalArgumentException.class,
+                () -> builder.countEvents("  ", null, null, null, null, null));
+    }
+
+    @Test
+    void 총건수는_LIMIT_이나_정렬을_붙이지_않는다() {
+        // 전체를 세는 쿼리라 정렬/상한이 붙으면 의미가 달라진다.
+        ClickHouseQuery q = builder.countEvents(TENANT, null, null, null, null, null);
+        assertFalse(q.sql().contains("LIMIT"), q.sql());
+        assertFalse(q.sql().contains("ORDER BY"), q.sql());
+    }
+
     // --- tenant 필수 격리 ---
 
     @Test
@@ -199,6 +317,14 @@ class EventQueryBuilderTest {
         assertTrue(q.sql().contains("ORDER BY ts ASC"), q.sql());
     }
 
+    // detail 은 pid/ppid 가 든 칸이다. 지금 계보 빌더는 pid/ppid 를 못 써서 동명 프로세스를
+    // 한 노드로 합치는데, 이 컬럼이 열려 있어야 나중에 pid 기반으로 정확히 나눌 수 있다.
+    @Test
+    void lineage_는_pid_ppid_가_든_detail_도_뽑는다() {
+        ClickHouseQuery q = builder.lineageEvents(TENANT, "host-01", 1000L, 2000L);
+        assertTrue(q.sql().contains("detail"), q.sql());
+    }
+
     @Test
     void lineage도_상한으로_클램프해_폭주를_막는다() {
         ClickHouseQuery q = builder.lineageEvents(TENANT, "host-01", 1000L, 2000L);
@@ -209,6 +335,72 @@ class EventQueryBuilderTest {
     void lineage도_tenant_가_null_이면_예외() {
         assertThrows(IllegalArgumentException.class,
                 () -> builder.lineageEvents(null, "host-01", 1000L, 2000L));
+    }
+
+    // --- 단건(id) 조회용 좁은 창 ---
+
+    @Test
+    void 단건조회는_tenant_host_와_ts_주변_창을_바인딩한다() {
+        ClickHouseQuery q = builder.eventAt(TENANT, "host-01", 10_000L);
+        assertTrue(q.sql().contains("tenant_id = {tenant:String}"), q.sql());
+        assertTrue(q.sql().contains("host = {host:String}"), q.sql());
+        assertTrue(q.sql().contains("ts >= {from:UInt64}"), q.sql());
+        assertTrue(q.sql().contains("ts <= {to:UInt64}"), q.sql());
+        assertEquals(TENANT, q.params().get("tenant"));
+        assertEquals("host-01", q.params().get("host"));
+    }
+
+    @Test
+    void 단건조회_창은_ts_를_가운데_둔_반폭만큼이다() {
+        ClickHouseQuery q = builder.eventAt(TENANT, "host-01", 10_000L);
+        assertEquals(String.valueOf(10_000L - EventQueryBuilder.POINT_WINDOW_MS), q.params().get("from"));
+        assertEquals(String.valueOf(10_000L + EventQueryBuilder.POINT_WINDOW_MS), q.params().get("to"));
+    }
+
+    @Test
+    void 단건조회_창의_시작은_음수로_내려가지_않는다() {
+        // ts 가 창 반폭보다 작으면 from 이 음수가 되는데, ClickHouse UInt64 바인딩이 깨진다.
+        ClickHouseQuery q = builder.eventAt(TENANT, "host-01", 10L);
+        assertEquals("0", q.params().get("from"));
+    }
+
+    @Test
+    void 단건조회는_id_를_다시_접을_수_있는_컬럼을_모두_뽑는다() {
+        // id 는 저장돼 있지 않고 행에서 다시 계산한다. 씨앗 컬럼이 하나라도 빠지면 영영 일치하지 않는다.
+        ClickHouseQuery q = builder.eventAt(TENANT, "host-01", 10_000L);
+        assertTrue(q.sql().contains("host"), q.sql());
+        assertTrue(q.sql().contains("type"), q.sql());
+        assertTrue(q.sql().contains("process"), q.sql());
+        assertTrue(q.sql().contains("parent"), q.sql());
+        assertTrue(q.sql().contains("dest_ip"), q.sql());
+        assertTrue(q.sql().contains("dest_port"), q.sql());
+        assertTrue(q.sql().contains("detail"), q.sql());
+    }
+
+    @Test
+    void 단건조회도_상한으로_클램프한다() {
+        // 바쁜 호스트는 창 안에서도 행이 쏟아진다. 기본 100 이면 찾는 행이 잘려 나가 404 가 된다.
+        assertTrue(builder.eventAt(TENANT, "host-01", 10_000L).sql().contains("LIMIT 1000"));
+    }
+
+    @Test
+    void 단건조회는_tenant_가_없으면_예외() {
+        assertThrows(IllegalArgumentException.class, () -> builder.eventAt(null, "host-01", 10_000L));
+        assertThrows(IllegalArgumentException.class, () -> builder.eventAt("  ", "host-01", 10_000L));
+    }
+
+    @Test
+    void 단건조회는_host_가_없으면_예외() {
+        // host 가 빠지면 창 조건만 남아 tenant 전체를 훑는다. 그 비용을 지려고 만든 경로가 아니다.
+        assertThrows(IllegalArgumentException.class, () -> builder.eventAt(TENANT, null, 10_000L));
+        assertThrows(IllegalArgumentException.class, () -> builder.eventAt(TENANT, "  ", 10_000L));
+    }
+
+    @Test
+    void 단건조회_host_값은_SQL_본문에_직접_박히지_않는다() {
+        ClickHouseQuery q = builder.eventAt(TENANT, "host-01' OR 1=1", 10_000L);
+        assertFalse(q.sql().contains("OR 1=1"), q.sql());
+        assertEquals("host-01' OR 1=1", q.params().get("host"));
     }
 
     // --- 요약 ---
