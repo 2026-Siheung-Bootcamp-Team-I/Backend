@@ -3,6 +3,7 @@ package com.edrdog.apiservice.alert;
 import com.edrdog.apiservice.alert.dto.Alert;
 import com.edrdog.apiservice.alert.web.AlertResponse;
 import com.edrdog.apiservice.alert.web.LineageResponse;
+import com.edrdog.apiservice.alert.web.SourceEvent;
 import com.edrdog.apiservice.alert.web.SummaryResponse;
 import com.edrdog.apiservice.auth.exception.AuthException;
 import com.edrdog.apiservice.clickhouse.ClickHouseReader;
@@ -30,6 +31,9 @@ public class AlertService {
 
     /** lineage 재구성 윈도우: alert.ts 기준 앞뒤 5분. */
     static final long LINEAGE_WINDOW_MS = 5 * 60 * 1000L;
+
+    /** 원본 이벤트를 고르기 위해 훑는 events 상한(EventQueryBuilder 의 상한과 같은 값). */
+    static final int SOURCE_EVENT_SCAN_LIMIT = 1000;
 
     private final AlertClickHouseWriter writer;
     private final AlertStatusRepository statuses;
@@ -94,11 +98,25 @@ public class AlertService {
                 .toList();
     }
 
-    /** 단건 상세. 없거나 다른 tenant 것이면 404(존재 은닉). */
+    /** 단건 상세. 없거나 다른 tenant 것이면 404(존재 은닉). 판정을 유발한 원본 이벤트를 같이 싣는다. */
     @Transactional(readOnly = true)
     public AlertResponse get(String tenantId, String id) {
         Map<String, Object> row = ownedRow(tenantId, id);
-        return AlertResponse.fromRow(row, statusOf(id));
+        return AlertResponse.fromRow(row, statusOf(id), sourceEvent(tenantId, row));
+    }
+
+    /**
+     * 판정을 유발한 원본 이벤트. 같은 tenant+host 의 alert.ts 근처 events 를 긁어와 판별자로 고른다(못 찾으면 null).
+     * limit 을 기본값(100)이 아니라 상한으로 두는 건 조회가 ts DESC 라, 실기기처럼 초당 십여 건이 들어오면
+     * 정작 alert.ts 근처 행이 잘려 나가기 때문이다. 고르는 규칙은 SourceEventMatcher 에 있다.
+     */
+    private SourceEvent sourceEvent(String tenantId, Map<String, Object> alert) {
+        long ts = asLong(alert, "ts");
+        long from = Math.max(0, ts - SourceEventMatcher.WINDOW_MS);
+        long to = ts + SourceEventMatcher.WINDOW_MS;
+        List<Map<String, Object>> rows = reader.query(
+                events.events(tenantId, str(alert, "host"), null, null, from, to, SOURCE_EVENT_SCAN_LIMIT));
+        return SourceEventMatcher.match(rows, alert);
     }
 
     /**

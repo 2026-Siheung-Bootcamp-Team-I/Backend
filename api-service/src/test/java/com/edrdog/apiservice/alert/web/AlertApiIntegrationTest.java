@@ -94,15 +94,25 @@ class AlertApiIntegrationTest {
     /** 판정기록 한 건을 목 ClickHouse 에 시드한다(ts 는 CH UInt64 처럼 문자열). */
     private String seedAlert(String tenantId, String host, String ruleId, String severity, long ts) {
         String id = AlertId.of(tenantId, host, ruleId, ts);
-        alertRows.add(new java.util.HashMap<>(Map.of(
+        Map<String, Object> row = new java.util.HashMap<>(Map.of(
                 "id", id, "tenant_id", tenantId, "host", host, "rule_id", ruleId,
                 "mitre", "T1059", "severity", severity == null ? "" : severity, "action", "notify",
-                "ts", String.valueOf(ts), "matched", List.of("m1"))));
+                "ts", String.valueOf(ts), "matched", List.of("m1")));
+        row.put("domain", "evil.example.com");
+        row.put("dest_ip", "203.0.113.9");
+        alertRows.add(row);
         return id;
     }
 
     private String seedAlert(String tenantId, String host, long ts) {
         return seedAlert(tenantId, host, "RULE_A", "HIGH", ts);
+    }
+
+    /** 판정 근거의 마지막 줄(= 트리거 이벤트 요약)까지 지정해 시드한다. 원본 이벤트는 이 줄로 특정된다. */
+    private String seedAlert(String tenantId, String host, long ts, String triggerSummary) {
+        String id = seedAlert(tenantId, host, ts);
+        alertRows.get(alertRows.size() - 1).put("matched", List.of(triggerSummary));
+        return id;
     }
 
     @Test
@@ -119,6 +129,66 @@ class AlertApiIntegrationTest {
                 .andExpect(jsonPath("$[0].ruleId").value("DOWNLOAD_AND_EXECUTE"))
                 .andExpect(jsonPath("$[0].threatName").value("다운로드 후 실행"))
                 .andExpect(jsonPath("$[0].status").value("open"));
+    }
+
+    @Test
+    void 목록은_목적지를_싣되_원본이벤트는_싣지_않는다() throws Exception {
+        // 목록에 원본 이벤트까지 담으면 행마다 events 를 조회해야 해서 느려진다.
+        String[] a = signup("a-listdest@edrdog.com");
+        seedAlert(a[1], "hostA", 100L);
+
+        mvc.perform(get("/api/alerts").header("Authorization", "Bearer " + a[0]))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].domain").value("evil.example.com"))
+                .andExpect(jsonPath("$[0].destIp").value("203.0.113.9"))
+                .andExpect(jsonPath("$[0].sourceEvent").doesNotExist());
+    }
+
+    @Test
+    void 상세는_판정을_유발한_원본_이벤트를_싣는다() throws Exception {
+        String[] a = signup("a-source@edrdog.com");
+        String id = seedAlert(a[1], "hostA", 100L, "process evil.exe (parent explorer.exe)");
+        eventRows = List.of(
+                Map.of("host", "hostA", "type", "process", "ts", "100",
+                        "process", "noise.exe", "parent", "bash",
+                        "cmdline", "", "dest_ip", "", "dest_port", 0),
+                Map.of("host", "hostA", "type", "process", "ts", "102",
+                        "process", "evil.exe", "parent", "explorer.exe",
+                        "cmdline", "C:\\Users\\Public\\evil.exe", "dest_ip", "", "dest_port", 0));
+
+        // 시각은 noise.exe 가 더 가깝지만 판정 근거가 짚는 건 evil.exe 다
+        mvc.perform(get("/api/alerts/" + id).header("Authorization", "Bearer " + a[0]))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.domain").value("evil.example.com"))
+                .andExpect(jsonPath("$.sourceEvent.process").value("evil.exe"))
+                .andExpect(jsonPath("$.sourceEvent.parent").value("explorer.exe"))
+                .andExpect(jsonPath("$.sourceEvent.cmdline").value("C:\\Users\\Public\\evil.exe"))
+                .andExpect(jsonPath("$.sourceEvent.matchedBy").value("summary"));
+    }
+
+    @Test
+    void 원본_이벤트를_못찾으면_상세의_sourceEvent_는_null() throws Exception {
+        String[] a = signup("a-nosource@edrdog.com");
+        String id = seedAlert(a[1], "hostA", 100L);
+        eventRows = List.of();
+
+        mvc.perform(get("/api/alerts/" + id).header("Authorization", "Bearer " + a[0]))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sourceEvent").doesNotExist());
+    }
+
+    @Test
+    void 판정_근거와_맞는_이벤트가_없으면_시각으로_아무거나_고르지_않는다() throws Exception {
+        // 확신에 차서 틀린 원인을 보여 주는 건 아무것도 안 보여 주는 것보다 나쁘다.
+        String[] a = signup("a-wrongsource@edrdog.com");
+        String id = seedAlert(a[1], "hostA", 100L, "process evil.exe (parent explorer.exe)");
+        eventRows = List.of(Map.of("host", "hostA", "type", "process", "ts", "100",
+                "process", "noise.exe", "parent", "bash",
+                "cmdline", "", "dest_ip", "", "dest_port", 0));
+
+        mvc.perform(get("/api/alerts/" + id).header("Authorization", "Bearer " + a[0]))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sourceEvent").doesNotExist());
     }
 
     @Test

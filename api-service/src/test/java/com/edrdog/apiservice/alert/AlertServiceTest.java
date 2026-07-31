@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -40,7 +41,8 @@ class AlertServiceTest {
             new LineageGraphBuilder());
 
     private static Alert alert(String tenantId, long ts) {
-        return new Alert("h1", "RULE_A", "T1059", "HIGH", "notify", ts, List.of("m1"), tenantId);
+        return new Alert("h1", "RULE_A", "T1059", "HIGH", "notify", ts, List.of("m1"), tenantId,
+                "evil.example.com", "203.0.113.9");
     }
 
     private static Map<String, Object> row(String id, String tenant, String host, long ts) {
@@ -129,6 +131,52 @@ class AlertServiceTest {
         when(statuses.findById("r1")).thenReturn(java.util.Optional.of(triaged("r1", "A", AlertStatus.FALSE_POSITIVE)));
 
         assertEquals(AlertStatus.FALSE_POSITIVE, service.get("A", "r1").status());
+    }
+
+    @Test
+    void get_은_같은_host_events에서_판정을_유발한_이벤트를_찾아_싣는다() {
+        Map<String, Object> alert = new java.util.HashMap<>(row("r1", "A", "h1", 100L));
+        alert.put("matched", List.of("process evil.exe (parent explorer.exe)"));
+        when(reader.query(any())).thenAnswer(inv -> {
+            ClickHouseQuery q = inv.getArgument(0);
+            if (q.sql().contains("edrdog.alerts")) {
+                return List.of(alert);
+            }
+            return List.of(Map.of("host", "h1", "type", "process", "ts", "100",
+                    "process", "evil.exe", "parent", "explorer.exe"));
+        });
+
+        AlertResponse res = service.get("A", "r1");
+
+        assertEquals("evil.exe", res.sourceEvent().process());
+        // events 조회도 tenant/host 로 격리돼야 한다
+        ArgumentCaptor<ClickHouseQuery> cap = ArgumentCaptor.forClass(ClickHouseQuery.class);
+        verify(reader, times(2)).query(cap.capture());
+        ClickHouseQuery eventQuery = cap.getAllValues().get(1);
+        assertEquals("A", eventQuery.params().get("tenant"));
+        assertEquals("h1", eventQuery.params().get("host"));
+    }
+
+    @Test
+    void get_은_원본이벤트를_못찾으면_null_이다() {
+        when(reader.query(any())).thenAnswer(inv -> {
+            ClickHouseQuery q = inv.getArgument(0);
+            return q.sql().contains("edrdog.alerts") ? List.of(row("r1", "A", "h1", 100L)) : List.of();
+        });
+
+        assertNull(service.get("A", "r1").sourceEvent());
+    }
+
+    @Test
+    void 목록에는_원본이벤트를_싣지_않는다() {
+        // 행마다 events 를 조회하면 목록이 느려진다.
+        when(reader.query(any())).thenReturn(List.of(row("r1", "A", "h1", 100L)));
+        when(statuses.findAllById(any())).thenReturn(List.of());
+
+        List<AlertResponse> out = service.query("A", null, null, null, null, null, null);
+
+        assertNull(out.get(0).sourceEvent());
+        verify(reader, times(1)).query(any());
     }
 
     // --- triage ---

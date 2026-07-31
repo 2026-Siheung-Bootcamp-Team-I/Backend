@@ -92,7 +92,11 @@ public class AlertController {
         return alerts.timeseries(tenantId, resolvedFrom, resolvedTo, bucket);
     }
 
-    @Operation(summary = "알림 상세", description = "단건 상세(matched 포함). 남의 tenant 것이면 404.")
+    @Operation(summary = "알림 상세",
+            description = "단건 상세(matched + 판정을 유발한 원본 이벤트 sourceEvent 포함, 못 찾으면 null). "
+                    + "sourceEvent.matchedBy 는 그 이벤트를 무엇으로 특정했는지이며 summary 가 rule_type 보다 확신이 강하다"
+                    + "(rule_type 은 이벤트 종류만 맞춘 것이라 같은 종류가 여럿이면 시각으로 갈렸다). "
+                    + "남의 tenant 것이면 404.")
     @GetMapping("/{id}")
     public AlertResponse detail(
             @RequestHeader(name = "Authorization", required = false) String authorization,

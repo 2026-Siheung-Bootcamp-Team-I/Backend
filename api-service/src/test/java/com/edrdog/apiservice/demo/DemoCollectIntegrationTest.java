@@ -136,7 +136,8 @@ class DemoCollectIntegrationTest {
         when(alerts.get(anyString(), anyString())).thenAnswer(inv -> new AlertResponse(
                 inv.getArgument(1), "DESKTOP-CHOI", "DOWNLOAD_AND_EXECUTE", "다운로드 후 실행",
                 "T1105+T1204", "CRITICAL", "kill", System.currentTimeMillis(), "open",
-                List.of("network 185.220.101.5:443", "process update32.exe")));
+                List.of("network 185.220.101.5:443", "process update32.exe"),
+                "", "185.220.101.5", null));
     }
 
     /** 헤더 하나 없이 호출한다 — 발표에서 스웨거 Execute 를 누르는 것과 같다. */
