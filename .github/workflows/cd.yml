@@ -129,8 +129,15 @@ jobs:
           INFRA_DEPLOYS="$INFRA_DEPLOYS $(echo "$APPLIED" | grep '^deployment' || true)"
           done
           # Infisical 연동은 Operator 가 깔려 있을 때만 한다. 없으면 CRD 가 없어 apply 가 실패하고 set -e 때문에 서비스 롤링까지 같이 죽는다.
+          # 슬러그가 플레이스홀더면 apply 하지 않는다. 그대로 밀면 서버에 제대로 들어가 있던 설정을 덮어써서
+          # Operator 가 인증을 못 하게 되고, 시크릿이 조용히 낡아간다(실제로 하루 동안 그랬다).
           if sudo kubectl get crd infisicalsecrets.secrets.infisical.com >/dev/null 2>&1; then
-          git -C ~/Backend show "FETCH_HEAD:k8s/infisical.yaml" | sudo kubectl apply -f -
+          INFISICAL_YAML=$(git -C ~/Backend show "FETCH_HEAD:k8s/infisical.yaml")
+          if echo "$INFISICAL_YAML" | grep -q REPLACE_WITH_INFISICAL_PROJECT_SLUG; then
+          echo "k8s/infisical.yaml 의 projectSlug 가 아직 플레이스홀더라 apply 를 건너뛴다" >&2
+          else
+          echo "$INFISICAL_YAML" | sudo kubectl apply -f -
+          fi
           fi
           # 인프라가 안 떠도 여기서 멈추지 않는다. kafka-ui·portainer 는 시크릿이 없으면 일부러 안 뜨는데, 운영 UI 때문에 앱 배포가 막히면 곤란해서 대신 맨 끝에서 CD 를 실패시킨다.
           for d in $INFRA_DEPLOYS; do
