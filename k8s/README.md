@@ -145,7 +145,7 @@ sudo kubectl -n edrdog rollout status deployment/api-service
 
 ```bash
 sudo kubectl -n edrdog rollout history deployment/api-service
-sudo kubectl -n edrdog set image deployment/api-service api-service=ghcr.io/2026-siheung-bootcamp-team-i/backend/api-service:<되돌릴-sha>
+sudo kubectl -n edrdog set image deployment/api-service api-service=ghcr.io/edrdog/backend/api-service:<되돌릴-sha>
 ```
 
 ⚠️ `set image` 로 돌린 것은 **다음 배포 때 매니페스트 apply 로 덮인다.** 임시 조치라는 뜻이고,
