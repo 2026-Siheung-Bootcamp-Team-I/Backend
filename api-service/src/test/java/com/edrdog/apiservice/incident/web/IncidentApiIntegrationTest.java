@@ -146,7 +146,7 @@ class IncidentApiIntegrationTest {
                 .andExpect(jsonPath("$[0].severity").value("CRITICAL"))
                 .andExpect(jsonPath("$[0].rootProcess").value("winword.exe"))
                 .andExpect(jsonPath("$[0].status").value(AlertStatus.OPEN))
-                .andExpect(jsonPath("$[0].threatNames[0]").value("권한상승"))
+                .andExpect(jsonPath("$[0].threatNames[0]").value("의심스러운 프로세스 실행 체인"))
                 .andExpect(jsonPath("$[0].alerts").doesNotExist());
     }
 
@@ -192,7 +192,7 @@ class IncidentApiIntegrationTest {
                 .andExpect(jsonPath("$.alerts[0].ruleId").value("SUSPICIOUS_PROCESS_CHAIN"))
                 .andExpect(jsonPath("$.lineage.nodes[?(@.id=='proc:powershell.exe:100')].label")
                         .value("powershell.exe"))
-                .andExpect(jsonPath("$.lineage.edges[?(@.rel=='spawned')].to")
+                .andExpect(jsonPath("$.lineage.edges[?(@.from=='proc:winword.exe:10')].to")
                         .value("proc:powershell.exe:100"));
     }
 
