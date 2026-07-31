@@ -85,23 +85,6 @@ public class TopologyQueryBuilder {
         return new ClickHouseQuery(sql, params);
     }
 
-    /**
-     * 호스트별 열린 alert 의 severity 분포(위험 점수 재료). excludeIds 는 오버레이(MySQL)에
-     * 트리아지된 id 로, HostService 의 "열린(open)" 정의를 그대로 따른다.
-     */
-    public ClickHouseQuery hostSeverityCounts(String tenantId, long from, long to, List<String> excludeIds) {
-        Map<String, String> params = new LinkedHashMap<>();
-        List<String> conds = base(tenantId, from, to, params);
-        addIdSet(excludeIds, conds, params);
-        String sql = "SELECT host, "
-                + "countIf(severity = 'CRITICAL') AS critical, "
-                + "countIf(severity = 'HIGH') AS high, "
-                + "countIf(severity = 'MEDIUM') AS medium, "
-                + "countIf(severity = 'LOW') AS low"
-                + " FROM " + alertsTable + " FINAL" + where(conds) + " GROUP BY host";
-        return new ClickHouseQuery(sql, params);
-    }
-
     /** tenant(필수) + 기간[from,to) 공통 조건. tenant 격리는 항상 첫 조건으로 강제한다. */
     private static List<String> base(String tenantId, long from, long to, Map<String, String> params) {
         if (tenantId == null || tenantId.trim().isEmpty()) {
@@ -129,20 +112,6 @@ public class TopologyQueryBuilder {
     /** 사용자가 넣은 %/_ 를 그대로 두면 검색어 하나가 전체 매치가 된다. 역슬래시부터 먼저 바꾼다. */
     private static String escapeLike(String s) {
         return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
-    }
-
-    /** 제외할 alert id 를 개별 파라미터 바인딩으로 NOT IN 에 넣는다(AlertQueryBuilder.addIdSet 과 같은 방식). */
-    private static void addIdSet(List<String> ids, List<String> conds, Map<String, String> params) {
-        if (ids == null || ids.isEmpty()) {
-            return;
-        }
-        List<String> placeholders = new ArrayList<>();
-        for (int i = 0; i < ids.size(); i++) {
-            String name = "exc" + i;
-            placeholders.add("{" + name + ":String}");
-            params.put(name, ids.get(i));
-        }
-        conds.add("id NOT IN (" + String.join(", ", placeholders) + ")");
     }
 
     private static String where(List<String> conds) {

@@ -57,18 +57,11 @@ class EgressRelationTest {
     }
 
     @Test
-    void 알림수_행과_severity_행도_문자열_숫자를_읽는다() {
+    void 알림수_행도_문자열_숫자를_읽는다() {
         RelationAlertCount c = RelationAlertCount.fromRow(
                 Map.of("host", "h1", "dest", "api.example.com", "alerts", "3"));
         assertEquals("h1", c.host());
         assertEquals("api.example.com", c.dest());
         assertEquals(3, c.alerts());
-
-        HostRisk risk = HostRisk.fromRow(
-                Map.of("host", "h1", "critical", "1", "high", "2", "medium", "0", "low", "0"));
-        assertEquals("h1", risk.host());
-        assertEquals(1, risk.critical());
-        assertEquals(2, risk.high());
-        assertEquals(3, risk.total());
     }
 }

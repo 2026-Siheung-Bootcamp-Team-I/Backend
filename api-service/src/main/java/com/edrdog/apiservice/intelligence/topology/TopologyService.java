@@ -3,6 +3,8 @@ package com.edrdog.apiservice.intelligence.topology;
 import com.edrdog.apiservice.alert.AlertStatusRecord;
 import com.edrdog.apiservice.alert.AlertStatusRepository;
 import com.edrdog.apiservice.clickhouse.ClickHouseReader;
+import com.edrdog.apiservice.host.HostRisk;
+import com.edrdog.apiservice.host.HostRiskQueryBuilder;
 import com.edrdog.apiservice.intelligence.topology.web.TopologyResponse;
 import org.springframework.stereotype.Service;
 
@@ -20,12 +22,14 @@ public class TopologyService {
 
     private final ClickHouseReader reader;
     private final TopologyQueryBuilder builder;
+    private final HostRiskQueryBuilder riskBuilder;
     private final AlertStatusRepository statuses;
 
     public TopologyService(ClickHouseReader reader, TopologyQueryBuilder builder,
-                           AlertStatusRepository statuses) {
+                           HostRiskQueryBuilder riskBuilder, AlertStatusRepository statuses) {
         this.reader = reader;
         this.builder = builder;
+        this.riskBuilder = riskBuilder;
         this.statuses = statuses;
     }
 
@@ -35,7 +39,7 @@ public class TopologyService {
         long total = totalRelations(tenantId, from, to, search);
         List<RelationAlertCount> alertCounts = reader.query(builder.relationAlertCounts(tenantId, from, to))
                 .stream().map(RelationAlertCount::fromRow).toList();
-        List<HostRisk> risks = reader.query(builder.hostSeverityCounts(tenantId, from, to, triagedIds(tenantId)))
+        List<HostRisk> risks = reader.query(riskBuilder.hostSeverityCounts(tenantId, from, to, triagedIds(tenantId)))
                 .stream().map(HostRisk::fromRow).toList();
         return TopologyGraphBuilder.build(from, to, total, relations, alertCounts, risks);
     }

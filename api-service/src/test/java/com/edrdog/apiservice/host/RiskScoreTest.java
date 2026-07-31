@@ -1,4 +1,4 @@
-package com.edrdog.apiservice.intelligence.topology;
+package com.edrdog.apiservice.host;
 
 import org.junit.jupiter.api.Test;
 

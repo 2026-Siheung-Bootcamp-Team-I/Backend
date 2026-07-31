@@ -1,5 +1,7 @@
 package com.edrdog.apiservice.intelligence.topology;
 
+import com.edrdog.apiservice.host.HostRisk;
+import com.edrdog.apiservice.host.RiskScore;
 import com.edrdog.apiservice.intelligence.topology.web.TopologyEdge;
 import com.edrdog.apiservice.intelligence.topology.web.TopologyNode;
 import com.edrdog.apiservice.intelligence.topology.web.TopologyResponse;

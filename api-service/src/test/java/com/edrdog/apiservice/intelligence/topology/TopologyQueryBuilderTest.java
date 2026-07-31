@@ -26,8 +26,7 @@ class TopologyQueryBuilderTest {
         List<ClickHouseQuery> queries = List.of(
                 builder.egressRelations(TENANT, 1000L, 2000L, null, null),
                 builder.relationTotal(TENANT, 1000L, 2000L, null),
-                builder.relationAlertCounts(TENANT, 1000L, 2000L),
-                builder.hostSeverityCounts(TENANT, 1000L, 2000L, List.of()));
+                builder.relationAlertCounts(TENANT, 1000L, 2000L));
         for (ClickHouseQuery q : queries) {
             assertTrue(q.sql().contains("tenant_id = {tenant:String}"), q.sql());
             assertEquals(TENANT, q.params().get("tenant"));
@@ -42,8 +41,6 @@ class TopologyQueryBuilderTest {
                 () -> builder.egressRelations("  ", 1000L, 2000L, null, null));
         assertThrows(IllegalArgumentException.class, () -> builder.relationTotal(null, 1000L, 2000L, null));
         assertThrows(IllegalArgumentException.class, () -> builder.relationAlertCounts(null, 1000L, 2000L));
-        assertThrows(IllegalArgumentException.class,
-                () -> builder.hostSeverityCounts(null, 1000L, 2000L, List.of()));
     }
 
     @Test
@@ -164,33 +161,5 @@ class TopologyQueryBuilderTest {
         assertTrue(q.sql().contains("if(domain != '', domain, dest_ip) AS dest"), q.sql());
         assertTrue(q.sql().contains("GROUP BY host, dest"), q.sql());
         assertTrue(q.sql().contains("(domain != '' OR dest_ip != '')"), q.sql());
-    }
-
-    // --- 호스트 위험 점수 재료 ---
-
-    @Test
-    void 호스트별_severity_집계는_alerts_를_host_로_묶는다() {
-        ClickHouseQuery q = builder.hostSeverityCounts(TENANT, 1000L, 2000L, List.of());
-        assertTrue(q.sql().contains("edrdog.alerts FINAL"), q.sql());
-        assertTrue(q.sql().contains("countIf(severity = 'CRITICAL') AS critical"), q.sql());
-        assertTrue(q.sql().contains("countIf(severity = 'HIGH') AS high"), q.sql());
-        assertTrue(q.sql().contains("countIf(severity = 'MEDIUM') AS medium"), q.sql());
-        assertTrue(q.sql().contains("countIf(severity = 'LOW') AS low"), q.sql());
-        assertTrue(q.sql().contains("GROUP BY host"), q.sql());
-    }
-
-    @Test
-    void 트리아지된_알림은_제외_목록으로_빠진다() {
-        ClickHouseQuery q = builder.hostSeverityCounts(TENANT, 1000L, 2000L, List.of("a1", "a2"));
-        assertTrue(q.sql().contains("id NOT IN ({exc0:String}, {exc1:String})"), q.sql());
-        assertEquals("a1", q.params().get("exc0"));
-        assertEquals("a2", q.params().get("exc1"));
-        assertFalse(q.sql().contains("'a1'"), q.sql());
-    }
-
-    @Test
-    void 제외_목록이_비면_조건을_붙이지_않는다() {
-        assertFalse(builder.hostSeverityCounts(TENANT, 1000L, 2000L, List.of()).sql().contains("NOT IN"));
-        assertFalse(builder.hostSeverityCounts(TENANT, 1000L, 2000L, null).sql().contains("NOT IN"));
     }
 }

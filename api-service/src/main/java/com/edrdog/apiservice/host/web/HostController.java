@@ -38,7 +38,8 @@ public class HostController {
     }
 
     @Operation(summary = "호스트 목록",
-            description = "로그인 유저의 tenant 관측 호스트를 last_seen 최신순으로. 각 host 의 status(정상|주의|위험)와 위협수(열린 alert 수) 포함.")
+            description = "로그인 유저의 tenant 관측 호스트를 last_seen 최신순으로. 각 host 의 status(정상|주의|위험), "
+                    + "위협수(열린 alert 수), riskScore(0..100, 열린 alert 를 severity 로 가중합. 토폴로지 엔드포인트 노드와 같은 값) 포함.")
     @GetMapping
     public List<HostResponse> list(
             @RequestHeader(name = "Authorization", required = false) String authorization) {
