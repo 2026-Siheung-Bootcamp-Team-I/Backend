@@ -1,13 +1,16 @@
 package com.edrdog.apiservice.host.web;
 
+import com.edrdog.apiservice.alert.web.LineageResponse;
 import com.edrdog.apiservice.auth.service.AuthService;
 import com.edrdog.apiservice.auth.service.Principal;
 import com.edrdog.apiservice.host.HostService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -22,6 +25,9 @@ import java.util.List;
 public class HostController {
 
     private static final String BEARER_PREFIX = "Bearer ";
+
+    /** process-tree 기본 조회 구간: 최근 24시간(AlertController.timeseries 와 같은 기본값). */
+    private static final long DEFAULT_WINDOW_MS = 24 * 60 * 60 * 1000L;
 
     private final HostService hosts;
     private final AuthService auth;
@@ -45,6 +51,20 @@ public class HostController {
     public HostSummary summary(
             @RequestHeader(name = "Authorization", required = false) String authorization) {
         return hosts.summary(currentTenantId(authorization));
+    }
+
+    @Operation(summary = "엔드포인트 프로세스 계보",
+            description = "호스트 하나의 process lineage 그래프(nodes/edges). 알림 기준(GET /api/alerts/{id}/lineage)과 "
+                    + "같은 응답 형태다. from/to(epoch millis) 미지정 시 최근 24시간.")
+    @GetMapping("/{host}/process-tree")
+    public LineageResponse processTree(
+            @RequestHeader(name = "Authorization", required = false) String authorization,
+            @PathVariable String host,
+            @RequestParam(required = false) Long from,
+            @RequestParam(required = false) Long to) {
+        long resolvedTo = to != null ? to : System.currentTimeMillis();
+        long resolvedFrom = from != null ? from : resolvedTo - DEFAULT_WINDOW_MS;
+        return hosts.processTree(currentTenantId(authorization), host, resolvedFrom, resolvedTo);
     }
 
     /** Bearer 토큰을 검증해 현재 유저의 tenant 를 문자열로 반환. 토큰이 없거나 만료면 AuthService 가 401. */

@@ -55,16 +55,21 @@ public final class HostAggregator {
             matched.add(host.toLowerCase());
 
             out.add(new HostResponse(host, lastSeen, HostStatus.classify(critical, high), threats,
-                    isEnrolled, agentSeen));
+                    isEnrolled, agentSeen, platformOf(node)));
         }
 
         enrolledByHost.values().stream()
                 .filter(node -> !matched.contains(node.host().toLowerCase()))
                 .sorted(Comparator.comparingLong(EnrolledHost::agentSeen).reversed())
                 .forEach(node -> out.add(new HostResponse(node.host(), 0L, HostStatus.HEALTHY, 0L,
-                        true, node.agentSeen())));
+                        true, node.agentSeen(), platformOf(node))));
 
         return out;
+    }
+
+    /** 미등록이거나 예전에 platform 없이 등록된 노드는 OS 를 모른다(빈 문자열). */
+    private static String platformOf(EnrolledHost node) {
+        return node == null || node.platform() == null ? "" : node.platform();
     }
 
     /**

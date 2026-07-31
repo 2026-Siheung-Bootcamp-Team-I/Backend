@@ -4,6 +4,8 @@ import com.edrdog.apiservice.alert.AlertQueryBuilder;
 import com.edrdog.apiservice.alert.AlertStatusRecord;
 import com.edrdog.apiservice.alert.AlertStatusRepository;
 import com.edrdog.apiservice.alert.HostAlertCount;
+import com.edrdog.apiservice.alert.LineageGraphBuilder;
+import com.edrdog.apiservice.alert.web.LineageResponse;
 import com.edrdog.apiservice.clickhouse.ClickHouseReader;
 import com.edrdog.apiservice.host.web.HostResponse;
 import com.edrdog.apiservice.host.web.HostSummary;
@@ -29,15 +31,17 @@ public class HostService {
     private final AlertQueryBuilder alertBuilder;
     private final AlertStatusRepository statuses;
     private final AgentNodeRepository nodes;
+    private final LineageGraphBuilder lineage;
 
     public HostService(ClickHouseReader reader, EventQueryBuilder builder,
                        AlertQueryBuilder alertBuilder, AlertStatusRepository statuses,
-                       AgentNodeRepository nodes) {
+                       AgentNodeRepository nodes, LineageGraphBuilder lineage) {
         this.reader = reader;
         this.builder = builder;
         this.alertBuilder = alertBuilder;
         this.statuses = statuses;
         this.nodes = nodes;
+        this.lineage = lineage;
     }
 
     /**
@@ -57,6 +61,15 @@ public class HostService {
     }
 
     /**
+     * 엔드포인트 기준 프로세스 계보 그래프. tenant+host 격리 하에 기간[from,to] events 를 시간순으로 긁어와
+     * alert lineage 와 같은 재구성기를 태운다(프론트가 같은 렌더러를 쓴다).
+     * alert 기준(AlertService.lineage)과 달리 진입점이 호스트라 판정 없이도 그릴 수 있다.
+     */
+    public LineageResponse processTree(String tenantId, String host, long from, long to) {
+        return lineage.build(reader.query(builder.lineageEvents(tenantId, host, from, to)));
+    }
+
+    /**
      * tenant 의 등록 노드를 순수 값 객체로 변환한다. AgentNode.tenantId 는 Long 인데
      * HostService.hosts(String) 은 문자열을 받으므로 변환하되, 숫자가 아닌 값이 와도
      * (예: 잘못된 토큰/테스트 데이터) 예외로 죽이지 않고 빈 목록으로 처리한다.
@@ -72,7 +85,8 @@ public class HostService {
     }
 
     private static EnrolledHost toEnrolledHost(AgentNode node) {
-        return new EnrolledHost(node.getHostIdentifier(), node.getLastSeenAt().toEpochMilli());
+        return new EnrolledHost(node.getHostIdentifier(), node.getLastSeenAt().toEpochMilli(),
+                node.getPlatform());
     }
 
     private static Long parseTenantId(String tenantId) {

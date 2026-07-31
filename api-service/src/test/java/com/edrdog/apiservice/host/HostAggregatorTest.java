@@ -29,9 +29,9 @@ class HostAggregatorTest {
         return new HostAlertCount(host, total, critical, high);
     }
 
-    /** agent_nodes 등록 노드 값(host, agentSeen). */
+    /** agent_nodes 등록 노드 값(host, agentSeen). platform 은 기본 darwin. */
     private static EnrolledHost enrolled(String host, long agentSeen) {
-        return new EnrolledHost(host, agentSeen);
+        return new EnrolledHost(host, agentSeen, "darwin");
     }
 
     @Test
@@ -141,6 +141,31 @@ class HostAggregatorTest {
     }
 
     @Test
+    void 등록된_host_는_platform_이_실린다() {
+        List<HostResponse> hosts = HostAggregator.hosts(
+                List.of(row("h1", "1000")), List.of(),
+                List.of(new EnrolledHost("h1", 5000, "windows")));
+
+        assertEquals("windows", hosts.get(0).platform());
+    }
+
+    @Test
+    void 미등록_host_의_platform_은_빈문자열() {
+        List<HostResponse> hosts = HostAggregator.hosts(
+                List.of(row("h1", "1000")), List.of(), List.of());
+
+        assertEquals("", hosts.get(0).platform());
+    }
+
+    @Test
+    void 등록만_있고_events_없는_host_도_platform_이_실린다() {
+        List<HostResponse> hosts = HostAggregator.hosts(
+                List.of(), List.of(), List.of(new EnrolledHost("h-new", 7000, "darwin")));
+
+        assertEquals("darwin", hosts.get(0).platform());
+    }
+
+    @Test
     void 정렬은_events_있는_host가_앞이고_등록만_있는_host는_agentSeen_DESC로_뒤에_붙는다() {
         List<HostResponse> hosts = HostAggregator.hosts(
                 List.of(row("h2", "3000"), row("h1", "1000")), List.of(),
@@ -156,10 +181,10 @@ class HostAggregatorTest {
     @Test
     void 요약은_status별_수와_총수를_센다() {
         List<HostResponse> hosts = List.of(
-                new HostResponse("h1", 1, HostStatus.CRITICAL, 2, true, 1),
-                new HostResponse("h2", 1, HostStatus.WARNING, 1, false, 0),
-                new HostResponse("h3", 1, HostStatus.HEALTHY, 0, false, 0),
-                new HostResponse("h4", 1, HostStatus.HEALTHY, 0, true, 1));
+                new HostResponse("h1", 1, HostStatus.CRITICAL, 2, true, 1, ""),
+                new HostResponse("h2", 1, HostStatus.WARNING, 1, false, 0, ""),
+                new HostResponse("h3", 1, HostStatus.HEALTHY, 0, false, 0, ""),
+                new HostResponse("h4", 1, HostStatus.HEALTHY, 0, true, 1, ""));
 
         HostSummary s = HostAggregator.summary(hosts);
         assertEquals(2L, s.healthy());
@@ -183,7 +208,7 @@ class HostAggregatorTest {
     void 수집없는_등록기기는_healthy가_아니라_noEvents로_잡힌다() {
         // 등록만 되고 이벤트가 한 번도 없는 기기(lastSeen=0, enrolled=true)는 "정상"이 아니라 "아직 모름"이다.
         List<HostResponse> hosts = List.of(
-                new HostResponse("h-new", 0, HostStatus.HEALTHY, 0, true, 5000));
+                new HostResponse("h-new", 0, HostStatus.HEALTHY, 0, true, 5000, ""));
 
         HostSummary s = HostAggregator.summary(hosts);
         assertEquals(0L, s.healthy());
@@ -194,7 +219,7 @@ class HostAggregatorTest {
     @Test
     void 이벤트있는_정상기기는_그대로_healthy로_잡힌다() {
         List<HostResponse> hosts = List.of(
-                new HostResponse("h1", 1000, HostStatus.HEALTHY, 0, true, 1000));
+                new HostResponse("h1", 1000, HostStatus.HEALTHY, 0, true, 1000, ""));
 
         HostSummary s = HostAggregator.summary(hosts);
         assertEquals(1L, s.healthy());
@@ -204,11 +229,11 @@ class HostAggregatorTest {
     @Test
     void healthy_warning_critical_noEvents_합은_total과_같다() {
         List<HostResponse> hosts = List.of(
-                new HostResponse("h1", 1000, HostStatus.CRITICAL, 1, true, 1000),
-                new HostResponse("h2", 1000, HostStatus.WARNING, 1, false, 0),
-                new HostResponse("h3", 1000, HostStatus.HEALTHY, 0, false, 0),
-                new HostResponse("h4", 0, HostStatus.HEALTHY, 0, true, 5000),
-                new HostResponse("h5", 0, HostStatus.HEALTHY, 0, true, 3000));
+                new HostResponse("h1", 1000, HostStatus.CRITICAL, 1, true, 1000, ""),
+                new HostResponse("h2", 1000, HostStatus.WARNING, 1, false, 0, ""),
+                new HostResponse("h3", 1000, HostStatus.HEALTHY, 0, false, 0, ""),
+                new HostResponse("h4", 0, HostStatus.HEALTHY, 0, true, 5000, ""),
+                new HostResponse("h5", 0, HostStatus.HEALTHY, 0, true, 3000, ""));
 
         HostSummary s = HostAggregator.summary(hosts);
         assertEquals(5L, s.total());
