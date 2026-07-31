@@ -3,9 +3,12 @@ package com.edrdog.apiservice.incident.web;
 import com.edrdog.apiservice.auth.exception.AuthException;
 import com.edrdog.apiservice.auth.service.AuthService;
 import com.edrdog.apiservice.auth.service.Principal;
+import com.edrdog.apiservice.incident.IncidentPage;
 import com.edrdog.apiservice.incident.IncidentService;
+import com.edrdog.apiservice.web.PageHeaders;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -44,17 +47,31 @@ public class IncidentController {
                     + "묶는 규칙은 조상-자손 관계이며(같은 프로세스이거나 한쪽이 다른 쪽을 띄웠을 때), "
                     + "이을 근거가 없으면 알림 하나짜리 사건이 된다. "
                     + "from/to(epoch millis) 미지정 시 최근 7일, status 는 open|confirmed|false_positive, "
-                    + "limit 기본 100·상한 1000.")
+                    + "host 는 정확히 일치하는 호스트만, limit 기본 100·상한 1000, offset 기본 0·상한 "
+                    + IncidentService.MAX_OFFSET + "(넘으면 400). "
+                    + "응답 본문은 지금과 같은 배열이고, withTotal=true 일 때만 X-Total-Count(필터를 통과한 "
+                    + "전체 건수, offset/limit 로 자르기 전 값)가 헤더로 나간다. "
+                    + "사건은 총계가 사실상 공짜지만 알림·이벤트 목록과 사용법을 맞추려고 같은 플래그를 받는다.")
     @GetMapping
-    public List<IncidentResponse> list(
+    public ResponseEntity<List<IncidentResponse>> list(
             @RequestHeader(name = "Authorization", required = false) String authorization,
             @RequestParam(required = false) String status,
+            @RequestParam(required = false) String host,
             @RequestParam(required = false) Long from,
             @RequestParam(required = false) Long to,
-            @RequestParam(required = false) Integer limit) {
+            @RequestParam(required = false) Integer limit,
+            @RequestParam(required = false) Integer offset,
+            @RequestParam(required = false, defaultValue = "false") boolean withTotal) {
         String tenantId = currentTenantId(authorization);
         long resolvedTo = resolvedTo(to);
-        return incidents.query(tenantId, status, resolvedFrom(from, resolvedTo), resolvedTo, limit);
+        IncidentPage page = incidents.query(tenantId, status, host,
+                resolvedFrom(from, resolvedTo), resolvedTo, limit, offset, withTotal);
+        // 본문 형태는 배열 그대로 두고 총 건수만 헤더로 얹는다. 안 셌으면(null) 헤더 자체가 없다.
+        ResponseEntity.BodyBuilder response = ResponseEntity.ok();
+        if (page.total() != null) {
+            response.header(PageHeaders.TOTAL_COUNT, String.valueOf(page.total()));
+        }
+        return response.body(page.incidents());
     }
 
     @Operation(summary = "사건 상세",

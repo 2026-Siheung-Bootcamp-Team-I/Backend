@@ -54,6 +54,15 @@ public class IncidentService {
     static final int MAX_LIMIT = 1000;
 
     /**
+     * offset 상한. 사건은 한 번에 최대 {@link #ALERT_SCAN_LIMIT} 건의 알림으로 만들어지므로 사건 수도
+     * 그보다 많을 수 없고, 그 위의 offset 은 어떤 데이터에서도 빈 페이지다.
+     *
+     * <p>넘으면 조용히 잘라내지 않고 400 이다. 잘라내면 호출부는 "요청한 범위가 잘못됐다" 와
+     * "그 페이지에 사건이 없다" 를 구분할 수 없다.
+     */
+    public static final int MAX_OFFSET = ALERT_SCAN_LIMIT;
+
+    /**
      * 기본 조회 구간: 최근 7일. 사건은 알림보다 오래 들여다보는 단위라 24시간은 짧다.
      *
      * <p>여기 있는 이유는 사건 id 가 조회 기간에 딸려 나오기 때문이다. 기간이 다르면 묶음의 최초 알림이
@@ -80,16 +89,43 @@ public class IncidentService {
         this.lineage = lineage;
     }
 
-    /** 기간 내 사건 목록(최근 활동순). status 필터는 오버레이 기준이며, 오버레이 행이 없으면 open 이다. */
+    /**
+     * 기간 내 사건 목록(최근 활동순)과 필터를 통과한 전체 건수. status 필터는 오버레이 기준이며,
+     * 오버레이 행이 없으면 open 이다.
+     *
+     * <p><b>host 는 묶은 뒤 사건 단위로 거른다.</b> 알림 조회 단계에서 걸어도 사건은 어차피 호스트별로만
+     * 묶이므로(IncidentGrouper) 보통은 결과가 같지만, 알림 스캔이 ALERT_SCAN_LIMIT 에서 잘릴 때 갈린다.
+     * 그때 host 를 미리 걸면 그 호스트의 더 오래된 알림이 상한 안으로 들어와 묶음의 최초 알림이 바뀌고,
+     * 사건 id 가 통째로 달라진다(IncidentId). 덤으로 eventsByHost 가 그 알림들의 ts 범위로 events 를 읽으므로
+     * 계보 재구성 범위까지 달라져 묶음 자체가 흔들린다. 필터에 따라 id 가 바뀌면 트리아지가 떨어져 나가고
+     * 알림 상세의 incidentId 와도 어긋나므로, 묶기 입력은 항상 같게 두고 결과만 거른다.
+     *
+     * <p><b>offset 도 묶은 뒤에 적용한다.</b> 사건 본체 테이블이 없어 DB 에 offset 을 위임할 수 없다.
+     * 따라서 offset 이 뒤로 갈수록 싸지지 않는다. 매번 기간 전체를 묶는 비용은 그대로다.
+     *
+     * <p><b>withTotal 이 false 면 total 은 null 이고 헤더도 안 나간다.</b> 사건은 이미 기간 전체를 묶은
+     * 뒤에 자르므로 총계가 사실상 공짜인데도 플래그를 존중하는 이유는 비용이 아니라 사용법이다.
+     * 알림·이벤트 목록은 총계를 내려면 같은 WHERE 로 count() 를 한 번 더 돌아야 해서 withTotal=true
+     * 일 때만 준다. 사건만 늘 준다면 화면이 "알림·이벤트는 붙이고 사건은 안 붙여도 된다" 를 기억해야
+     * 하고, 목록 셋이 같은 패턴을 쓰는 자리에서 그 차이가 곧 버그가 된다. 공짜라고 지우지 마라.
+     */
     @Transactional(readOnly = true)
-    public List<IncidentResponse> query(String tenantId, String status, long from, long to, Integer limit) {
+    public IncidentPage query(String tenantId, String status, String host, long from, long to,
+                              Integer limit, Integer offset, boolean withTotal) {
+        int start = resolveOffset(offset);
         List<Incident> incidents = incidents(tenantId, from, to);
         Map<String, String> overlay = statusByIds(incidents.stream().map(Incident::id).toList());
-        return incidents.stream()
+        List<Incident> matched = incidents.stream()
+                .filter(i -> matchesHost(i.host(), host))
                 .filter(i -> matchesStatus(overlay.getOrDefault(i.id(), AlertStatus.OPEN), status))
+                .toList();
+        List<IncidentResponse> page = matched.stream()
+                .skip(start)
                 .limit(clampLimit(limit))
                 .map(i -> summary(i, overlay.getOrDefault(i.id(), AlertStatus.OPEN)))
                 .toList();
+        // 총계는 tenant 안에서만 센다. 알림 조회에 tenant 가 강제되므로 남의 조직 사건은 애초에 없다.
+        return new IncidentPage(page, withTotal ? (long) matched.size() : null);
     }
 
     /** 단건 상세(구성 알림 + 사건 체인만 남긴 계보 그래프). 없거나 남의 tenant 것이면 404(존재 은닉). */
@@ -263,6 +299,22 @@ public class IncidentService {
 
     private static boolean matchesStatus(String actual, String wanted) {
         return wanted == null || wanted.isBlank() || wanted.equals(actual);
+    }
+
+    /** host 를 안 주면 모든 호스트가 통과한다. 부분 일치를 받지 않는 이유는 호스트 하나를 짚는 동선이라서다. */
+    static boolean matchesHost(String actual, String wanted) {
+        return wanted == null || wanted.isBlank() || wanted.equals(actual);
+    }
+
+    /** 목록 시작 위치. 안 주면 처음부터다. 음수나 상한 초과는 400 이다({@link #MAX_OFFSET}). */
+    static int resolveOffset(Integer offset) {
+        if (offset == null) {
+            return 0;
+        }
+        if (offset < 0 || offset > MAX_OFFSET) {
+            throw AuthException.invalidInput("offset 은 0 이상 " + MAX_OFFSET + " 이하여야 합니다: " + offset);
+        }
+        return offset;
     }
 
     private Map<String, String> statusByIds(List<String> ids) {
