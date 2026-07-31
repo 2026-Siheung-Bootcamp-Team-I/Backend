@@ -71,8 +71,13 @@ spec:
               value: edrdog
             - name: CLICKHOUSE_USER
               value: edrdog
+            # 평문으로 두면 edrdog-secrets 를 받는 api-service 와 값이 갈려 인증이 깨진다(실제로 alerts 테이블이 안 만들어졌다).
+            # 이 비번은 CH 데이터 디렉터리 첫 생성 때만 반영되므로, 값을 바꾸려면 PVC 를 지워야 한다.
             - name: CLICKHOUSE_PASSWORD
-              value: edrdog
+              valueFrom:
+                secretKeyRef:
+                  name: edrdog-secrets
+                  key: CLICKHOUSE_PASSWORD
             - name: CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT
               value: "1"
           readinessProbe:

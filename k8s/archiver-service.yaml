@@ -21,6 +21,10 @@ spec:
           image: ghcr.io/2026-siheung-bootcamp-team-i/backend/archiver-service:latest
           ports:
             - containerPort: 8083
+          # CLICKHOUSE_PASSWORD 를 여기서 안 받으면 코드 기본값으로 붙는다. 지금은 그 값이 우연히 맞아서 돌아갈 뿐이다.
+          envFrom:
+            - secretRef:
+                name: edrdog-secrets
           env:
             - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
               value: "kafka:9094"
