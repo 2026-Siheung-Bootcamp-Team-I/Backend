@@ -94,9 +94,17 @@ public class ClickHouseWriter {
         log.info("ClickHouse TTL 적용: {} TTL {}", table, TTL);
     }
 
-    public void insert(Event event) {
+    /**
+     * 배치 한 덩어리를 INSERT 한 번으로 적재한다.
+     * MergeTree 는 INSERT 마다 파트를 하나 만들기 때문에 건별로 넣으면 파트가 건수만큼 쌓여
+     * 머지가 못 따라잡는 순간 Too many parts 로 적재가 끊긴다.
+     */
+    public void insert(List<Event> events) {
+        if (events.isEmpty()) {
+            return;
+        }
         String body = "INSERT INTO " + table + " FORMAT JSONEachRow\n"
-                + EventRow.toJson(event, mapper);
+                + EventRow.toJsonRows(events, mapper);
         execute(body);
     }
 
