@@ -10,6 +10,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -88,6 +89,16 @@ class CorsIntegrationTest {
     void 실제_요청_응답에도_허용_출처_헤더가_붙는다() throws Exception {
         // 토큰이 없어 401 이지만, 브라우저가 응답을 읽으려면 CORS 헤더는 붙어 있어야 한다.
         mvc.perform(get("/api/alerts").header("Origin", "http://localhost:5173"))
+                .andExpect(header().string("Access-Control-Allow-Origin", "http://localhost:5173"));
+    }
+
+    @Test
+    void API키_거부_401_에도_허용_출처_헤더가_붙는다() throws Exception {
+        // 헤더가 없으면 브라우저는 본문을 못 읽고 네트워크 오류로만 받는다. 그러면 화면에
+        // "유효한 X-API-Key 가 필요합니다" 대신 정체불명의 연결 실패가 뜨고, 키를 잘못 맞춘
+        // 배포자가 원인을 찾을 방법이 사라진다. 실제로 배포에서 그 일이 있었다.
+        mvc.perform(post("/api/tenant/install-link").header("Origin", "http://localhost:5173"))
+                .andExpect(status().isUnauthorized())
                 .andExpect(header().string("Access-Control-Allow-Origin", "http://localhost:5173"));
     }
 }
