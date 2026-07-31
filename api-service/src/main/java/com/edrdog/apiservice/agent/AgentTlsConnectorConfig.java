@@ -56,7 +56,6 @@ public class AgentTlsConnectorConfig {
         return connector;
     }
 
-    /** classpath: 접두어면 리소스로, 아니면 파일 경로로 해석한 절대경로를 돌려준다. */
     private String resolve(String location) {
         try {
             Resource resource = location.startsWith("classpath:")

@@ -60,8 +60,7 @@ spec:
             limits:
               memory: 768Mi
 ---
-# NodePort 30901 — 호스트(EC2)에서 도는 Caddy 가 localhost:30901 로 프록시한다.
-# EC2 보안그룹에 30901 을 열지 않으면 외부에서 직접은 못 들어오고 Caddy 경유만 가능.
+# NodePort 30901, 호스트(EC2)에서 도는 Caddy 가 localhost:30901 로 프록시한다. EC2 보안그룹에 30901 을 열지 않으면 외부에서 직접은 못 들어오고 Caddy 경유만 가능.
 apiVersion: v1
 kind: Service
 metadata:

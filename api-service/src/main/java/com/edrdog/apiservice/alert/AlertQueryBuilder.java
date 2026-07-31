@@ -29,11 +29,7 @@ public class AlertQueryBuilder {
         this.table = table;
     }
 
-    /**
-     * tenant 격리 하에 host/severity/시간범위(옵션) 필터로 최신순 조회. limit 은 1..MAX 로 클램프.
-     * includeIds 가 있으면 그 id 집합으로만 좁히고(id IN), excludeIds 가 있으면 그 집합을 뺀다(id NOT IN).
-     * 두 목록은 오버레이(MySQL)에서 계산한 status 필터를 SQL 로 옮긴 것이다(빈 목록이면 해당 조건 생략).
-     */
+    /** includeIds/excludeIds 는 오버레이(MySQL)에서 계산한 status 필터를 SQL IN/NOT IN 으로 옮긴 것이다(빈 목록이면 조건 생략). */
     public ClickHouseQuery search(String tenantId, String host, String severity, Long from, Long to,
                                   Integer limit, List<String> includeIds, List<String> excludeIds) {
         Map<String, String> params = new LinkedHashMap<>();

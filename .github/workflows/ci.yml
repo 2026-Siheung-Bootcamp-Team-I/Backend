@@ -15,8 +15,7 @@ jobs:
           distribution: temurin
           java-version: '21'
       - uses: gradle/actions/setup-gradle@v4
-      # GeoLite2 mmdb 캐시. MaxMind 는 짧은 시간에 여러 번 받으면 429 를 준다(실제로 배포가 막혔다).
-      # DB 는 주 단위로 갱신되므로 주차 키로 캐시하면 하루에 몇 번을 빌드해도 한 번만 받는다.
+      # GeoLite2 mmdb 캐시. MaxMind 는 짧은 시간에 여러 번 받으면 429 를 준다(실제로 배포가 막혔다). DB 는 주 단위로 갱신되므로 주차 키로 캐시하면 하루에 몇 번을 빌드해도 한 번만 받는다.
       - name: GeoLite2 캐시
         uses: actions/cache@v4
         with:
@@ -24,17 +23,14 @@ jobs:
           key: geolite2-${{ hashFiles('api-service/build.gradle') }}-week
           restore-keys: geolite2-
       - name: Build + test
-        # GeoLite2 mmdb 는 빌드 시점에 받아 jar 에 번들된다. 이 키가 없으면 다운로드를 건너뛰고
-        # 빌드는 그대로 성공하지만, 런타임에 GET /api/events/geo 가 항상 빈 배열을 준다(위협 지도가 빈다).
+        # GeoLite2 mmdb 는 빌드 시점에 받아 jar 에 번들된다. 이 키가 없으면 다운로드를 건너뛰고 빌드는 그대로 성공하지만, 런타임에 GET /api/events/geo 가 항상 빈 배열을 준다(위협 지도가 빈다).
         env:
           MAXMIND_LICENSE_KEY: ${{ secrets.MAXMIND_LICENSE_KEY }}
         run: ./gradlew build
 
-  # 에이전트(Go)는 Gradle 밖이라 위의 build 잡이 손도 대지 않는다. 이 잡이 없으면
-  # 엔드포인트에서 root 로 도는 코드가 CI 를 한 번도 거치지 않고 머지된다(실제로 그렇게 갔다).
+  # 에이전트(Go)는 Gradle 밖이라 위의 build 잡이 손도 대지 않는다. 이 잡이 없으면 엔드포인트에서 root 로 도는 코드가 CI 를 한 번도 거치지 않고 머지된다(실제로 그렇게 갔다).
   #
-  # macOS 러너에서 도는 이유는 darwin 쪽이 cgo 라서다. eslogger 센서와 kill 과 BPF 캡처가
-  # libproc 을 C 로 부른다. 리눅스에서는 컴파일 자체가 안 된다.
+  # macOS 러너에서 도는 이유는 darwin 쪽이 cgo 라서다. eslogger 센서와 kill, BPF 캡처가 libproc 을 C 로 불러 리눅스에서는 컴파일 자체가 안 된다.
   # 퍼블릭 레포라 macOS 러너 시간이 무료다.
   agent:
     runs-on: macos-latest
@@ -50,8 +46,7 @@ jobs:
       - name: Vet (darwin)
         run: go vet ./...
         working-directory: agent
-      # Windows 쪽은 러너에서 실행할 수 없으니 빌드와 vet 으로 갈음한다. 순수 로직 테스트는
-      # 위의 go test 가 이미 돌렸다(플랫폼에 매인 파일만 빌드 태그로 갈라져 있다).
+      # Windows 쪽은 러너에서 실행할 수 없으니 빌드와 vet 으로 갈음한다. 순수 로직 테스트는 위의 go test 가 이미 돌렸다(플랫폼에 매인 파일만 빌드 태그로 갈라져 있다).
       # 두 아키텍처를 다 보는 이유는 릴리스가 둘 다 내보내기 때문이다.
       - name: Build + vet (windows)
         working-directory: agent

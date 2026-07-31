@@ -58,7 +58,6 @@ public class EventGeoController {
         long toMillis = to != null ? to : now;
         long fromMillis = from != null ? from : now - DAY_MILLIS;
 
-        // mmdb 미로드면 조회 없이 빈 배열(200).
         if (!resolver.isAvailable()) {
             return List.of();
         }
@@ -75,13 +74,11 @@ public class EventGeoController {
         return GeoAggregator.aggregate(ipCounts, resolver::countryCode);
     }
 
-    /** Bearer 토큰을 검증해 현재 유저의 tenant 를 문자열로 반환. 토큰이 없거나 만료면 AuthService 가 401. */
     private String currentTenantId(String authorization) {
         Principal principal = auth.resolve(bearerToken(authorization));
         return String.valueOf(principal.tenantId());
     }
 
-    /** "Bearer " 접두어를 떼서 토큰만 반환. 없으면 null. */
     private static String bearerToken(String authorization) {
         if (authorization == null || !authorization.startsWith(BEARER_PREFIX)) {
             return null;

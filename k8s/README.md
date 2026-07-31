@@ -49,7 +49,7 @@ curl "http://localhost:3000/api/datasources/proxy/uid/loki/loki/api/v1/label/ser
 ## 종료
 
 ```bash
-kind delete cluster --name edrdog    # 클러스터째 삭제 (데이터 emptyDir 라 함께 소멸)
+kind delete cluster --name edrdog    # 클러스터째 삭제 (PVC 도 노드 안에 있어 함께 소멸)
 ```
 
 ## 에이전트 수집 포트 (api-service 8443 / NodePort 30443)
@@ -95,9 +95,21 @@ curl -sk https://localhost:8443/api/agent/enroll -H 'Content-Type: application/j
   다시 만들고 Secret 을 갱신한 뒤 엔드포인트의 PEM 까지 교체해야 한다.
 ### 매니페스트 변경을 배포서버에 반영하기
 
-CD 는 서비스 5개 매니페스트를 apply 하지 않는다(apply 하면 image 가 `:latest` 로 되돌아갔다가
-`set image` 로 다시 `:sha` 가 되면서 롤아웃이 두 번 돈다). 그래서 `k8s/api-service.yaml` 을 고쳤으면
-서버에서 한 번 수동으로 적용한다. 지금 떠 있는 이미지 태그를 지키면서 적용하는 순서:
+**인프라 매니페스트는 CD 가 알아서 올린다.** 목록을 적어 두지 않고 `k8s/` 를 훑어서 적용하므로,
+파일을 새로 추가해도 워크플로를 같이 고칠 필요가 없다. 제외 대상은 셋뿐이다.
+
+| 파일 | 왜 빼는가 |
+|---|---|
+| `*-service.yaml` | 아래처럼 이미지 태그까지 맞춰 따로 다룬다 |
+| `kind-cluster.yaml` | 로컬 kind 설정이라 apply 대상이 아니다 |
+| `infisical.yaml` | CRD 가 있을 때만 적용한다 |
+
+인프라가 안 떠도 앱 배포는 막지 않고, 대신 CD 가 맨 끝에서 실패한다. `kafka-ui`·`portainer` 는
+시크릿이 없으면 일부러 안 뜨는데 그것 때문에 앱 배포가 멈추면 곤란해서다.
+
+서비스 매니페스트만 손으로 적용한다. CD 가 apply 하면 image 가 `:latest` 로 되돌아갔다가
+`set image` 로 다시 `:sha` 가 되면서 롤아웃이 두 번 돈다. `k8s/api-service.yaml` 을 고쳤으면
+지금 떠 있는 이미지 태그를 지키면서 적용한다:
 
 ```bash
 IMG=$(sudo kubectl -n edrdog get deploy/api-service -o jsonpath='{.spec.template.spec.containers[0].image}')
@@ -204,7 +216,10 @@ Machine Identity 자격증명 Secret 생성 1회, `kubectl apply -f k8s/infisica
 
 ## 메모
 
-- 개발용이라 **영속성 없음**(emptyDir). 파드 재시작 시 데이터 소멸.
+- **MySQL·ClickHouse 는 PVC 를 쓴다.** 파드가 갈려도 가입 계정과 이벤트 이력이 남는다.
+  볼륨이 없던 때는 노드 재부팅이나 OOM 한 번에 계정이 전부 사라져 로그인이 안 됐다.
+  PVC 가 `ReadWriteOnce` 라 둘 다 `strategy: Recreate` 다. 롤링으로 두면 새 파드가 볼륨을 못 잡는다.
+- **Kafka 는 영속성이 없다.** 남는 게 아직 소비 안 된 메시지뿐이고 토픽은 init Job 이 다시 만든다.
 - ClickHouse `edrdog.events` **테이블은 archiver 부팅 시 자동 생성**(`CREATE TABLE IF NOT EXISTS`). 여기선 `edrdog` DB 만 준비.
 - watchdog 클러스터와 호스트 포트(9092/8123/9000)가 겹치므로 **동시 실행 불가**.
 - `extraPortMappings` 는 **클러스터 생성 시에만** 반영된다. 이미 만들어 둔 클러스터에 3000/4317/4318 을 뚫으려면

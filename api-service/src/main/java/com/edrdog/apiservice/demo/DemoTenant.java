@@ -31,7 +31,6 @@ public class DemoTenant {
         this.users = users;
     }
 
-    /** 데모 계정의 tenant PK 문자열. 계정이 없는 환경이면 empty. */
     @Transactional(readOnly = true)
     public Optional<String> resolve() {
         return users.findByEmail(DemoAccountSeeder.EMAIL)

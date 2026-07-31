@@ -19,7 +19,6 @@ public class JsonSerde<T> implements Serde<T> {
         this.type = type;
     }
 
-    // 객체 → JSON 바이트 (null 은 그대로 통과)
     @Override
     public Serializer<T> serializer() {
         return (topic, data) -> {
@@ -32,7 +31,6 @@ public class JsonSerde<T> implements Serde<T> {
         };
     }
 
-    // JSON 바이트 → 객체 (null 은 그대로 통과)
     @Override
     public Deserializer<T> deserializer() {
         return (topic, bytes) -> {

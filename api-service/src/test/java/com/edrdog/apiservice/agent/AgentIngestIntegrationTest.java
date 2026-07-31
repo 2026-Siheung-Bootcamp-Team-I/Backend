@@ -68,7 +68,6 @@ class AgentIngestIntegrationTest {
         return om.readTree(me.getResponse().getContentAsString()).get("tenantId").asLong();
     }
 
-    /** 로그인 → enroll secret 발급 → 그 secret 반환. */
     private String issueEnrollSecret(String token) throws Exception {
         MvcResult r = mvc.perform(post("/api/tenant/enroll-secret")
                         .header("Authorization", "Bearer " + token)
@@ -85,7 +84,6 @@ class AgentIngestIntegrationTest {
         when(responder.pendingCommands("mac-001"))
                 .thenReturn(List.of(new AgentCommand("cmd-1", "kill_process", "/tmp/evil.sh")));
 
-        // enroll: 유효 secret → node_key 발급
         MvcResult enroll = mvc.perform(post("/api/agent/enroll")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"enroll_secret\":\"" + secret + "\",\"host_identifier\":\"mac-001\","
@@ -95,7 +93,6 @@ class AgentIngestIntegrationTest {
                 .andReturn();
         String nodeKey = om.readTree(enroll.getResponse().getContentAsString()).get("node_key").asText();
 
-        // heartbeat: node_key 인증 → 플랫폼별 설정 + 대기 명령
         mvc.perform(post("/api/agent/heartbeat").header("X-Node-Key", nodeKey))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.config.sensors.process").value(true))
@@ -104,7 +101,6 @@ class AgentIngestIntegrationTest {
                 .andExpect(jsonPath("$.commands[0].id").value("cmd-1"))
                 .andExpect(jsonPath("$.commands[0].type").value("kill_process"));
 
-        // events: tenant 태깅 후 events-raw 발행
         String body = """
                 {"events":[
                   {"host":"mac-001","type":"process","ts":1785341400000,"process":"sh","parent":"bash","cmdline":"sh -c whoami"}
@@ -117,7 +113,6 @@ class AgentIngestIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.accepted").value(1));
 
-        // events-raw 로 host 키 + tenantId 태깅된 이벤트가 나갔는지
         ArgumentCaptor<String> host = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<String> raw = ArgumentCaptor.forClass(String.class);
         verify(producer, times(1)).publish(host.capture(), raw.capture());
@@ -125,7 +120,6 @@ class AgentIngestIntegrationTest {
         org.junit.jupiter.api.Assertions.assertEquals(
                 String.valueOf(tenantId), om.readTree(raw.getValue()).get("tenantId").asText());
 
-        // command-result: responder 로 그대로 전달
         mvc.perform(post("/api/agent/command-result")
                         .header("X-Node-Key", nodeKey)
                         .contentType(MediaType.APPLICATION_JSON)

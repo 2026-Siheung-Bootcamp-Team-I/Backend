@@ -21,7 +21,6 @@ public final class EventTagger {
     private EventTagger() {
     }
 
-    /** events 배열의 객체 원소마다 루트 tenantId 를 심어 JSON 문자열 리스트로 반환. 배열이 아니면 빈 리스트. */
     public static List<String> tag(String tenantId, JsonNode events, ObjectMapper mapper) {
         List<String> out = new ArrayList<>();
         if (events == null || !events.isArray()) {
@@ -29,7 +28,7 @@ public final class EventTagger {
         }
         for (JsonNode event : events) {
             if (event == null || !event.isObject()) {
-                continue;   // 객체가 아닌 원소는 이벤트가 아님
+                continue;
             }
             ObjectNode tagged = ((ObjectNode) event).put("tenantId", tenantId);
             try {

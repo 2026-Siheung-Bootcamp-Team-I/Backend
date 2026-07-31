@@ -9,7 +9,6 @@ import java.util.Optional;
  */
 public final class CountryCentroid {
 
-    /** 국가 중심점. lat 위도, lng 경도(도 단위). */
     public record Centroid(String country, double lat, double lng) {
     }
 

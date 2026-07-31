@@ -1,6 +1,5 @@
 # events-raw(에이전트가 보낸 이벤트)를 소비해 검증한 뒤 events 로 재발행한다.
-# 이게 없으면 api-service 가 발행한 원시 로그를 아무도 소비하지 않아 events 가 비고,
-# detector/archiver 가 events 만 보므로 탐지도 대시보드도 조용해진다(수집 경로가 끊긴다).
+# 없으면 api-service 가 발행한 원시 로그를 아무도 소비하지 않아 events 가 비고, detector/archiver 가 events 만 보므로 탐지도 대시보드도 조용해진다(수집 경로 단절).
 apiVersion: apps/v1
 kind: Deployment
 metadata:

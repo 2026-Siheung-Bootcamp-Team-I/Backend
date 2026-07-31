@@ -10,7 +10,6 @@ public final class ThreatCatalog {
 
     static final String UNKNOWN_CATEGORY = "기타";
 
-    /** ruleId → {한글 이름, 카테고리}. 중복 키 방지를 위해 단일 불변 Map 으로 관리한다. */
     private static final Map<String, Threat> THREATS = Map.of(
             "SUSPICIOUS_PROCESS_CHAIN", new Threat("의심스러운 프로세스 실행 체인", "권한상승"),
             "DOWNLOAD_AND_EXECUTE", new Threat("다운로드 후 실행", "악성코드"),

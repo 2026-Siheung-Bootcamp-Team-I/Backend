@@ -33,7 +33,6 @@ public final class DemoData {
      */
     public static final String MARKER_HOST = "DESKTOP-KIM";
 
-    /** alert 가 있는 호스트. */
     static final List<String> NOISY_HOSTS = List.of(MARKER_HOST, "DESKTOP-CHOI", "DESKTOP-LEE", "LAPTOP-PARK");
 
     private static final long HOUR = 60 * 60 * 1000L;
@@ -143,7 +142,7 @@ public final class DemoData {
         };
     }
 
-    /** 근거 이벤트에서 alert 를 만든다. matched 문자열 형식은 detector 의 Rules.summary 와 맞춘다. */
+    /** matched 문자열 형식은 detector 의 Rules.summary 와 맞춘다. */
     private static Alert alertOf(Incident incident, String tenantId, long nowTs) {
         List<DemoEvent> evidence = evidence(incident, tenantId, nowTs);
         DemoEvent last = evidence.get(evidence.size() - 1);

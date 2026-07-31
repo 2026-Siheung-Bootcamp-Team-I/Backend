@@ -137,8 +137,7 @@ public class AlertController {
         }
         AlertResponse alert = alerts.get(tenantId, id);   // 타 tenant 면 404, 통과하면 권위 있는 host 확보
         KillResult result = responder.kill(alert.host(), request.target());
-        // 종료에 성공했으면 그 알림은 처리된 것이다. open 으로 남겨두면 목록에서 조치 여부를
-        // 알 수 없어 같은 알림을 또 붙잡게 된다. 실패했으면 그대로 둔다(처리된 것처럼 보이면 안 된다).
+        // 실패했는데 CONFIRMED 로 바꾸면 처리된 것처럼 보이므로, kill 성공했을 때만 갱신해 재조치를 막는다.
         if (result.killed()) {
             alerts.triage(tenantId, id, AlertStatus.CONFIRMED);
         }
@@ -151,7 +150,6 @@ public class AlertController {
         return String.valueOf(principal.tenantId());
     }
 
-    /** "Bearer " 접두어를 떼서 토큰만 반환. 없으면 null. */
     private static String bearerToken(String authorization) {
         if (authorization == null || !authorization.startsWith(BEARER_PREFIX)) {
             return null;
@@ -159,11 +157,10 @@ public class AlertController {
         return authorization.substring(BEARER_PREFIX.length()).trim();
     }
 
-    /** PATCH 본문: 바꿀 status. */
     public record TriageRequest(String status) {
     }
 
-    /** kill 요청 본문: 종료할 대상 프로세스명/경로. host 는 알림에서 가져오므로 클라이언트가 지정하지 않는다. */
+    /** host 는 알림에서 가져오므로 클라이언트가 지정하지 않는다(target 만 받음). */
     public record RespondRequest(String target) {
     }
 }

@@ -1,7 +1,47 @@
-# ClickHouse — 이벤트 저장·조회(archiver/api-server). 개발용, 영속성 없음(emptyDir).
-# 스키마(테이블)는 이후 이슈에서. 여기서는 edrdog DB 만 준비.
+# ClickHouse — 이벤트 저장·조회(archiver/api-server).
+# 테이블은 archiver 가 부팅할 때 만든다(CREATE TABLE IF NOT EXISTS). 여기서는 edrdog DB 만 준비.
 #   HTTP   8123 -> host localhost:8123
 #   native 9000 -> host localhost:9000
+#
+# 볼륨이 없으면 파드가 갈릴 때마다 이벤트·알림 이력이 전부 사라져 대시보드가 빈다.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: clickhouse
+  namespace: edrdog
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+# CH 자체 진단 로그(system.*_log) 제한. 기본값이면 하루 ~120MiB 쌓인다(5.5일 실측 text_log 459MiB).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: clickhouse-system-logs
+  namespace: edrdog
+data:
+  system-logs.xml: |
+    <clickhouse>
+        <!-- remove="1" = 기본 config.xml 의 설정을 지워 테이블 자체를 안 만든다 -->
+        <text_log remove="1"/>
+        <metric_log remove="1"/>
+        <asynchronous_metric_log remove="1"/>
+        <trace_log remove="1"/>
+        <processors_profile_log remove="1"/>
+        <part_log remove="1"/>
+
+        <!-- 느린 쿼리 추적은 가끔 쓸모 있어 남긴다 -->
+        <query_log>
+            <ttl>event_date + INTERVAL 3 DAY DELETE</ttl>
+        </query_log>
+        <error_log>
+            <ttl>event_date + INTERVAL 3 DAY DELETE</ttl>
+        </error_log>
+    </clickhouse>
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -9,6 +49,9 @@ metadata:
   namespace: edrdog
 spec:
   replicas: 1
+  # RWO 라 롤링으로 두면 새 파드가 볼륨을 못 잡고 매달린다.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: clickhouse
@@ -44,6 +87,19 @@ spec:
               memory: 512Mi
             limits:
               memory: 2Gi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/clickhouse
+            - name: system-logs
+              mountPath: /etc/clickhouse-server/config.d/system-logs.xml
+              subPath: system-logs.xml
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: clickhouse
+        - name: system-logs
+          configMap:
+            name: clickhouse-system-logs
 ---
 apiVersion: v1
 kind: Service

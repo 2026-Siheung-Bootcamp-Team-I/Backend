@@ -36,7 +36,6 @@ public class InstallService {
         this.ttl = ttl;
     }
 
-    /** 설치 토큰을 새로 발급한다. */
     @Transactional
     public InstallToken issue(Long tenantId, Instant now) {
         return tokens.save(InstallToken.of(Tokens.newToken(), tenantId, now, now.plus(ttl)));

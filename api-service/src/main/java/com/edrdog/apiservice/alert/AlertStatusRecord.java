@@ -38,7 +38,7 @@ public class AlertStatusRecord {
         this.updatedAt = updatedAt;
     }
 
-    /** 트리아지 오버레이 행 생성/갱신용. status 는 confirmed/false_positive 만 들어온다. */
+    /** status 는 confirmed/false_positive 만 들어온다. */
     public static AlertStatusRecord of(String id, String tenantId, String status, Instant now) {
         return new AlertStatusRecord(id, tenantId, status, now);
     }

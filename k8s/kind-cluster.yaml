@@ -1,6 +1,4 @@
-# EDRdog 로컬 kind 클러스터 정의 (Issue #10)
-# 호스트에서 실행되는 Spring 서비스(detector 등)가 클러스터 안 인프라
-# (Kafka/ClickHouse)에 접근하도록 NodePort 를 호스트 포트로 매핑한다.
+# EDRdog 로컬 kind 클러스터 정의 (Issue #10). 호스트에서 실행되는 Spring 서비스(detector 등)가 클러스터 안 인프라(Kafka/ClickHouse)에 접근하도록 NodePort 를 호스트 포트로 매핑한다.
 #
 #   생성:  kind create cluster --config k8s/kind-cluster.yaml
 #   삭제:  kind delete cluster --name edrdog

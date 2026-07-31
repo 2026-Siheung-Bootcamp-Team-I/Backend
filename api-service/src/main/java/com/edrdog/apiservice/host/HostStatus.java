@@ -13,7 +13,6 @@ public final class HostStatus {
     private HostStatus() {
     }
 
-    /** 열린 CRITICAL/HIGH 수로 상태를 정한다. CRITICAL 우선. */
     public static String classify(long openCritical, long openHigh) {
         if (openCritical > 0) {
             return CRITICAL;

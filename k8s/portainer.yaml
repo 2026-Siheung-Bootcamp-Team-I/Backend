@@ -2,11 +2,9 @@
 # 배포서버에서는 Caddy 가 https://portainer.<도메인> 으로 프록시한다.
 #   Caddyfile 예:  portainer.edrdog-api.duckdns.org { reverse_proxy localhost:30777 }
 #
-# 서브도메인인 이유: 서브패스로 서비스하려면 --base-url 과 프록시의 prefix strip 이 정확히 한 번씩
-# 맞아야 하고, 어긋나면 화면은 뜨는데 로그인이 안 된다. DuckDNS 는 하위 도메인이 전부 같은 IP 로 온다.
+# 서브도메인인 이유: 서브패스로 서비스하려면 --base-url 과 프록시의 prefix strip 이 정확히 한 번씩 맞아야 하는데, 어긋나면 화면은 뜨는데 로그인이 안 된다. DuckDNS 는 하위 도메인이 전부 같은 IP 로 온다.
 #
-# 네임스페이스가 edrdog 인 이유: k8s Secret 은 네임스페이스를 넘지 못한다. 관리자 비번을
-# edrdog-secrets 에서 받으려면 같은 네임스페이스에 있어야 한다.
+# 네임스페이스가 edrdog 인 이유: k8s Secret 은 네임스페이스를 넘지 못해서, 관리자 비번을 edrdog-secrets 에서 받으려면 같은 네임스페이스에 있어야 한다.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -70,8 +68,7 @@ spec:
             - --http-enabled
             # 없으면 Caddy 뒤에서 로그인이 Origin invalid 로 막힌다(요청은 http, Origin 은 https).
             - --trusted-origins=portainer.edrdog-api.duckdns.org
-            # 첫 기동에만 먹는다. 계정이 생긴 뒤 Infisical 값을 바꿔도 비번은 안 바뀐다.
-            # 대신 5분 안에 사람이 계정을 만들어야 하는 잠금이 사라진다.
+            # 첫 기동에만 먹는다. 계정이 생긴 뒤 Infisical 값을 바꿔도 비번은 안 바뀌지만, 5분 안에 사람이 계정을 만들어야 하는 잠금은 사라진다.
             # /run/secrets/portainer 는 쓰지 않는다. Portainer 가 거기를 DB 암호화 키 파일로 먼저 읽는다.
             - --admin-password-file=/etc/portainer/admin-password
           ports:

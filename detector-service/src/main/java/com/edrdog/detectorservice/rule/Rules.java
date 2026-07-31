@@ -228,7 +228,6 @@ public final class Rules {
         return Event.TYPE_FILE.equals(e.type());
     }
 
-    /** 경로(소문자화)에 표식 중 하나라도 포함되면 true. */
     private static boolean pathHasMarker(String path, Set<String> markers) {
         String p = lower(path);
         return p != null && markers.stream().anyMatch(p::contains);
@@ -237,14 +236,7 @@ public final class Rules {
     /** 셸 연산자 — 여기부터는 실행 대상이 아니라 출력/후속 명령이라 판정에서 제외한다. */
     private static final Set<String> SHELL_OPERATORS = Set.of(">", ">>", ">|", "<", "|", "||", "&&", ";", "&");
 
-    /**
-     * 실행된 파일 자체(argv[0])의 경로에 표식이 있는지 본다.
-     *
-     * <p>인자까지 보면 정상 프로세스가 임시 경로를 인자로 받는 것만으로 걸린다. 실제로
-     * {@code find /private/tmp/...} 와 {@code mount_apfs ... /private/tmp/PKInstallSandbox/...} 가
-     * CRITICAL 로 올라갔다. macOS 는 설치·업데이트 과정에서 /private/tmp 를 상시 쓴다.
-     * "받아온 파일을 실행"이 R2 의 의미이므로 실행 파일 경로만 판단 근거로 쓴다.
-     */
+    /** 실행된 파일 자체(argv[0])만 본다. 인자까지 보면 정상 프로세스의 오탐이 난다(find/mount_apfs 사례, downloadAndExecute 참고). */
     private static boolean executableHasMarker(String cmdline, Set<String> markers) {
         String c = lower(cmdline);
         if (c == null || c.isBlank()) {

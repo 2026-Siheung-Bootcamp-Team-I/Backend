@@ -1,10 +1,8 @@
 name: Agent release
 
-# 에이전트 바이너리를 GitHub Releases 에 올린다. 설치 링크가 여기서 받아 간다
-# (api-service 의 edrdog.install.download-base 기본값이 releases/latest/download 다).
+# 에이전트 바이너리를 GitHub Releases 에 올린다. 설치 링크가 여기서 받아 간다(api-service 의 edrdog.install.download-base 기본값이 releases/latest/download 다).
 #
-# 태그를 밀 때만 돈다. main 푸시마다 올리면 설치 링크가 가리키는 것이 계속 바뀌어서,
-# 어느 기기에 무엇이 깔렸는지 말할 수 없게 된다.
+# 태그를 밀 때만 돈다. main 푸시마다 올리면 설치 링크가 가리키는 것이 계속 바뀌어서 어느 기기에 무엇이 깔렸는지 말할 수 없게 된다.
 #
 #   git tag agent-v0.1.0 && git push origin agent-v0.1.0
 on:
@@ -22,9 +20,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # darwin 은 macOS 러너에서 만든다. eslogger 센서와 kill 이 libproc 을 C 로 부르고
-          # BPF 캡처도 마찬가지라 cgo 가 켜져 있어야 한다(internal/command/kill_darwin.go 등).
-          # 리눅스에서 CGO_ENABLED=0 으로 만들면 selfPID 부터 undefined 로 죽는다.
+          # darwin 은 macOS 러너에서 만든다. eslogger 센서와 kill, BPF 캡처가 libproc 을 C 로 불러 cgo 가 켜져 있어야 한다(internal/command/kill_darwin.go 등). 리눅스에서 CGO_ENABLED=0 으로 만들면 selfPID 부터 undefined 로 죽는다.
           # Apple Silicon 러너에서 amd64 도 같이 나온다. macOS SDK 가 유니버설이라 된다.
           - runner: macos-latest
             goos: darwin
@@ -52,8 +48,7 @@ jobs:
           go-version-file: agent/go.mod
           cache-dependency-path: agent/go.sum
 
-      # 크로스 빌드만 하고 끝내면 테스트를 한 번도 안 돌린 바이너리가 나간다.
-      # 러너에서 돌 수 있는 조합에서만 돌린다(darwin 러너의 darwin, 그 외는 vet 으로 갈음).
+      # 크로스 빌드만 하고 끝내면 테스트를 한 번도 안 돌린 바이너리가 나간다. 러너에서 돌 수 있는 조합에서만 돌린다(darwin 러너의 darwin, 그 외는 vet 으로 갈음).
       - name: Test
         if: matrix.goos == 'darwin' && matrix.goarch == 'arm64'
         run: go test ./...
@@ -82,8 +77,7 @@ jobs:
           NAME="edrdog-agent-$GOOS-$GOARCH"
           [ "$GOOS" = windows ] && NAME="$NAME.exe"
           go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o "dist/$NAME" ./cmd/edrdog-agent
-          # 설치 스크립트가 이 파일로 받은 것이 온전한지 본다. 끊긴 다운로드는 크기만 작고
-          # 그대로 설치돼서, 깔린 뒤에 "왜 안 뜨지" 로 시간을 버리게 된다.
+          # 설치 스크립트가 이 파일로 받은 것이 온전한지 본다. 끊긴 다운로드는 크기만 작고 그대로 설치돼서 깔린 뒤에 "왜 안 뜨지" 로 시간을 버리게 된다.
           # macOS 에는 sha256sum 이 없다.
           cd dist
           if command -v sha256sum >/dev/null; then

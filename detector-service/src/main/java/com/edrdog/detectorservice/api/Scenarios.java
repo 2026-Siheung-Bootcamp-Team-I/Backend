@@ -14,7 +14,6 @@ public final class Scenarios {
     private Scenarios() {
     }
 
-    /** 지원 시나리오 이름. */
     public static final String PROCESS_CHAIN = "process-chain";   // R1 T1059 (HIGH)
     public static final String DOWNLOAD_EXEC = "download-exec";   // R2 T1105+T1204 (CRITICAL)
     public static final String SCRIPT_EXEC = "script-exec";       // R3 T1059 (MEDIUM)

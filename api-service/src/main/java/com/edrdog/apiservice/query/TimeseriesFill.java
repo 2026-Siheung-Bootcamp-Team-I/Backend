@@ -18,12 +18,10 @@ public final class TimeseriesFill {
     private TimeseriesFill() {
     }
 
-    /** bucket 문자열("day" 면 하루, 그 외 한 시간)의 간격(ms). */
     public static long stepFor(String bucket) {
         return "day".equals(bucket) ? DAY_MS : HOUR_MS;
     }
 
-    /** epochMillis 를 step 경계(UTC 정시/자정)로 내림. */
     public static long alignStart(long epochMillis, long step) {
         return Math.floorDiv(epochMillis, step) * step;
     }
