@@ -197,6 +197,68 @@ class RulesTest {
     }
 
     @Test
+    @DisplayName("R3 음성: 앱 내부 tmp 폴더는 시스템 임시 경로가 아니다 (실제 오탐 사례)")
+    void r3_appInternalTempFolder_noAlert() {
+        // 배포 서버에서 R3 알림 42건이 전부 이것이었다. AhnLab 보안제품이 자기 업데이트 plist 를
+        // 다루는 정상 동작인데, /Applications/AhnLab/ASTx/tmp/ 안의 '/tmp/' 조각에 걸렸다.
+        List<String> observed = List.of(
+                "/bin/sh -c /bin/launchctl unload \"/Applications/AhnLab/ASTx/tmp/com.ahnlab.astx.astxUpdate.plist\"",
+                "/bin/sh -c /bin/launchctl load \"/Applications/AhnLab/ASTx/tmp/com.ahnlab.astx.astxUpdate.plist\"",
+                "/bin/sh -c /usr/sbin/chown -R root:wheel \"/Applications/AhnLab/ASTx/tmp/com.ahnlab.astx.astxUpdate.plist\"",
+                "/bin/bash -c /bin/launchctl unload \"/Applications/AhnLab/ASTx/tmp/com.ahnlab.astx.astxUpdate.plist\"",
+                "/bin/bash -c /bin/launchctl load \"/Applications/AhnLab/ASTx/tmp/com.ahnlab.astx.astxUpdate.plist\"",
+                "/bin/bash -c /usr/sbin/chown -R root:wheel \"/Applications/AhnLab/ASTx/tmp/com.ahnlab.astx.astxUpdate.plist\"");
+
+        for (String cmdline : observed) {
+            assertThat(Rules.evaluate(List.of(), script("sh", cmdline, 3000)))
+                    .as(cmdline)
+                    .isEmpty();
+        }
+    }
+
+    @Test
+    @DisplayName("R3 양성: /private/tmp/ 는 macOS 의 진짜 시스템 임시 경로라 계속 잡는다 (실제 관측 사례)")
+    void r3_realSystemTempPath_stillAlerts() {
+        // 배포 서버에서 관측된 개발 도구 노이즈지만 룰이 의도대로 동작한 것이다.
+        // 여기를 빼면 공격자가 쓰는 바로 그 경로를 허용하게 된다.
+        List<String> observed = List.of(
+                "/bin/bash -c tsc --noEmit -p /private/tmp/claude-501/proj/scratchpad/tsconfig.check.json",
+                "/usr/bin/python3 - /private/tmp/claude-501/proj/scratchpad/typecheck/src/api/demo.ts");
+
+        for (String cmdline : observed) {
+            assertThat(Rules.evaluate(List.of(), script("sh", cmdline, 3000)))
+                    .as(cmdline)
+                    .isPresent()
+                    .get()
+                    .extracting(Alert::ruleId)
+                    .isEqualTo("SCRIPT_FROM_TEMP_PATH");
+        }
+    }
+
+    @Test
+    @DisplayName("R3 양성: 경로에 인용부호가 붙어 있어도 잡는다")
+    void r3_quotedTempPath_alerts() {
+        Event current = script("powershell.exe",
+                "powershell -File \"C:\\Users\\victim\\Downloads\\setup.ps1\"", 3000);
+
+        assertThat(Rules.evaluate(List.of(), current))
+                .isPresent()
+                .get()
+                .extracting(Alert::ruleId)
+                .isEqualTo("SCRIPT_FROM_TEMP_PATH");
+    }
+
+    @Test
+    @DisplayName("R2 음성: 앱 내부 tmp 폴더에서 실행된 것은 다운로드-실행이 아니다")
+    void r2_executeFromAppInternalTempFolder_noAlert() {
+        // R3 오탐과 같은 결함이다. R2 도 같은 경로 판정을 쓴다.
+        List<Event> buffer = List.of(network("203.0.113.9", 443, 1000));
+        Event current = processFrom("astxUpdate", "/Applications/AhnLab/ASTx/tmp/astxUpdate", 2000);
+
+        assertThat(Rules.evaluate(buffer, current)).isEmpty();
+    }
+
+    @Test
     @DisplayName("R4: 자동실행(시작프로그램) 경로에 파일 생성 → FILE_IN_AUTORUN_PATH(T1547, MEDIUM, notify)")
     void r4_fileInAutorunPath_alerts() {
         Event current = file("evil.lnk",
@@ -219,6 +281,35 @@ class RulesTest {
     @DisplayName("R4 음성: 파일이지만 일반 경로면 미판정")
     void r4_fileInNormalPath_noAlert() {
         Event current = file("report.docx", "C:\\Users\\victim\\Documents\\report.docx", 4000);
+
+        assertThat(Rules.evaluate(List.of(), current)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("R4 양성: macOS 실제 자동실행 경로(LaunchAgents)의 plist 는 잡는다")
+    void r4_realLaunchAgentPaths_alert() {
+        List<String> autorunPaths = List.of(
+                "/Library/LaunchAgents/com.evil.agent.plist",
+                "/System/Library/LaunchAgents/com.evil.agent.plist",
+                "/Users/victim/Library/LaunchAgents/com.evil.agent.plist");
+
+        for (String path : autorunPaths) {
+            assertThat(Rules.evaluate(List.of(), file("com.evil.agent.plist", path, 4000)))
+                    .as(path)
+                    .isPresent()
+                    .get()
+                    .extracting(Alert::ruleId)
+                    .isEqualTo("FILE_IN_AUTORUN_PATH");
+        }
+    }
+
+    @Test
+    @DisplayName("R4 음성: 앱 번들 안의 LaunchAgents 는 자동실행 경로가 아니다")
+    void r4_launchAgentsInsideAppBundle_noAlert() {
+        // 앱 번들은 자기 Contents/Library/LaunchAgents 에 plist 원본을 넣어 배포한다.
+        // 거기 파일이 생기는 것은 설치일 뿐이고, 실제 등록은 위 세 곳에 놓일 때 일어난다.
+        Event current = file("com.vendor.agent.plist",
+                "/Applications/Vendor.app/Contents/Library/LaunchAgents/com.vendor.agent.plist", 4000);
 
         assertThat(Rules.evaluate(List.of(), current)).isEmpty();
     }
