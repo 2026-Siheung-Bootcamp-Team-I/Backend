@@ -131,9 +131,25 @@ class HostApiIntegrationTest {
     }
 
     @Test
+    void 열린_MEDIUM_만_많은_기기는_정상이_아니라_위험으로_나온다() throws Exception {
+        // 배포 서버에서 열린 MEDIUM 54건짜리 기기가 riskScore 100 인 채로 "정상"으로 떴던 사례다.
+        String[] a = signup("a-medium@edrdog.com");
+        countRows = List.of(count("h1", 54, 0, 0));
+        severityRows = List.of(severity("h1", 0, 0, 54, 0));
+
+        mvc.perform(get("/api/hosts").header("Authorization", "Bearer " + a[0]))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].host").value("h1"))
+                .andExpect(jsonPath("$[0].riskScore").value(100))
+                .andExpect(jsonPath("$[0].status").value("critical"))
+                .andExpect(jsonPath("$[0].threats").value(54));
+    }
+
+    @Test
     void 요약은_status별_수와_총수를_준다() throws Exception {
         String[] a = signup("a-summary@edrdog.com");
         countRows = List.of(count("h1", 1, 0, 1));   // h1 주의(HIGH), h2 정상
+        severityRows = List.of(severity("h1", 0, 1, 0, 0));
 
         mvc.perform(get("/api/hosts/summary").header("Authorization", "Bearer " + a[0]))
                 .andExpect(status().isOk())
