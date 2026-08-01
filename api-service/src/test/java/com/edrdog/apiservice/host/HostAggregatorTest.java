@@ -15,7 +15,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * events 행, alert 집계, 등록 노드(agent_nodes)를 host 기준으로 병합하는 순수 로직 검증.
  * 호스트 집합은 events ∪ 등록 노드다(이벤트가 없어도 등록만 됐으면 목록에 나와야 한다).
- * status/위협수는 alert 집계에서 붙는다.
+ * 위협수는 alert 집계에서, status 와 위험 점수는 severity 분포 하나에서 같이 나온다.
  */
 class HostAggregatorTest {
 
@@ -56,7 +56,7 @@ class HostAggregatorTest {
     void 열린_CRITICAL_있는_host_는_위험_위협수는_열린총수() {
         List<HostResponse> hosts = HostAggregator.hosts(
                 List.of(row("h1", "1000")),
-                List.of(count("h1", 3, 1, 2)), List.of(), List.of());
+                List.of(count("h1", 3, 1, 2)), List.of(risk("h1", 1, 2, 0, 0)), List.of());
 
         HostResponse h = hosts.get(0);
         assertEquals(HostStatus.CRITICAL, h.status());
@@ -67,10 +67,22 @@ class HostAggregatorTest {
     void HIGH만_있는_host_는_주의() {
         List<HostResponse> hosts = HostAggregator.hosts(
                 List.of(row("h1", "1000")),
-                List.of(count("h1", 2, 0, 2)), List.of(), List.of());
+                List.of(count("h1", 2, 0, 2)), List.of(risk("h1", 0, 2, 0, 0)), List.of());
 
         assertEquals(HostStatus.WARNING, hosts.get(0).status());
         assertEquals(2L, hosts.get(0).threats());
+    }
+
+    @Test
+    void MEDIUM_만_쌓인_host_는_점수를_따라_위험이다() {
+        // 열린 MEDIUM 54건이면 점수가 상한 100 인데, 예전 분류는 MEDIUM 을 보지 않아 "정상"으로 떴다.
+        List<HostResponse> hosts = HostAggregator.hosts(
+                List.of(row("h1", "1000")),
+                List.of(count("h1", 54, 0, 0)), List.of(risk("h1", 0, 0, 54, 0)), List.of());
+
+        HostResponse h = hosts.get(0);
+        assertEquals(100, h.riskScore());
+        assertEquals(HostStatus.CRITICAL, h.status());
     }
 
     // --- 위험 점수 ---

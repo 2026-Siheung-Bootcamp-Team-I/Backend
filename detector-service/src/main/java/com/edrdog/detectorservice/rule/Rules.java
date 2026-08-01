@@ -32,13 +32,9 @@ public final class Rules {
     private static final Set<String> BASELINE_SAFE = Set.of(
             "onedrive.exe", "teams.exe", "gupdate.exe", "msedgeupdate.exe", "update.exe");
 
-    /** 임시/다운로드 경로 표식 — 여기서 스크립트가 실행되면 저심각 의심(R3). 소문자 기준. */
-    private static final Set<String> SCRIPT_TEMP_MARKERS = Set.of(
-            "\\temp\\", "/tmp/", "\\downloads\\", "/downloads/", "appdata\\local\\temp");
-
-    /** 자동실행/시작 경로 표식 — 여기에 파일이 생기면 지속성 확보 의심(R4). 소문자 기준. */
+    /** 자동실행/시작 경로 표식 (Windows) — 여기에 파일이 생기면 지속성 확보 의심(R4). 소문자 기준. */
     private static final Set<String> FILE_AUTORUN_MARKERS = Set.of(
-            "\\startup\\", "/launchagents/", "\\currentversion\\run");
+            "\\startup\\", "\\currentversion\\run");
 
     /**
      * 현재 이벤트가 선행 버퍼와 상관되어 룰을 완성하면 Alert 반환. 여러 룰 매칭 시 가장 심각한 것 채택.
@@ -85,7 +81,7 @@ public final class Rules {
         }
         if (isProcess(e)) {
             return in(OFFICE_APPS, lower(e.process()))
-                    || executableHasMarker(e.cmdline(), SCRIPT_TEMP_MARKERS);
+                    || executableFromTempPath(e.cmdline());
         }
         return false;
     }
@@ -127,7 +123,7 @@ public final class Rules {
             return prior.stream()
                     .filter(Rules::isProcess)
                     .filter(e -> !isBaseline(lower(e.process())))
-                    .filter(e -> executableHasMarker(e.cmdline(), SCRIPT_TEMP_MARKERS))
+                    .filter(e -> executableFromTempPath(e.cmdline()))
                     .filter(e -> e.ts() >= current.ts())   // 시각상 다운로드가 먼저여야 한다
                     .findFirst()
                     .map(exec -> alertOf("DOWNLOAD_AND_EXECUTE", "T1105+T1204", Alert.SEV_CRITICAL,
@@ -140,7 +136,7 @@ public final class Rules {
         // 모든 프로세스 실행이 CRITICAL 이 된다. 인자까지 보면 정상 프로세스가 임시 경로를
         // 인자로 받는 경우(find /private/tmp/..., mount_apfs ... /private/tmp/PKInstallSandbox/...)
         // 까지 걸리므로, 실행된 파일 자체(argv[0])만 본다.
-        if (!executableHasMarker(current.cmdline(), SCRIPT_TEMP_MARKERS)) {
+        if (!executableFromTempPath(current.cmdline())) {
             return Optional.empty();
         }
         Optional<Event> download = prior.stream()
@@ -157,7 +153,7 @@ public final class Rules {
 
     /** R3 T1059: 임시/다운로드 경로에서 실행된 스크립트 (저심각 point 룰). */
     private static Optional<Alert> scriptFromTempPath(Event current) {
-        if (!isScript(current) || !pathArgumentHasMarker(current.cmdline(), SCRIPT_TEMP_MARKERS)) {
+        if (!isScript(current) || !pathArgumentFromTempPath(current.cmdline())) {
             return Optional.empty();
         }
         return Optional.of(alertOf("SCRIPT_FROM_TEMP_PATH", "T1059", Alert.SEV_MEDIUM,
@@ -166,7 +162,7 @@ public final class Rules {
 
     /** R4 T1547: 자동실행/시작 경로에 생성된 파일 (지속성 확보, 저심각 point 룰). */
     private static Optional<Alert> fileInAutorunPath(Event current) {
-        if (!isFile(current) || !pathHasMarker(current.cmdline(), FILE_AUTORUN_MARKERS)) {
+        if (!isFile(current) || !isAutorunPath(current.cmdline())) {
             return Optional.empty();
         }
         return Optional.of(alertOf("FILE_IN_AUTORUN_PATH", "T1547", Alert.SEV_MEDIUM,
@@ -232,46 +228,132 @@ public final class Rules {
         return Event.TYPE_FILE.equals(e.type());
     }
 
-    private static boolean pathHasMarker(String path, Set<String> markers) {
-        String p = lower(path);
-        return p != null && markers.stream().anyMatch(p::contains);
-    }
-
     /** 셸 연산자 — 여기부터는 실행 대상이 아니라 출력/후속 명령이라 판정에서 제외한다. */
     private static final Set<String> SHELL_OPERATORS = Set.of(">", ">>", ">|", "<", "|", "||", "&&", ";", "&");
 
     /** 실행된 파일 자체(argv[0])만 본다. 인자까지 보면 정상 프로세스의 오탐이 난다(find/mount_apfs 사례, downloadAndExecute 참고). */
-    private static boolean executableHasMarker(String cmdline, Set<String> markers) {
-        String c = lower(cmdline);
-        if (c == null || c.isBlank()) {
-            return false;
-        }
-        String argv0 = c.trim().split("\\s+")[0];
-        return markers.stream().anyMatch(argv0::contains);
-    }
-
-    /**
-     * cmdline 에서 "실행 대상으로 보이는 경로 인자"에만 표식이 있는지 본다.
-     *
-     * <p>cmdline 전체를 문자열로 훑으면 실행과 무관한 위치의 경로까지 걸린다. 실제로
-     * {@code ... && pwd -P >| /tmp/x} 처럼 리다이렉션 대상이 임시 경로라는 이유로 알림이 나갔다.
-     * 그래서 셸 연산자가 나오면 거기서 끊고, 앞쪽 인자 중 경로처럼 생긴 토큰만 검사한다.
-     */
-    private static boolean pathArgumentHasMarker(String cmdline, Set<String> markers) {
+    private static boolean executableFromTempPath(String cmdline) {
         String c = lower(cmdline);
         if (c == null) {
             return false;
         }
-        for (String token : c.split("\\s+")) {
+        List<String> tokens = tokenize(c);
+        return !tokens.isEmpty() && isTempOrDownloadPath(tokens.get(0));
+    }
+
+    /**
+     * cmdline 에서 "실행 대상으로 보이는 경로 인자"가 임시·다운로드 경로인지 본다.
+     *
+     * <p>cmdline 전체를 문자열로 훑으면 실행과 무관한 위치의 경로까지 걸린다. 실제로
+     * {@code ... && pwd -P >| /tmp/x} 처럼 리다이렉션 대상이 임시 경로라는 이유로 알림이 나갔다.
+     * 그래서 셸 연산자가 나오면 거기서 끊는다.
+     */
+    private static boolean pathArgumentFromTempPath(String cmdline) {
+        String c = lower(cmdline);
+        if (c == null) {
+            return false;
+        }
+        for (String token : tokenize(c)) {
             if (SHELL_OPERATORS.contains(token)) {
                 return false;   // 연산자 뒤는 실행 대상이 아니다
             }
-            boolean looksLikePath = token.contains("/") || token.contains("\\");
-            if (looksLikePath && markers.stream().anyMatch(token::contains)) {
+            if (isTempOrDownloadPath(token)) {
                 return true;
             }
         }
         return false;
+    }
+
+    /**
+     * 공백으로 자르되 인용부호로 묶인 구간은 한 토큰으로 유지하고 인용부호는 벗긴다.
+     *
+     * <p>경로가 인용부호로 감싸여 온다(실측: {@code launchctl unload "/Applications/.../tmp/x.plist"}).
+     * 단순히 공백으로만 자르면 사용자명에 공백이 있는 경로({@code "C:\Users\John Doe\Downloads\x.ps1"})가
+     * 조각나서, 시작 위치로 판정하는 방식이 그런 경로를 아예 못 본다.
+     */
+    private static List<String> tokenize(String cmdline) {
+        List<String> tokens = new ArrayList<>();
+        StringBuilder token = new StringBuilder();
+        char quote = 0;
+        for (char ch : cmdline.toCharArray()) {
+            if (quote != 0) {
+                if (ch == quote) {
+                    quote = 0;
+                } else {
+                    token.append(ch);
+                }
+            } else if (ch == '"' || ch == '\'') {
+                quote = ch;
+            } else if (Character.isWhitespace(ch)) {
+                if (token.length() > 0) {
+                    tokens.add(token.toString());
+                    token.setLength(0);
+                }
+            } else {
+                token.append(ch);
+            }
+        }
+        if (token.length() > 0) {
+            tokens.add(token.toString());
+        }
+        return tokens;
+    }
+
+    /**
+     * 시스템 임시·다운로드 경로인지 경로 구조로 판정한다 (소문자 기준).
+     *
+     * <p>{@code /tmp/} 같은 조각을 경로 어디서든 찾으면 앱 내부 폴더가 시스템 임시 경로로 오인된다.
+     * 실기기에서 R3 알림 42건이 전부 이것이었다: AhnLab 보안제품이 자기 업데이트 plist 를 다루는
+     * {@code "/Applications/AhnLab/ASTx/tmp/..."} 가 걸렸다. 조각을 더 빼는 대신 시작 위치를 고정한다.
+     */
+    private static boolean isTempOrDownloadPath(String p) {
+        if (p.startsWith("/")) {
+            return p.startsWith("/tmp/")
+                    || p.startsWith("/private/tmp/")
+                    || p.startsWith("/var/folders/")
+                    || underUserHome(p, "/users/", "downloads/")
+                    || underUserHome(p, "/home/", "downloads/");
+        }
+        String w = stripDriveLetter(p);
+        return w != null
+                && (w.startsWith("\\temp\\")
+                || w.startsWith("\\windows\\temp\\")
+                || underUserHome(w, "\\users\\", "appdata\\local\\temp\\")
+                || underUserHome(w, "\\users\\", "downloads\\"));
+    }
+
+    /** 자동실행/지속성 경로인지 (소문자 기준). LaunchAgents 는 아래 세 곳에 놓일 때만 실제로 등록된다. */
+    private static boolean isAutorunPath(String path) {
+        String p = lower(path);
+        if (p == null) {
+            return false;
+        }
+        p = p.trim().replace("\"", "");   // 경로가 인용부호로 감싸여 오는 경우가 있다
+        return FILE_AUTORUN_MARKERS.stream().anyMatch(p::contains)
+                || p.startsWith("/library/launchagents/")
+                || p.startsWith("/system/library/launchagents/")
+                || underUserHome(p, "/users/", "library/launchagents/");
+    }
+
+    /**
+     * 홈 바로 아래가 tail 인지 (예: {@code /users/me/downloads/...}).
+     *
+     * <p>사용자명 한 칸을 강제해서, 홈 밑이 아닌 곳에 같은 이름 폴더가 있는 경우를 거른다.
+     */
+    private static boolean underUserHome(String path, String homeRoot, String tail) {
+        if (!path.startsWith(homeRoot)) {
+            return false;
+        }
+        int userEnd = path.indexOf(homeRoot.charAt(0), homeRoot.length());
+        return userEnd > homeRoot.length() && path.startsWith(tail, userEnd + 1);
+    }
+
+    /** Windows 경로면 드라이브 문자를 뗀 나머지, 아니면 null. 드라이브 없는 {@code \\users\\...} 도 그대로 받는다. */
+    private static String stripDriveLetter(String path) {
+        if (path.length() >= 3 && Character.isLetter(path.charAt(0)) && path.charAt(1) == ':' && path.charAt(2) == '\\') {
+            return path.substring(2);
+        }
+        return path.startsWith("\\") ? path : null;
     }
 
     /** null 안전한 집합 포함 검사 (immutable Set 은 contains(null) 시 NPE). */
