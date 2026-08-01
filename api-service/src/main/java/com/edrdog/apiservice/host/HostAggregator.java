@@ -27,6 +27,8 @@ public final class HostAggregator {
 
     /**
      * events 행(host, last_seen)에 host 별 alert 집계, severity 분포(위험 점수), 등록 노드 정보를 붙여 목록을 만든다.
+     * status 와 riskScore 는 한 값(severity 분포로 낸 점수)에서 같이 나온다. 따로 계산하면 한 행 안에서
+     * "위험도 100 인데 정상" 처럼 서로 반대되는 말을 할 수 있다.
      * events 쿼리가 last_seen DESC 로 정렬돼 오므로 그 순서를 그대로 유지하고,
      * events 는 없고 등록만 된 host 는 agentSeen DESC 로 정렬해 뒤에 붙인다.
      * host 이름은 엔드포인트가 OS 원본 그대로 보내 대소문자가 어긋나는 사례가 있어
@@ -47,24 +49,23 @@ public final class HostAggregator {
             String host = String.valueOf(row.get("host"));
             long lastSeen = Long.parseLong(String.valueOf(row.get("last_seen")));
             HostAlertCount c = byHost.get(host);
-            long critical = c == null ? 0 : c.openCritical();
-            long high = c == null ? 0 : c.openHigh();
             long threats = c == null ? 0 : c.openTotal();
             HostRisk risk = riskByHost.get(host);
+            int score = risk == null ? 0 : risk.score();
 
             EnrolledHost node = enrolledByHost.get(host.toLowerCase());
             boolean isEnrolled = node != null;
             long agentSeen = node == null ? 0 : node.agentSeen();
             matched.add(host.toLowerCase());
 
-            out.add(new HostResponse(host, lastSeen, HostStatus.classify(critical, high), threats,
-                    risk == null ? 0 : risk.score(), isEnrolled, agentSeen, platformOf(node)));
+            out.add(new HostResponse(host, lastSeen, HostStatus.classify(score), threats,
+                    score, isEnrolled, agentSeen, platformOf(node)));
         }
 
         enrolledByHost.values().stream()
                 .filter(node -> !matched.contains(node.host().toLowerCase()))
                 .sorted(Comparator.comparingLong(EnrolledHost::agentSeen).reversed())
-                .forEach(node -> out.add(new HostResponse(node.host(), 0L, HostStatus.HEALTHY, 0L,
+                .forEach(node -> out.add(new HostResponse(node.host(), 0L, HostStatus.classify(0), 0L,
                         0, true, node.agentSeen(), platformOf(node))));
 
         return out;
