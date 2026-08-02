@@ -37,6 +37,8 @@ public class AlertKafkaConfig {
             ConsumerFactory<String, String> alertConsumerFactory) {
         ConcurrentKafkaListenerContainerFactory<String, String> factory = new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(alertConsumerFactory);
+        // 전용 팩토리라 spring.kafka.listener.concurrency 가 안 먹는다. alerts 파티션 수(3)에 맞춰 여기서 직접 준다.
+        factory.setConcurrency(3);
         // 발행 측 traceId 를 이어받아 한 트레이스로 연결한다.
         factory.getContainerProperties().setObservationEnabled(true);
         return factory;
