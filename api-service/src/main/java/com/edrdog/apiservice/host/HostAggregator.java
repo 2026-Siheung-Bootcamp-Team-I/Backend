@@ -14,8 +14,8 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * events(호스트+last_seen), alerts(host 별 열린 alert 집계), agent_nodes(등록 노드)를 병합하는 순수 로직.
- * 세 저장소(ClickHouse/MySQL)라 SQL 조인이 안 되므로 여기서 host 기준으로 합친다.
+ * events(호스트+last_seen), alerts(host 별 열린 alert 집계), collector(등록 노드)를 병합하는 순수 로직.
+ * 출처가 셋(ClickHouse/MySQL/collector API)이라 SQL 조인이 안 되므로 여기서 host 기준으로 합친다.
  * 호스트 집합은 events ∪ 등록 노드다. 에이전트가 enroll 에 성공해도 이벤트가 0건이면 화면에서
  * 기기 상태를 전혀 볼 수 없었던 문제 때문에, 이벤트 없이 등록만 된 기기도 목록에 넣는다.
  * alert 만 있고 events/등록 둘 다 없는 host 는 여전히 나오지 않는다.

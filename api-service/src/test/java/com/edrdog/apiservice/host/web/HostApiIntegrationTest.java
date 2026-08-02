@@ -1,6 +1,8 @@
 package com.edrdog.apiservice.host.web;
 
 import com.edrdog.apiservice.clickhouse.ClickHouseReader;
+import com.edrdog.apiservice.collector.CollectorClient;
+import com.edrdog.apiservice.host.EnrolledHost;
 import com.edrdog.apiservice.query.ClickHouseQuery;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -21,6 +23,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -31,6 +34,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 전체 컨텍스트로 hosts API 배선(라우팅, Bearer tenant 격리, events+alert집계 병합)을 검증한다.
  * ClickHouse 는 실제로 붙지 않으므로 ClickHouseReader 를 목으로 대체하고, events 조회에는 관측 호스트를,
  * alerts 조회에는 host 별 열린 집계를 각각 돌려준다(집계 SQL 의 tenant 격리는 AlertQueryBuilderTest 로 검증).
+ * 등록 노드도 collector 에 붙지 않으므로 CollectorClient 를 목으로 둔다.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -47,6 +51,12 @@ class HostApiIntegrationTest {
     @MockitoBean
     private ClickHouseReader reader;
 
+    @MockitoBean
+    private CollectorClient collector;
+
+    /** collector 가 주는 등록 노드. 테스트마다 세팅한다(기본은 등록 기기 없음). */
+    private List<EnrolledHost> enrolled = List.of();
+
     /** host 별 열린 alert 집계(alerts 테이블 조회 응답). 테스트마다 세팅한다. */
     private List<Map<String, Object>> countRows = List.of();
     /** host 별 열린 alert severity 분포(위험 점수 재료). 테스트마다 세팅한다. */
@@ -62,6 +72,8 @@ class HostApiIntegrationTest {
         severityRows = List.of();
         lineageRows = List.of();
         lastLineageQuery = null;
+        enrolled = List.of();
+        when(collector.enrolledHosts(anyLong())).thenAnswer(inv -> enrolled);
         // 호스트 목록 조회는 관측 호스트 h1, h2 로 고정, alerts 집계는 countRows/severityRows, lineage 조회는 lineageRows.
         when(reader.query(any())).thenAnswer(inv -> {
             ClickHouseQuery q = inv.getArgument(0);
@@ -157,6 +169,33 @@ class HostApiIntegrationTest {
                 .andExpect(jsonPath("$.warning").value(1))
                 .andExpect(jsonPath("$.critical").value(0))
                 .andExpect(jsonPath("$.total").value(2));
+    }
+
+    @Test
+    void collector_가_죽어_등록목록이_비어도_목록은_200_이다() throws Exception {
+        // CollectorClient 가 실패를 빈 목록으로 흡수한다. 등록 표시가 빠질 뿐 화면 전체가 죽지는 않아야 한다.
+        String[] a = signup("a-collectordown@edrdog.com");
+        enrolled = List.of();
+
+        mvc.perform(get("/api/hosts").header("Authorization", "Bearer " + a[0]))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].enrolled").value(false))
+                .andExpect(jsonPath("$[0].platform").value(""));
+    }
+
+    @Test
+    void 이벤트가_없는_등록_기기도_collector_응답으로_목록에_붙는다() throws Exception {
+        String[] a = signup("a-enrolled@edrdog.com");
+        enrolled = List.of(new EnrolledHost("only-enrolled", 500L, "darwin"));
+
+        mvc.perform(get("/api/hosts").header("Authorization", "Bearer " + a[0]))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(3))
+                .andExpect(jsonPath("$[2].host").value("only-enrolled"))
+                .andExpect(jsonPath("$[2].enrolled").value(true))
+                .andExpect(jsonPath("$[2].agentSeen").value(500))
+                .andExpect(jsonPath("$[2].platform").value("darwin"));
     }
 
     @Test

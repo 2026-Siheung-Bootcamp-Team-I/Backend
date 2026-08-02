@@ -8,8 +8,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * ClickHouse 테이블의 최근 적재 지연(초)과 최근 5분 적재 건수를 구한다(archiver/AlertClickHouseWriter 가 쓰는
- * ClickHouseReader 를 그대로 재사용 — 조회 전용 커넥션을 새로 만들지 않는다).
+ * ClickHouse 테이블(archiver 가 적재하는 events/alerts)의 최근 적재 지연(초)과 최근 5분 적재 건수를 구한다.
+ * 조회는 ClickHouseReader 를 그대로 재사용한다(조회 전용 커넥션을 새로 만들지 않는다).
  *
  * <p>지연은 ClickHouse 서버 시계(now64)로 계산해 API 서버와 ClickHouse 간 시계 오차에 흔들리지 않게 한다.
  * count()==0(테이블이 비어 있음)인 경우, ClickHouse 의 max() 는 NULL 이 아니라 타입 기본값(1970-01-01)을

@@ -7,10 +7,9 @@ import com.edrdog.apiservice.alert.HostAlertCount;
 import com.edrdog.apiservice.alert.LineageGraphBuilder;
 import com.edrdog.apiservice.alert.web.LineageResponse;
 import com.edrdog.apiservice.clickhouse.ClickHouseReader;
+import com.edrdog.apiservice.collector.CollectorClient;
 import com.edrdog.apiservice.host.web.HostResponse;
 import com.edrdog.apiservice.host.web.HostSummary;
-import com.edrdog.apiservice.agent.domain.AgentNode;
-import com.edrdog.apiservice.agent.repository.AgentNodeRepository;
 import com.edrdog.apiservice.query.EventQueryBuilder;
 import org.springframework.stereotype.Service;
 
@@ -19,7 +18,7 @@ import java.util.Map;
 
 /**
  * 엔드포인트(호스트) 목록·요약 조회. events(ClickHouse)로 관측 호스트+last_seen 을,
- * alerts(ClickHouse)로 host 별 열린 alert 집계를, agent_nodes(MySQL)로 등록 노드를 각각 뽑아 병합한다.
+ * alerts(ClickHouse)로 host 별 열린 alert 집계를, collector 내부 API 로 등록 노드를 각각 뽑아 병합한다.
  * 조회는 항상 tenant 로 격리한다.
  * "열린(open)" 판정은 오버레이(MySQL)에 트리아지된 id 를 빼서 정한다(오버레이 행 없으면 open).
  */
@@ -31,19 +30,19 @@ public class HostService {
     private final AlertQueryBuilder alertBuilder;
     private final HostRiskQueryBuilder riskBuilder;
     private final AlertStatusRepository statuses;
-    private final AgentNodeRepository nodes;
+    private final CollectorClient collector;
     private final LineageGraphBuilder lineage;
 
     public HostService(ClickHouseReader reader, EventQueryBuilder builder,
                        AlertQueryBuilder alertBuilder, HostRiskQueryBuilder riskBuilder,
-                       AlertStatusRepository statuses, AgentNodeRepository nodes,
+                       AlertStatusRepository statuses, CollectorClient collector,
                        LineageGraphBuilder lineage) {
         this.reader = reader;
         this.builder = builder;
         this.alertBuilder = alertBuilder;
         this.riskBuilder = riskBuilder;
         this.statuses = statuses;
-        this.nodes = nodes;
+        this.collector = collector;
         this.lineage = lineage;
     }
 
@@ -80,7 +79,7 @@ public class HostService {
     }
 
     /**
-     * tenant 의 등록 노드를 순수 값 객체로 변환한다. AgentNode.tenantId 는 Long 인데
+     * tenant 의 등록 노드를 collector 에서 읽는다. collector 의 tenantId 는 숫자인데
      * HostService.hosts(String) 은 문자열을 받으므로 변환하되, 숫자가 아닌 값이 와도
      * (예: 잘못된 토큰/테스트 데이터) 예외로 죽이지 않고 빈 목록으로 처리한다.
      */
@@ -89,14 +88,7 @@ public class HostService {
         if (id == null) {
             return List.of();
         }
-        return nodes.findByTenantId(id).stream()
-                .map(HostService::toEnrolledHost)
-                .toList();
-    }
-
-    private static EnrolledHost toEnrolledHost(AgentNode node) {
-        return new EnrolledHost(node.getHostIdentifier(), node.getLastSeenAt().toEpochMilli(),
-                node.getPlatform());
+        return collector.enrolledHosts(id);
     }
 
     private static Long parseTenantId(String tenantId) {

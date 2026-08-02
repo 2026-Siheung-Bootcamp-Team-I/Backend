@@ -41,11 +41,16 @@ class ApiKeyPolicyTest {
     }
 
     @Test
-    void 에이전트_수집은_자체_인증이므로_API키_예외() {
-        assertTrue(policy.isExempt("/api/agent/enroll"));
-        assertTrue(policy.isExempt("/api/agent/heartbeat"));
-        assertTrue(policy.isExempt("/api/agent/events"));
-        assertTrue(policy.isExempt("/api/agent/command-result"));
+    void 서비스_간_내부_조회는_X_Internal_Key_이므로_API키_예외() {
+        assertTrue(policy.isExempt("/api/internal/tenants/1/webhook"));
+        assertTrue(policy.isExempt("/api/internal/agent/resolve-tenant"));
+    }
+
+    @Test
+    void 에이전트_수집_경로는_이제_api_service_에_없다() {
+        // 수집 입구는 collector-service 로 옮겼다. 예외를 남겨 두면 나중에 /api/agent/* 를 다시 만들 때 문이 열린 채로 열린다.
+        assertFalse(policy.isExempt("/api/agent/enroll"));
+        assertFalse(policy.isExempt("/api/agent/events"));
     }
 
     @Test

@@ -1,10 +1,10 @@
 package com.edrdog.apiservice.host;
 
-import com.edrdog.apiservice.agent.repository.AgentNodeRepository;
 import com.edrdog.apiservice.alert.AlertQueryBuilder;
 import com.edrdog.apiservice.alert.AlertStatusRepository;
 import com.edrdog.apiservice.alert.LineageGraphBuilder;
 import com.edrdog.apiservice.clickhouse.ClickHouseReader;
+import com.edrdog.apiservice.collector.CollectorClient;
 import com.edrdog.apiservice.host.web.HostResponse;
 import com.edrdog.apiservice.query.ClickHouseQuery;
 import com.edrdog.apiservice.query.EventQueryBuilder;
@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -32,7 +33,7 @@ class HostServiceTest {
 
     private final ClickHouseReader reader = mock(ClickHouseReader.class);
     private final AlertStatusRepository statuses = mock(AlertStatusRepository.class);
-    private final AgentNodeRepository nodes = mock(AgentNodeRepository.class);
+    private final CollectorClient collector = mock(CollectorClient.class);
 
     private final List<ClickHouseQuery> issued = new ArrayList<>();
     private List<Map<String, Object>> eventRows = List.of();
@@ -46,7 +47,7 @@ class HostServiceTest {
         eventRows = List.of();
         severityRows = List.of();
         when(statuses.findByTenantId(any())).thenReturn(List.of());
-        when(nodes.findByTenantId(anyLong())).thenReturn(List.of());
+        when(collector.enrolledHosts(anyLong())).thenReturn(List.of());
         // events 조회는 eventRows, severity 분포 조회는 severityRows, 나머지 alerts 집계는 비운다.
         when(reader.query(any())).thenAnswer(inv -> {
             ClickHouseQuery q = inv.getArgument(0);
@@ -58,7 +59,7 @@ class HostServiceTest {
         });
         service = new HostService(reader, new EventQueryBuilder("edrdog.events"),
                 new AlertQueryBuilder("edrdog.alerts"), new HostRiskQueryBuilder("edrdog.alerts"),
-                statuses, nodes, new LineageGraphBuilder());
+                statuses, collector, new LineageGraphBuilder());
     }
 
     private static Map<String, Object> eventRow(String host) {
@@ -118,5 +119,30 @@ class HostServiceTest {
         eventRows = List.of(eventRow("h1"));
 
         assertEquals(0, service.hosts(TENANT).get(0).riskScore());
+    }
+
+    @Test
+    void collector_가_죽어_등록목록이_비어도_관측된_호스트는_그대로_나온다() {
+        // CollectorClient 가 실패를 빈 목록으로 흡수한다. 등록 정보를 못 받는 것보다 목록 전체가 500 인 쪽이 나쁘다.
+        eventRows = List.of(eventRow("h1"));
+        when(collector.enrolledHosts(anyLong())).thenReturn(List.of());
+
+        List<HostResponse> hosts = service.hosts(TENANT);
+
+        assertEquals(1, hosts.size());
+        assertEquals("h1", hosts.get(0).host());
+        assertFalse(hosts.get(0).enrolled());
+    }
+
+    @Test
+    void 이벤트가_없어도_collector_가_준_등록_기기는_목록에_붙는다() {
+        when(collector.enrolledHosts(7L)).thenReturn(List.of(new EnrolledHost("only-enrolled", 500L, "darwin")));
+
+        List<HostResponse> hosts = service.hosts(TENANT);
+
+        assertEquals(1, hosts.size());
+        assertEquals("only-enrolled", hosts.get(0).host());
+        assertTrue(hosts.get(0).enrolled());
+        assertEquals(500L, hosts.get(0).agentSeen());
     }
 }
