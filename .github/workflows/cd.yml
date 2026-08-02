@@ -242,6 +242,16 @@ jobs:
           # 이미지 태그는 매니페스트의 placeholder 를 쓰지 않고 여기서 끼워 넣는다.
           #   이번에 구운 모듈  -> :$SHA
           #   안 구운 모듈      -> 지금 떠 있는 태그 그대로 (그 :$SHA 이미지는 아예 없다)
+
+          # 레포에서 없앤 리소스는 여기 적어야 서버에서도 사라진다. apply 는 매니페스트에 없는 것을
+          # 지우지 않아서, 그냥 두면 서버에만 유령으로 남는다. NodePort 처럼 클러스터에서 하나뿐인
+          # 자원을 쥐고 있으면 새 Service 가 "port is already allocated" 로 아예 안 만들어진다.
+          # api-service-agent: 수집 입구가 collector 로 가면서 30443 이 collector-service-agent 로
+          #   옮겨갔는데, 옛 Service 가 그 포트를 붙들고 있었다(#184).
+          # 배포서버에서 한 번 지워지고 나면 이 줄은 없어도 된다. 그래도 남겨 두는 편이 안전하다.
+          # 클러스터를 새로 세우면 없는 이름이라 --ignore-not-found 로 조용히 지나간다.
+          sudo kubectl -n "$NS" delete service api-service-agent --ignore-not-found
+
           DEPLOYED=""
           for m in $MODULES; do
           CUR=$(sudo kubectl -n "$NS" get deploy "$m" -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || true)
