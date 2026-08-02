@@ -1,6 +1,6 @@
-package com.edrdog.apiservice.alert;
+package com.edrdog.archiverservice.alert;
 
-import com.edrdog.apiservice.alert.dto.Alert;
+import com.edrdog.archiverservice.alert.dto.Alert;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
@@ -18,10 +18,10 @@ import java.util.Map;
 
 /**
  * 판정기록(불변)을 ClickHouse HTTP(8123) 로 적재하고, 부팅 시 alerts 테이블 스키마를 보장한다.
- * archiver 의 ClickHouseWriter 와 같은 패턴이다(쿼리는 POST 본문 첫 줄, 데이터는 JSONEachRow 로 이어붙임).
+ * archiver 의 ClickHouseWriter(events)와 같은 패턴이다(쿼리는 POST 본문 첫 줄, 데이터는 JSONEachRow 로 이어붙임).
  *
  * <p>테이블은 ReplacingMergeTree 라 같은 id 가 재삽입돼도 병합 시 한 행으로 접힌다.
- * 다만 병합은 비동기라 조회 쪽(AlertQueryBuilder)은 반드시 FINAL 로 dedup 한다.
+ * 다만 병합은 비동기라 조회 쪽(api-service AlertQueryBuilder)은 반드시 FINAL 로 dedup 한다.
  */
 @Component
 public class AlertClickHouseWriter {
@@ -61,7 +61,7 @@ public class AlertClickHouseWriter {
 
     /**
      * 부팅 시 alerts 테이블 생성 (개발용: 매 기동마다 IF NOT EXISTS).
-     * CH 가 아직 없어도 앱은 떠야 하므로(수집·조회는 요청 시점에 다시 붙는다) 실패는 삼키고 경고만 남긴다.
+     * CH 가 아직 없어도 앱은 떠야 하므로(적재는 요청 시점에 다시 붙는다) 실패는 삼키고 경고만 남긴다.
      */
     @PostConstruct
     void ensureSchema() {

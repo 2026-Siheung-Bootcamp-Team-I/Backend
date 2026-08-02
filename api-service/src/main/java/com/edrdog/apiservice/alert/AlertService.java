@@ -1,6 +1,5 @@
 package com.edrdog.apiservice.alert;
 
-import com.edrdog.apiservice.alert.dto.Alert;
 import com.edrdog.apiservice.alert.web.AlertResponse;
 import com.edrdog.apiservice.alert.web.LineageResponse;
 import com.edrdog.apiservice.alert.web.SourceEvent;
@@ -22,9 +21,14 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
- * alert 적재/조회/트리아지 로직. 판정기록(불변)은 ClickHouse(alerts)에 쓰고, 트리아지 status(가변)만
- * MySQL 오버레이(alert_status)에 둔다. 조회는 ClickHouse 에서 읽어 오버레이 status 를 앱에서 병합한다.
+ * alert 조회/트리아지 로직. 판정기록(불변)은 archiver 가 ClickHouse(alerts)에 적재하고, 트리아지
+ * status(가변)만 이 서비스가 MySQL 오버레이(alert_status)에 둔다.
+ * 조회는 ClickHouse 에서 읽어 오버레이 status 를 앱에서 병합한다.
  * 두 저장소라 DB 조인이 안 되므로 필터/병합은 여기서 처리한다(alert 볼륨이 작다는 전제).
+ *
+ * <p>조회 격리 계약(주의): 저장된 tenant_id 를 로그인 유저의 tenant PK 문자열
+ * (String.valueOf(principal.tenantId())) 과 비교한다. 따라서 detector 가 발행하는 alert.tenantId 는
+ * 반드시 api-service 의 tenant PK 문자열이어야 한다(아니면 적재는 되지만 조회에서 안 보인다).
  */
 @Service
 public class AlertService {
@@ -35,39 +39,19 @@ public class AlertService {
     /** 원본 이벤트를 고르기 위해 훑는 events 상한(EventQueryBuilder 의 상한과 같은 값). */
     static final int SOURCE_EVENT_SCAN_LIMIT = 1000;
 
-    private final AlertClickHouseWriter writer;
     private final AlertStatusRepository statuses;
     private final ClickHouseReader reader;
     private final AlertQueryBuilder alertBuilder;
     private final EventQueryBuilder events;
     private final LineageGraphBuilder lineage;
 
-    public AlertService(AlertClickHouseWriter writer, AlertStatusRepository statuses, ClickHouseReader reader,
+    public AlertService(AlertStatusRepository statuses, ClickHouseReader reader,
                         AlertQueryBuilder alertBuilder, EventQueryBuilder events, LineageGraphBuilder lineage) {
-        this.writer = writer;
         this.statuses = statuses;
         this.reader = reader;
         this.alertBuilder = alertBuilder;
         this.events = events;
         this.lineage = lineage;
-    }
-
-    /**
-     * 판정기록을 ClickHouse 에 적재한다. id 는 결정적(AlertId)이라 재소비돼도 ReplacingMergeTree 가
-     * 병합 시 한 행으로 접는다(멱등). status 는 건드리지 않는다(오버레이 미생성 = open 유지).
-     * tenantId/host/ruleId 없는 alert 는 skip.
-     *
-     * 계약(주의): 조회 격리는 저장된 tenant_id 를 로그인 유저의 tenant PK 문자열
-     * (String.valueOf(principal.tenantId())) 과 비교한다. 따라서 detector 가 발행하는 alert.tenantId 는
-     * 반드시 api-service 의 tenant PK 문자열이어야 한다(아니면 저장은 되지만 조회에서 안 보인다).
-     */
-    public void ingest(Alert alert) {
-        if (alert == null || alert.tenantId() == null || alert.tenantId().isBlank()
-                || alert.host() == null || alert.ruleId() == null) {
-            return;
-        }
-        String id = AlertId.of(alert.tenantId(), alert.host(), alert.ruleId(), alert.ts());
-        writer.insert(id, alert);
     }
 
     /**
