@@ -7,6 +7,7 @@ import com.edrdog.apiservice.auth.exception.AuthException;
 import com.edrdog.apiservice.auth.repository.SessionRepository;
 import com.edrdog.apiservice.auth.repository.TenantRepository;
 import com.edrdog.apiservice.auth.repository.UserRepository;
+import com.edrdog.apiservice.security.Tokens;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
