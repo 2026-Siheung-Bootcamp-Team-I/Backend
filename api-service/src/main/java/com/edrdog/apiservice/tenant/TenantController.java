@@ -17,8 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * tenant Slack webhook·enroll secret 등록/조회.
- * /api/tenant/** 은 로그인 유저가 자기 tenant 것만(Bearer + 프론트 X-API-Key),
- * /api/internal/** 은 서비스 간 조회로 별도 X-Internal-Key 로만 인증한다(프론트 키로는 열 수 없음 → tenant 열거 방지).
+ * /api/tenant/** 은 로그인 유저가 자기 tenant 것만(Bearer + 프론트 X-API-Key), /api/internal/** 은 서비스 간 조회다.
  */
 @RestController
 @Tag(name = "tenant", description = "tenant Slack webhook 등록/조회")
@@ -97,6 +96,7 @@ public class TenantController {
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
+    // 프론트 X-API-Key 와 분리된 별도 키다. 프론트 키로도 열면 아무 tenant 나 열거할 수 있게 된다.
     private void requireInternalKey(String internalKeyHeader) {
         if (internalKeyHeader == null || !internalKey.equals(internalKeyHeader)) {
             throw AuthException.unauthorized("유효한 X-Internal-Key 가 필요합니다");

@@ -8,10 +8,9 @@ import jakarta.persistence.Table;
 import java.time.Instant;
 
 /**
- * 트리아지 status 오버레이(MySQL). 판정기록 자체(불변)는 ClickHouse 에 있고, 여기에는 가변인 status 만 둔다.
- * 행이 있으면 트리아지된 것(confirmed/false_positive), 없으면 open 으로 본다.
- * id 는 판정기록과 같은 결정적 값(AlertId)이라 두 저장소를 앱에서 병합할 수 있다.
+ * 트리아지 status 오버레이(MySQL). 행이 있으면 트리아지된 것(confirmed/false_positive), 없으면 open 으로 본다.
  */
+// id 는 판정기록(ClickHouse)과 같은 결정적 값(AlertId)이라야 두 저장소를 앱에서 병합할 수 있다.
 @Entity
 @Table(name = "alert_status")
 public class AlertStatusRecord {

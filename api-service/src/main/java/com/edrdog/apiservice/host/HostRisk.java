@@ -4,8 +4,7 @@ import java.util.Map;
 
 /**
  * 호스트 하나의 열린 alert severity 분포. 위험 점수(RiskScore)의 재료다.
- * 엔드포인트 목록과 토폴로지가 같은 행을 같은 방식으로 읽어야 두 화면의 점수가 갈리지 않으므로
- * 행 해석(fromRow)도 여기 하나만 둔다.
+ * 행 해석(fromRow)을 여기 말고 또 두면 엔드포인트 목록과 토폴로지의 점수가 갈린다.
  */
 public record HostRisk(String host, long critical, long high, long medium, long low) {
 

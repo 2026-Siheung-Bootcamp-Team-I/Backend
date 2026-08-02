@@ -11,10 +11,8 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 
 /**
- * 등록 노드 조회(서비스 간). api-service 의 호스트 목록 화면이 이벤트에 안 잡힌 조용한 노드를
- * 채워 넣는 데 쓴다. 노드 테이블은 collector 가 가지고 있어 여기서 열어 준다.
- *
- * <p>프론트 키가 아니라 X-Internal-Key 로만 인증한다(다른 조직의 호스트 열거 방지).
+ * 등록 노드 조회(서비스 간). api-service 의 호스트 목록 화면이 조용한 노드를 채워 넣는 데 쓴다.
+ * 프론트 키가 아니라 X-Internal-Key 로만 인증한다(다른 조직의 호스트 열거 방지).
  */
 @RestController
 public class InternalNodeController {

@@ -14,11 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.Optional;
 
-/**
- * 수집 API 의 서버 로직. enroll secret/node_key 인증과 tenant 태깅·검증·발행을 담당하고,
- * 태깅 규칙 같은 순수 판단은 {@link EventTagger}, 검증은 {@link RawEventMapper},
- * 설정 판단은 {@link SensorConfig} 에 위임한다.
- */
+/** 수집 API 의 서버 로직. enroll secret/node_key 인증과 tenant 태깅·검증·발행을 담당한다. */
 @Service
 public class AgentService {
 
@@ -36,8 +32,8 @@ public class AgentService {
     }
 
     /**
-     * enroll secret 을 검증해 node_key 를 발급한다. 같은 tenant·host 재-enroll 도 토큰을 새로 발급한다.
-     * 평문을 저장하지 않아 기존 토큰을 다시 돌려줄 방법이 없기 때문이다(에이전트는 응답 토큰을 저장한다).
+     * enroll secret 을 검증해 node_key 를 발급한다.
+     * 재-enroll 도 토큰을 새로 발급한다. 평문을 저장하지 않아 기존 토큰을 다시 돌려줄 방법이 없다.
      * 시크릿이 비었거나 매칭 tenant 가 없으면 빈 Optional(컨트롤러가 401 로 매핑).
      */
     @Transactional
@@ -64,7 +60,7 @@ public class AgentService {
     }
 
     /**
-     * node_key 로 노드를 찾고 마지막 관측 시각을 갱신한다. 인증이 필요한 엔드포인트가 전부 이걸 통과한다.
+     * node_key 로 노드를 찾고 마지막 관측 시각을 갱신한다.
      * 유효하지 않으면 빈 Optional(컨트롤러가 401 로 매핑).
      */
     @Transactional
@@ -77,10 +73,7 @@ public class AgentService {
         return node;
     }
 
-    /**
-     * 이벤트 배열에 서버가 푼 tenantId 를 심고 검증을 통과한 것만 events 로 발행한다.
-     * 돌려주는 값은 실제로 발행한 건수다.
-     */
+    /** 이벤트 배열에 서버가 푼 tenantId 를 심고 검증을 통과한 것만 events 로 발행한다. 반환값은 발행 건수다. */
     public int publish(AgentNode node, JsonNode events) {
         String tenantId = String.valueOf(node.getTenantId());
         int accepted = 0;
@@ -94,7 +87,7 @@ public class AgentService {
             accepted++;
         }
         if (dropped > 0) {
-            // 검증 실패는 버리되 건수는 남긴다. 에이전트가 스키마를 어긋나게 보내기 시작한 것을 알 방법이 이것뿐이다.
+            // 이 로그가 없으면 에이전트가 스키마를 어긋나게 보내기 시작한 것을 알 방법이 없다.
             log.warn("이벤트 {}건 버림 host={} accepted={}", dropped, node.getHostIdentifier(), accepted);
         }
         return accepted;

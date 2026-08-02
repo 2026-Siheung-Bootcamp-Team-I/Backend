@@ -1,8 +1,5 @@
 // Package runtime 은 센서와 전송을 잇는다.
-//
-// 센서는 각자 고루틴에서 돌며 채널로 이벤트를 흘리고, 런타임이 그걸 버퍼에 모아
-// 주기적으로 서버에 보낸다. 센서가 전송을 직접 하지 않는 이유는 서버가 잠깐 죽어도
-// 커널 이벤트 구독이 멈추면 안 되기 때문이다. 그 사이 이벤트는 버퍼가 받아 준다.
+// 센서는 버퍼에 넣기만 한다. 서버가 잠깐 죽어도 커널 이벤트 구독은 멈추면 안 되기 때문이다.
 package runtime
 
 import (
@@ -44,6 +41,7 @@ type Runtime struct {
 
 // New 는 런타임을 만든다.
 func New(sender Sender, opts Options) *Runtime {
+	// 버퍼가 차면 오래된 이벤트부터 버린다. 줄이면 서버가 잠깐 죽었을 때 견디는 시간도 같이 줄어든다.
 	if opts.BufferSize <= 0 {
 		opts.BufferSize = 10000
 	}
@@ -85,6 +83,7 @@ func (r *Runtime) Flush(ctx context.Context) error {
 // ctx 가 끝나면 센서를 멈추고 남은 이벤트를 마지막으로 흘려보낸 뒤 nil 을 돌려준다.
 // 종료는 정상 동작이므로 오류로 올리지 않는다.
 func (r *Runtime) Run(ctx context.Context, sensors []Sensor) error {
+	// 채널 용량은 BatchSize 를 따라간다. 좁히면 한 배치를 보내는 동안 센서가 밀린다.
 	events := make(chan event.Event, r.opts.BatchSize)
 	sensorCtx, stopSensors := context.WithCancel(ctx)
 	defer stopSensors()
@@ -109,7 +108,7 @@ func (r *Runtime) Run(ctx context.Context, sensors []Sensor) error {
 		case <-ctx.Done():
 			stopSensors()
 			r.drainChannel(events)
-			// 종료 직전 남은 이벤트까지 보낸다. ctx 는 이미 끝났으므로 새 시한을 준다.
+			// 종료 직전 남은 이벤트까지 보낸다. 끝난 ctx 를 그대로 넘기면 마지막 전송이 바로 실패한다.
 			shutdown, cancel := context.WithTimeout(context.WithoutCancel(ctx), r.opts.FlushInterval)
 			defer cancel()
 			r.flushLogged(shutdown)
@@ -118,7 +117,7 @@ func (r *Runtime) Run(ctx context.Context, sensors []Sensor) error {
 	}
 }
 
-// drainChannel 은 센서가 이미 채널에 넣어 둔 이벤트를 버퍼로 옮긴다.
+// drainChannel 은 센서가 이미 채널에 넣어 둔 이벤트를 버퍼로 옮긴다. 이걸 건너뛰면 채널에 남은 이벤트가 그대로 사라진다.
 func (r *Runtime) drainChannel(events <-chan event.Event) {
 	for {
 		select {

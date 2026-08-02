@@ -17,10 +17,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 엔드포인트(호스트) 목록·요약 조회. events(ClickHouse)로 관측 호스트+last_seen 을,
- * alerts(ClickHouse)로 host 별 열린 alert 집계를, collector 내부 API 로 등록 노드를 각각 뽑아 병합한다.
- * 조회는 항상 tenant 로 격리한다.
- * "열린(open)" 판정은 오버레이(MySQL)에 트리아지된 id 를 빼서 정한다(오버레이 행 없으면 open).
+ * 엔드포인트(호스트) 목록·요약 조회. <b>호스트 대장 테이블이 없어</b> events(ClickHouse) 집계로 관측 호스트+last_seen 을 얻고,
+ * alerts 의 host 별 열린 alert 집계와 collector 내부 API 의 등록 노드를 병합한다. 조회는 항상 tenant 로 격리한다.
  */
 @Service
 public class HostService {
@@ -50,9 +48,8 @@ public class HostService {
      * tenant 의 호스트 목록(host, last_seen, status, 위협수, riskScore, enrolled, agentSeen). last_seen 최신순,
      * 이벤트 없이 등록만 된 기기는 그 뒤에 agentSeen 최신순으로 붙는다.
      *
-     * <p>조회 수는 호스트 수와 무관하게 고정이다(events 1, 열린 alert 집계 1, severity 분포 1 + 오버레이·등록노드 각 1).
-     * severity 분포를 따로 한 번 더 읽는 이유는 openHostCounts 가 CRITICAL/HIGH 만 주는데
-     * 점수에는 MEDIUM/LOW 도 필요해서다. 트리아지 목록은 두 alert 집계가 같은 "열린" 정의를 쓰도록 한 번만 읽어 공유한다.
+     * <p>severity 분포를 따로 한 번 더 읽는 이유는 openHostCounts 가 CRITICAL/HIGH 만 주는데 점수에는 MEDIUM/LOW 도 필요해서다.
+     * <p>트리아지 목록은 한 번만 읽어 공유한다. 따로 읽으면 두 alert 집계의 "열린" 정의가 갈린다.
      */
     public List<HostResponse> hosts(String tenantId) {
         List<String> triaged = triagedIds(tenantId);
@@ -70,19 +67,14 @@ public class HostService {
     }
 
     /**
-     * 엔드포인트 기준 프로세스 계보 그래프. tenant+host 격리 하에 기간[from,to] events 를 시간순으로 긁어와
+     * 엔드포인트 기준 프로세스 계보 그래프. tenant+host 격리 하에 기간[from,to] events 를 긁어와
      * alert lineage 와 같은 재구성기를 태운다(프론트가 같은 렌더러를 쓴다).
-     * alert 기준(AlertService.lineage)과 달리 진입점이 호스트라 판정 없이도 그릴 수 있다.
      */
     public LineageResponse processTree(String tenantId, String host, long from, long to) {
         return lineage.build(reader.query(builder.lineageEvents(tenantId, host, from, to)));
     }
 
-    /**
-     * tenant 의 등록 노드를 collector 에서 읽는다. collector 의 tenantId 는 숫자인데
-     * HostService.hosts(String) 은 문자열을 받으므로 변환하되, 숫자가 아닌 값이 와도
-     * (예: 잘못된 토큰/테스트 데이터) 예외로 죽이지 않고 빈 목록으로 처리한다.
-     */
+    /** tenant 의 등록 노드를 collector 에서 읽는다. 숫자가 아닌 tenantId 로 죽이면 잘못된 토큰 하나가 목록 전체를 막는다. */
     private List<EnrolledHost> enrolledHosts(String tenantId) {
         Long id = parseTenantId(tenantId);
         if (id == null) {

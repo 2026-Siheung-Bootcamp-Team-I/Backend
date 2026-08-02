@@ -10,9 +10,7 @@ import org.springframework.stereotype.Component;
 /**
  * alerts 토픽을 archiver-alerts 컨슈머 그룹으로 소비해 ClickHouse 에 적재하는 리스너.
  * 값은 alertConsumerFactory(AlertKafkaConfig)가 문자열로 넘겨주므로 여기서 ObjectMapper 로 직접 파싱한다.
- *
- * tenantId/host/ruleId 없는 alert 는 조용히 버린다 — api-service AlertService.ingest 의 방어 조건과 동일.
- * 격리·멱등 계약(조회 쪽 tenant 비교, AlertId 결정적 계산)도 그 주석을 따른다.
+ * tenantId/host/ruleId 없는 alert 는 조용히 버린다.
  */
 @Component
 public class AlertIngestListener {

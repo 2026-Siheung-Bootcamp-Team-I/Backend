@@ -40,10 +40,7 @@ public class AuthService {
         this.sessionTtl = Duration.ofHours(sessionTtlHours);
     }
 
-    /**
-     * 한 트랜잭션으로 묶어 중간 실패 시 tenant 까지 롤백(고아 데이터 방지).
-     * existsByEmail 통과 후 동시 요청이 unique 제약을 밟으면 409 로 변환한다.
-     */
+    // 한 트랜잭션이 아니면 user 생성이 실패했을 때 tenant 만 남아 고아가 된다.
     @Transactional
     public AuthResult signup(String email, String password, String orgName) {
         if (!AuthValidation.validEmail(email)) {
@@ -63,6 +60,7 @@ public class AuthService {
             AppUser user = users.save(AppUser.of(email, encoder.encode(password), tenant.getId(), "admin", now));
             return issueSession(user, now);
         } catch (DataIntegrityViolationException e) {
+            // existsByEmail 통과 후 동시 요청이 unique 제약을 밟는 경로. 안 잡으면 409 대신 500 이 나간다.
             throw AuthException.duplicate("이미 사용 중인 이메일입니다");
         }
     }

@@ -18,11 +18,7 @@ import org.springframework.core.io.Resource;
 /**
  * 에이전트 전용 HTTPS 커넥터(8443)를 기본 HTTP 커넥터(8082) 옆에 병설한다.
  * 엔드포인트가 보내는 이벤트는 평문으로 흘릴 값이 아니라 수집 경로에는 HTTPS 가 필수다.
- * 클러스터 안에서만 부르는 내부 경로(/api/internal/nodes)와 actuator 는 기존 HTTP 를 그대로 쓴다.
- *
- * <p>{@code edrdog.agent.tls.enabled=true} 일 때만 활성. dev 는 self-signed 키스토어를 만들어
- * (scripts/gen-dev-keystore.sh) 경로를 지정하고, 에이전트는 그 서버 cert 를 신뢰 목록에 넣는다.
- * mTLS(클라 인증서)는 후순위라 여기서 다루지 않는다(node_key 로 인증).
+ * {@code edrdog.agent.tls.enabled=true} 일 때만 활성. mTLS 는 쓰지 않고 node_key 로 인증한다.
  */
 @Configuration
 @ConditionalOnProperty(name = "edrdog.agent.tls.enabled", havingValue = "true")

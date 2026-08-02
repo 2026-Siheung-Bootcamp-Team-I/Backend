@@ -6,9 +6,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * timeseries 빈 버킷 0 채우기(순수 로직). DB 는 데이터가 있는 버킷만 돌려주므로,
- * 정렬된 시작 버킷부터 to 직전까지 버킷 간격만큼 걸어가며 없는 구간은 0 으로 채운다.
- * 버킷 경계는 UTC 기준(epoch 0 = UTC 자정/정시)이라 floorDiv 로 정렬한다.
+ * timeseries 빈 버킷 0 채우기(순수 로직). DB 는 데이터가 있는 버킷만 돌려주므로 없는 구간을 여기서 메운다.
  */
 public final class TimeseriesFill {
 
@@ -22,14 +20,12 @@ public final class TimeseriesFill {
         return "day".equals(bucket) ? DAY_MS : HOUR_MS;
     }
 
+    // 버킷 경계는 UTC 기준(epoch 0 = UTC 자정/정시). AlertQueryBuilder.timeseries 의 intDiv 와 어긋나면 채운 칸이 밀린다.
     public static long alignStart(long epochMillis, long step) {
         return Math.floorDiv(epochMillis, step) * step;
     }
 
-    /**
-     * from(정렬 후)부터 to 직전까지 step 간격으로 모든 버킷을 만들고, rows 에 있는 버킷은 그 값을,
-     * 없는 버킷은 0 으로 채워 시간순으로 돌려준다.
-     */
+    /** from(정렬 후)부터 to 직전까지 step 간격 버킷을 만들고, rows 에 없는 버킷은 0 으로 채워 시간순으로 돌려준다. */
     public static List<TimeBucket> fill(List<TimeBucket> rows, long from, long to, long step) {
         Map<Long, TimeBucket> byBucket = new HashMap<>();
         for (TimeBucket r : rows) {

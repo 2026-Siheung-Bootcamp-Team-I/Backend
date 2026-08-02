@@ -16,9 +16,7 @@ import (
 )
 
 // ProcessKiller 는 실행 중인 프로세스에서 대상을 찾아 종료한다.
-//
-// 탐지 시점의 PID 를 재사용하지 않고 조치 시점에 다시 찾는 이유는, 그 사이 원래 프로세스가
-// 죽고 같은 PID 로 다른 프로세스가 떴을 수 있기 때문이다.
+// 조치 시점에 목록을 다시 훑는다. 탐지 시점 PID 를 재사용하면 그 사이 같은 PID 로 뜬 다른 프로세스를 죽인다.
 type ProcessKiller struct{}
 
 // NewKiller 는 이 플랫폼의 종료기를 만든다.
@@ -33,10 +31,7 @@ func (ProcessKiller) Kill(target string) (string, string) {
 	return killMatching(target, procs, false, syscall.Kill)
 }
 
-// listProcesses 는 현재 프로세스의 PID 와 실행 파일 경로를 모은다.
-//
-// ps 를 서브프로세스로 띄우지 않는 이유는 출력 형식이 버전마다 다르고 경로에 공백이 있으면
-// 파싱이 어긋나기 때문이다. libproc 은 경로를 그대로 준다.
+// listProcesses 는 현재 프로세스의 PID 와 실행 파일 경로를 모은다. ps 파싱 대신 libproc 을 쓴다.
 func listProcesses() ([]process, error) {
 	// 먼저 필요한 크기를 물어본 뒤, 그 사이 프로세스가 늘어날 수 있으므로 여유를 둔다.
 	needed := C.proc_listpids(C.PROC_ALL_PIDS, 0, nil, 0)

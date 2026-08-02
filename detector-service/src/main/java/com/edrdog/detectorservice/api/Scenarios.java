@@ -7,7 +7,6 @@ import java.util.List;
 /**
  * 데모용 공격 시나리오 팩토리 (순수 함수).
  * 시퀀스 룰 시나리오는 같은 host + 윈도우 안(1초 간격) 2개 이벤트를, point 룰 시나리오는 단일 이벤트를 만든다.
- * baseTs 를 인자로 받아 결정적 — 테스트로 재현 가능.
  */
 public final class Scenarios {
 
@@ -29,8 +28,8 @@ public final class Scenarios {
      *
      * @param name     시나리오 이름 (process-chain | download-exec | script-exec | file-autorun)
      * @param host     엔드포인트 식별자 (상관분석 키)
-     * @param baseTs   첫 이벤트 시각 (epoch millis) — 시퀀스 시나리오의 두 번째는 +1000ms
-     * @param tenantId 조직(tenant) 식별자 — 생성되는 모든 이벤트에 태깅
+     * @param baseTs   첫 이벤트 시각 (epoch millis). 시퀀스 시나리오의 두 번째는 +1000ms
+     * @param tenantId 조직(tenant) 식별자. 생성되는 모든 이벤트에 태깅
      */
     public static List<Event> build(String name, String host, long baseTs, String tenantId) {
         return switch (name) {

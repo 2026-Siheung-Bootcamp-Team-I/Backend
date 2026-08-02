@@ -15,10 +15,9 @@ import java.io.IOException;
 
 /**
  * Swagger 경로를 Basic 인증으로 가린다. 판단은 SwaggerAuthPolicy(순수), 여기서는 HTTP 만 담당한다.
- *
- * <p>어느 필터가 401 을 냈는지 헷갈리지 않게 ApiKeyFilter 보다 먼저 돌도록 고정한다.
  */
 @Component
+// ApiKeyFilter 보다 먼저 돌도록 고정. 밀리면 어느 필터가 401 을 냈는지 헷갈린다.
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class SwaggerAuthFilter extends OncePerRequestFilter {
 

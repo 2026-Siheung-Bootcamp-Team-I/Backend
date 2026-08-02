@@ -22,7 +22,7 @@ import java.util.Map;
 /**
  * 목적지 IP 를 국가별로 집계해 world map 마커로 제공하는 읽기 전용 REST.
  * ClickHouse(edrdog.events)의 dest_ip 를 GeoLite2-Country 로 해석하며, 로그인 유저의 tenant 로만 격리한다.
- * mmdb 가 없으면(라이선스 키 미설정 등) 빈 배열(200)을 준다.
+ * mmdb 가 없으면 오류 대신 빈 배열(200)을 준다.
  */
 @RestController
 @RequestMapping("/api")

@@ -8,9 +8,7 @@ import org.springframework.kafka.core.KafkaAdmin;
 
 /**
  * 파이프라인 상태 조회(operations/health) 전용 Kafka AdminClient.
- * KafkaAdmin(스프링이 spring.kafka.* 로 이미 자동구성)의 설정을 그대로 재사용해
- * bootstrap-servers 를 여기서 다시 하드코딩하지 않는다.
- * Admin 은 Closeable 이라 스프링이 컨텍스트 종료 시 자동으로 close() 한다.
+ * KafkaAdmin(spring.kafka.* 자동구성)의 설정을 그대로 재사용해 bootstrap-servers 를 다시 하드코딩하지 않는다.
  */
 @Configuration
 public class OperationsConfig {

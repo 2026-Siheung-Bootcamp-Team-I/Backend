@@ -5,7 +5,7 @@ import java.util.Optional;
 
 /**
  * ISO2 국가 코드 -> {표시 이름, 중심 위/경도} 매핑(순수). world map 마커 좌표로 쓴다.
- * 지도 표시에 충분한 주요 국가 위주이며, 없는 코드는 Optional.empty.
+ * 좌표는 국가 대표점이지 목적지의 실제 위치가 아니다. 주요 국가 위주라 없는 코드는 Optional.empty.
  */
 public final class CountryCentroid {
 

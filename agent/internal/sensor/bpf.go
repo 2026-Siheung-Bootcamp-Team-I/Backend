@@ -7,10 +7,7 @@ import (
 )
 
 // CaptureSnapLen 은 패킷 하나당 커널에서 복사해 올 최대 바이트다.
-//
-// 넉넉히 잡는 이유는 ClientHello 때문이다. 확장이 많이 붙은 요즘 ClientHello 는 1KB 를 쉽게
-// 넘는데, 여기서 잘리면 SNI 확장이 통째로 날아가 도메인을 못 뽑는다. 헤더만 보는 것이 아니라
-// 핸드셰이크 본문을 파싱해야 하므로 기본값(보통 96바이트)으로는 아무것도 안 나온다.
+// 줄이면 ClientHello 가 잘려 SNI 확장이 통째로 날아간다.
 const CaptureSnapLen = 2048
 
 // 필터가 쓰는 상수. 이더넷 프레임 기준의 고정 오프셋이다.
@@ -29,25 +26,12 @@ const (
 
 	portDNS   = 53
 	portHTTPS = 443
-	// portHTTP 는 평문 HTTP 다. 요즘 트래픽 대부분이 HTTPS 라 양이 적고, 평문이라
-	// 목적지 호스트와 요청 경로가 그대로 보인다.
+	// portHTTP 는 평문 HTTP 다.
 	portHTTP = 80
 )
 
-// CaptureFilter 는 커널에 걸 BPF 프로그램을 만든다.
-//
-// 필터를 안 걸면 인터페이스를 지나는 모든 패킷이 유저 공간으로 복사된다. 기가비트 링크에서는
-// 그 복사만으로 CPU 를 통째로 먹는다. 우리가 볼 것은 DNS 와 TLS 핸드셰이크뿐이라 커널에서
-// 미리 거른다.
-//
-// 잡는 것:
-//   - UDP 포트 53 양방향. DNS 는 응답까지 봐야 어느 IP 로 풀렸는지 알 수 있다.
-//   - TCP 목적지 포트 443. TLS 는 ClientHello 의 SNI 만 쓰므로 나가는 쪽만 본다. 서버가 보내는
-//     인증서는 TLS 1.3 에서 암호화돼 어차피 못 읽는다. 이 한쪽 방향 제한만으로 캡처량이 크게 준다.
-//
-// 알려진 한계: IPv6 확장 헤더가 붙은 패킷은 통과하지 못한다. 확장 헤더는 길이가 가변이라
-// 전송 계층 위치를 고정 오프셋으로 계산할 수 없고, BPF 로 사슬을 따라가려면 프로그램이
-// 몇 배로 커진다. 실제 DNS/TLS 트래픽에 확장 헤더가 붙는 일은 거의 없어 그 비용을 치르지 않았다.
+// CaptureFilter 는 커널에 걸 BPF 프로그램을 만든다. DNS 와 TLS/HTTP 핸드셰이크만 통과시킨다.
+// 필터를 안 걸면 링크를 지나는 모든 패킷이 유저 공간으로 복사돼 CPU 를 통째로 먹는다.
 func CaptureFilter() ([]bpf.RawInstruction, error) {
 	a := newAsm()
 
@@ -58,8 +42,7 @@ func CaptureFilter() ([]bpf.RawInstruction, error) {
 	a.jump("reject")
 
 	a.mark("ipv4")
-	// 첫 조각이 아닌 프래그먼트에는 전송 계층 헤더가 없다. 그 자리에서 포트를 읽으면
-	// 페이로드 바이트를 포트로 착각해 엉뚱한 패킷이 통과한다.
+	// 이 검사를 빼면 프래그먼트의 페이로드 바이트를 포트로 착각해 엉뚱한 패킷이 통과한다.
 	a.emit(bpf.LoadAbsolute{Off: etherHeaderLen + 6, Size: 2})
 	a.jset(0x1fff, "reject")
 	a.emit(bpf.LoadAbsolute{Off: etherHeaderLen + 9, Size: 1}) // protocol
@@ -81,9 +64,7 @@ func CaptureFilter() ([]bpf.RawInstruction, error) {
 	a.emit(bpf.LoadIndirect{Off: etherHeaderLen + 2, Size: 2}) // dst port
 	a.jeq(portHTTPS, "accept")
 	a.jeq(portHTTP, "accept")
-	// HTTP 는 출발지 80 도 받는다. 응답의 상태 코드가 조사에 쓸모가 있어서다.
-	// TLS 를 나가는 쪽만 보는 것과 다른 점인데, 서버가 보내는 것은 인증서뿐이고 그건
-	// TLS 1.3 에서 암호화돼 어차피 못 읽기 때문이다.
+	// 출발지 80 도 받는다. 빼면 HTTP 응답이 안 잡혀 상태 코드를 못 본다.
 	a.emit(bpf.LoadIndirect{Off: etherHeaderLen + 0, Size: 2}) // src port
 	a.jeq(portHTTP, "accept")
 	a.jump("reject")
@@ -119,10 +100,7 @@ func CaptureFilter() ([]bpf.RawInstruction, error) {
 }
 
 // asm 은 점프 목적지를 이름으로 쓰게 해 주는 조립기다.
-//
-// bpf.JumpIf 는 목적지를 "여기서 몇 칸 건너뛰기" 로만 받는다. 그래서 명령을 중간에 하나
-// 끼워 넣으면 그 앞의 모든 점프 거리가 한 칸씩 틀어지는데, 컴파일러도 테스트도 그걸
-// 잡아 주지 못하고 필터만 조용히 잘못 동작한다. 거리 계산은 사람이 하면 안 되는 종류의 일이다.
+// 거리를 손으로 세면 명령 하나만 끼워 넣어도 오류 없이 필터만 조용히 잘못 동작한다.
 type asm struct {
 	insts []bpf.Instruction
 	marks map[string]int

@@ -11,7 +11,7 @@ import java.util.List;
  */
 public class EventBuffer {
 
-    /** 최대 보관 개수 — 폭주 host 로부터 상태 크기를 방어. */
+    /** 최대 보관 개수. 상한이 없으면 폭주 host 하나가 상태 크기를 끝없이 키운다. */
     public static final int MAX = 200;
 
     public List<Event> events = new ArrayList<>();

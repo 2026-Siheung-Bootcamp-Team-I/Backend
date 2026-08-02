@@ -7,20 +7,14 @@ import java.util.regex.Pattern;
 /**
  * 설치 스크립트 템플릿 치환(순수).
  *
- * <p>여기서 만든 문자열은 엔드포인트에서 {@code sudo bash} 로 실행된다. 그래서 치환을
- * "문자열 이어붙이기" 로 보지 않고 값 하나하나를 검사한다. 값에 따옴표나 {@code $} 가
- * 섞이면 스크립트 안에서 그게 명령이 되기 때문이다. 지금 넣는 값(host:port, URL,
- * URL-safe base64 토큰)은 전부 안전한 문자만 쓰므로, 여기 걸린다는 것은 값이 우리가
- * 만든 것이 아니라는 뜻이다.
+ * <p>여기서 만든 문자열은 엔드포인트에서 {@code sudo bash} 로 실행된다. 값 검사를 빼면
+ * 값에 섞인 따옴표나 {@code $} 가 스크립트 안에서 그대로 명령이 된다.
  */
 public final class InstallScript {
 
     private static final Pattern PLACEHOLDER = Pattern.compile("\\{\\{([A-Z_]+)}}");
 
-    /**
-     * 값에 허용하는 문자. host:port, https URL, URL-safe base64 를 담을 만큼만 연다.
-     * 공백과 셸 메타문자는 전부 빠져 있다.
-     */
+    /** 값에 허용하는 문자. 공백과 셸 메타문자는 전부 빠져 있다. */
     private static final Pattern SAFE_VALUE = Pattern.compile("[A-Za-z0-9._:/@=+~?&%-]+");
 
     private InstallScript() {

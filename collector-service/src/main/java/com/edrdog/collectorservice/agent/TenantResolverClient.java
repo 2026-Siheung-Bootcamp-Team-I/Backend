@@ -14,9 +14,7 @@ import java.util.Optional;
 /**
  * enroll secret 을 tenant 로 바꿔 주는 api-service 내부 엔드포인트 호출
  * ({@code POST {base}/api/internal/agent/resolve-tenant}, 헤더 {@code X-Internal-Key}).
- *
- * <p>collector 는 tenants 테이블에 붙지 않는다. 계정·조직은 api-service 소관이라 secret 검증도
- * 그쪽에 맡기고, 여기서는 enroll 한 번에만 물어본다(heartbeat/events 는 node_key 로 끝난다).
+ * enroll 한 번에만 물어본다. heartbeat/events 는 node_key 로 끝나 이 호출이 낄 자리가 아니다.
  */
 @Component
 public class TenantResolverClient {

@@ -12,9 +12,7 @@ import java.util.Optional;
 
 /**
  * 관측 조회 + 프로세스 보정 + 실시간 DNS 조회를 엮어 상관분석 응답을 만든다.
- *
- * <p>조립·매칭 자체는 전부 순수 클래스(CorrelationBuilder, DnsProcessBackfill)에 있고
- * 여기서는 그 순서와 바깥 세계(ClickHouse, DNS)와의 연결만 맡는다.
+ * 조립·매칭은 전부 순수 클래스에 있고 여기서는 순서와 바깥 세계(ClickHouse, DNS) 연결만 맡는다.
  */
 @Service
 public class CorrelateService {
@@ -52,10 +50,7 @@ public class CorrelateService {
         return new DnsLookupResponse(target, null, dns.reverse(target.value()));
     }
 
-    /**
-     * 프로세스가 빈 DNS 이벤트가 있을 때만 보정 후보를 조회한다.
-     * 보정할 것이 없으면 질의를 아예 보내지 않는다(Windows 만 있는 조직은 이 경로를 안 탄다).
-     */
+    /** 보정할 것이 없으면 질의를 아예 보내지 않는다(Windows 만 있는 조직은 이 경로를 안 탄다). */
     private List<EventResponse> backfillCandidates(String tenantId, List<EventResponse> seed) {
         Optional<long[]> window = DnsProcessBackfill.candidateWindow(seed);
         List<String> ips = DnsProcessBackfill.answerIpsNeedingBackfill(seed);

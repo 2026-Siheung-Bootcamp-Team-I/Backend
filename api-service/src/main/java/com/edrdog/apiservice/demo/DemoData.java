@@ -7,17 +7,7 @@ import java.util.List;
 
 /**
  * 발표용 과거 데이터 생성 (순수 함수). 기준 시각 nowTs 를 받아 최근 {@link #DAYS} 일치를 결정적으로 만든다.
- *
- * <p>이 데이터는 Kafka 를 거치지 않고 저장소에 바로 적재된다(과거 시각으로는 detector 의 상관 윈도우가
- * 성립하지 않기 때문). 실시간 시연은 detector 의 시나리오 발행 API 로 하고, 여기서는 "이미 운영 중이던
- * 흔적"만 채운다.
- *
- * <p>화면이 골고루 차도록 다음을 보장한다.
- * <ul>
- *   <li>호스트 도넛: 위험/주의/정상이 모두 나오게 alert 없는 호스트({@link #QUIET_HOSTS})를 남긴다</li>
- *   <li>severity 분포·카테고리 집계: 룰 4종과 심각도 3종을 모두 포함한다</li>
- *   <li>lineage: alert 마다 같은 host 의 근거 이벤트를 같은 시각대에 함께 넣는다</li>
- * </ul>
+ * 화면이 골고루 차도록 alert 없는 정상 호스트, 룰 4종과 심각도 3종, alert 마다 같은 시각대의 근거 이벤트를 함께 만든다.
  */
 public final class DemoData {
 
@@ -28,8 +18,8 @@ public final class DemoData {
     public static final List<String> QUIET_HOSTS = List.of("SRV-DB-01", "SRV-WEB-01");
 
     /**
-     * 데모 데이터가 이미 적재됐는지 판별하는 대표 호스트. 이 호스트의 events 유무로 재적재를 결정한다.
-     * "events 가 하나라도 있으면 skip" 으로 하면 개발 중 남은 다른 이벤트에 가려 데모 데이터가 안 채워진다.
+     * 데모 데이터 재적재를 판별하는 대표 호스트.
+     * "events 가 하나라도 있으면 skip" 으로 넓히면 개발 중 남은 다른 이벤트에 가려 데모 데이터가 안 채워진다.
      */
     public static final String MARKER_HOST = "DESKTOP-KIM";
 
@@ -45,10 +35,7 @@ public final class DemoData {
     /** 배경 소음용 정상 목적지. */
     private static final List<String> BASELINE_IPS = List.of("142.250.76.14", "20.42.65.92", "13.107.42.14");
 
-    /**
-     * 과거에 있었던 것으로 꾸밀 탐지 건. hoursAgo 는 nowTs 기준 몇 시간 전인지다.
-     * 최근일수록 촘촘하게 두어 "요즘 활발한 침해"처럼 보이게 한다.
-     */
+    /** 과거에 있었던 것으로 꾸밀 탐지 건. hoursAgo 는 nowTs 기준 몇 시간 전인지다. */
     private record Incident(String host, String ruleId, int hoursAgo) {
     }
 
@@ -112,10 +99,7 @@ public final class DemoData {
         return out;
     }
 
-    /**
-     * 탐지 건의 근거 이벤트. detector 룰이 보는 패턴 그대로 만들어야 lineage 그래프가 자연스럽게 이어진다.
-     * 시퀀스 룰은 1초 간격 2건, point 룰은 1건이다.
-     */
+    /** 탐지 건의 근거 이벤트. detector 룰이 보는 패턴 그대로 만들어야 lineage 그래프가 이어진다. */
     private static List<DemoEvent> evidence(Incident incident, String tenantId, long nowTs) {
         String host = incident.host();
         long ts = nowTs - incident.hoursAgo() * HOUR;
@@ -178,12 +162,7 @@ public final class DemoData {
         };
     }
 
-    /**
-     * detector dto Alert.actionFor 와 동일 규칙.
-     *
-     * <p>CRITICAL 도 kill 이다. 격리는 구현이 없어 실제로 할 수 있는 건 프로세스 종료뿐인데,
-     * 시드만 isolate 로 권고하면 화면에서 "격리하세요" 아래 종료 버튼이 붙어 서로 어긋난다.
-     */
+    /** detector dto Alert.actionFor 와 동일 규칙. CRITICAL 을 isolate 로 바꾸면 구현이 없어 권고와 화면 버튼이 어긋난다. */
     private static String actionFor(String severity) {
         return switch (severity) {
             case "CRITICAL", "HIGH" -> "kill";

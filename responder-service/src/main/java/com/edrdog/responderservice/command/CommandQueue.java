@@ -25,11 +25,8 @@ import java.util.concurrent.TimeoutException;
 /**
  * 엔드포인트로 내려보낼 명령의 인메모리 큐.
  *
- * <p>대응이 바깥에서 동기로 보이는 이유가 여기 있다. 에이전트는 방화벽 안쪽이라 서버가 먼저 부를 수
- * 없으므로, 대시보드 요청 스레드가 {@link #awaitResult} 에서 에이전트의 다음 하트비트를 대신 기다린다.
- *
- * <p>영속 저장소를 두지 않는다. 명령은 수십 초 안에 끝나고, 서버가 재시작하면 대기 중이던 요청은
- * TIMEOUT 으로 떨어진 뒤 사람이 버튼을 다시 누르면 된다. 그 이상을 보장하려고 DB 를 끌어들일 이유가 없다.
+ * <p>에이전트가 방화벽 안쪽이라 서버가 먼저 부를 수 없어, 요청 스레드가 {@link #awaitResult} 에서
+ * 에이전트의 다음 하트비트를 대신 기다린다. 영속 저장소는 두지 않는다.
  */
 @Component
 public class CommandQueue {
@@ -67,10 +64,8 @@ public class CommandQueue {
     }
 
     /**
-     * 결과가 올 때까지 블로킹한다. 시한을 넘기면 비어 있는 값.
-     *
-     * <p>슬롯은 기다리는 쪽이 치운다. 하트비트 주기가 짧으면 결과가 이 호출보다 먼저 도착할 수 있는데,
-     * 보고하는 쪽이 슬롯을 지우면 그 결과를 아무도 못 받고 TIMEOUT 으로 떨어진다.
+     * 결과가 올 때까지 블로킹한다. 시한을 넘기면 비어 있는 값. 슬롯은 기다리는 쪽이 치운다.
+     * 에이전트가 방화벽 안쪽이라 이 대기가 필요하다. 시한을 빼면 하트비트가 끊긴 호스트에 요청 스레드가 묶인다.
      */
     public Optional<String> awaitResult(String id, Duration timeout) {
         CompletableFuture<String> slot = results.get(id);
@@ -106,7 +101,7 @@ public class CommandQueue {
 
     /** 에이전트가 보고한 결과를 대기 중인 요청에 전달한다. */
     public void complete(String id, String status, String message) {
-        // 슬롯을 지우는 쪽은 기다리는 요청이다. 여기서 지우면 아직 대기에 못 들어간 요청이 결과를 놓친다.
+        // 슬롯은 여기서 지우지 않는다. 아직 대기에 못 들어간 요청이 결과를 놓친다.
         CompletableFuture<String> slot = results.get(id);
         if (slot == null) {
             // 이미 시한을 넘겼거나 만료된 명령. 늦게 온 보고는 버린다.

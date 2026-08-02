@@ -1,7 +1,4 @@
 // edrdog-agent 는 엔드포인트에서 행위를 관찰해 서버로 보내고, 서버가 내린 조치를 실행하는 수집기다.
-//
-// Windows 는 ETW, macOS 는 eslogger 로 커널 이벤트를 구독한다. 네트워크는 Windows 에서는
-// 같은 ETW 세션으로 받고(그래서 PID 가 붙는다), macOS 에서는 소켓 이벤트가 없어 스냅샷으로 훑는다.
 package main
 
 import (
@@ -88,7 +85,7 @@ func runAgent(ctx context.Context, opts options, log *slog.Logger) error {
 		BaseURL:      cfg.BaseURL,
 		EnrollSecret: cfg.EnrollSecret,
 		HostID:       cfg.HostIdentifier,
-		// 서버는 이 값에 windows 가 들어있는지로 수집 설정을 가른다. GOOS 를 그대로 보낸다.
+		// 서버는 이 값에 windows 가 들어있는지로 수집 설정을 가른다.
 		Platform:     goruntime.GOOS,
 		AgentVersion: version,
 		Timeout:      cfg.FlushInterval(),
@@ -115,7 +112,7 @@ func runAgent(ctx context.Context, opts options, log *slog.Logger) error {
 		names[i] = s.Name()
 	}
 
-	// 전송 주기는 서버가 정한다(엔드포인트에 손대지 않고 조절 가능해야 함). 서버가 값을 안 주면 설정 파일 값을 쓴다.
+	// 전송 주기는 서버가 정한다(엔드포인트에 손대지 않고 조절 가능해야 함).
 	flush := cfg.FlushInterval()
 	if beat.Config.FlushIntervalSeconds > 0 {
 		flush = time.Duration(beat.Config.FlushIntervalSeconds) * time.Second
@@ -134,8 +131,7 @@ func runAgent(ctx context.Context, opts options, log *slog.Logger) error {
 
 	log.Info("수집 시작", "sensors", names, "flush", flush, "watch", beat.Config.WatchPaths)
 
-	// 수집과 조치는 서로를 기다리면 안 된다. 조치 채널이 막혀도 수집은 계속돼야 하고,
-	// 반대로 서버가 이벤트를 안 받아도 조치는 나가야 한다.
+	// 수집과 조치는 서로를 기다리면 안 된다.
 	var wg sync.WaitGroup
 	var collectErr error
 	wg.Add(2)
@@ -155,10 +151,7 @@ func runAgent(ctx context.Context, opts options, log *slog.Logger) error {
 	return collectErr
 }
 
-// buildSensors 는 돌릴 센서를 고른다.
-//
-// 켤 센서가 하나도 없으면 오류를 낸다. 조용히 0건을 보내는 상태로 도는 것이 이 프로젝트에서
-// 가장 찾기 어려운 고장이었다. 뜨지 않는 편이 낫다.
+// buildSensors 는 돌릴 센서를 고른다. 켤 센서가 없으면 조용히 0건을 보내지 않고 오류를 낸다.
 func buildSensors(factory event.Factory, serverCfg transport.ServerConfig, opts options, log *slog.Logger) ([]runtime.Sensor, error) {
 	if opts.selfTest {
 		return []runtime.Sensor{&sensor.SelfTest{

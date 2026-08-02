@@ -1,0 +1,15 @@
+# 전 서비스 공통 관측 설정. 각 서비스 application.yml 이 spring.config.import 로 가져간다.
+# 메트릭 익스포터는 여기 없다. observability-metrics.yml 을 추가로 import 한 서비스만 켜진다.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info
+  # 관측 - otel-lgtm(k8s/otel-lgtm.yaml) 으로 OTLP 전송. 스택 없이 개발할 땐 OTEL_ENABLED=false.
+  tracing:
+    enabled: ${OTEL_ENABLED:true}
+    sampling:
+      probability: ${OTEL_TRACE_SAMPLING:1.0}      # 데모 규모라 전량 샘플링
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/traces

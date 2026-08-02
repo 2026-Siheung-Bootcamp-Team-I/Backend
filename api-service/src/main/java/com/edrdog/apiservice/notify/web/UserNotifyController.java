@@ -24,8 +24,8 @@ import java.util.Map;
 
 /**
  * 유저 개인 알림 설정. host 소유 유저에게 개별로 탐지 알림을 보내기 위한 관리 API.
- * /api/me/** 은 로그인 유저(Bearer)가 자기 것만 다룬다.
- * /api/internal/alert-target 은 alert-service 가 host 소유자 목적지를 조회하는 서비스 간 경로(X-Internal-Key).
+ * /api/me/** 은 로그인 유저(Bearer)가 자기 것만 다루고,
+ * /api/internal/alert-target 은 alert-service 가 목적지를 조회하는 서비스 간 경로(X-Internal-Key)다.
  */
 @RestController
 @Tag(name = "me", description = "유저 개인 알림 목적지·host 소유 등록")

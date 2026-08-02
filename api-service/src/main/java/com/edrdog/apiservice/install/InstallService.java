@@ -13,8 +13,7 @@ import java.time.Instant;
 /**
  * 설치 링크 토큰의 발급과 해석.
  *
- * <p>시각을 인자로 받는다. 만료는 이 클래스의 핵심 규칙인데 {@code Instant.now()} 를 안에서
- * 부르면 그 규칙을 테스트로 고정할 수가 없다.
+ * <p>시각을 인자로 받는다. 안에서 {@code Instant.now()} 를 부르면 만료 규칙을 테스트로 고정할 수 없다.
  */
 @Service
 public class InstallService {
@@ -22,8 +21,7 @@ public class InstallService {
     private final InstallTokenRepository tokens;
     private final Duration ttl;
 
-    // 생성자가 둘이라 어느 쪽으로 만들지 명시해야 한다. 안 붙이면 Spring 이 기본 생성자를
-    // 찾다가 부팅 자체가 실패한다.
+    // 생성자가 둘이라 안 붙이면 Spring 이 어느 쪽으로 만들지 못 정해 부팅이 실패한다.
     @Autowired
     public InstallService(InstallTokenRepository tokens,
                           @Value("${edrdog.install.token-ttl-hours:24}") long ttlHours) {
@@ -43,9 +41,7 @@ public class InstallService {
 
     /**
      * 설치 토큰으로 테넌트를 찾는다. 없거나 만료면 404.
-     *
-     * <p>없는 것과 만료된 것을 같은 오류로 돌려준다. 갈라 주면 토큰을 넣어 보는 것만으로
-     * 그게 존재했던 값인지 아닌지를 밖에서 알아낼 수 있다.
+     * 둘을 갈라 주면 토큰을 넣어 보는 것만으로 그게 존재했던 값인지 밖에서 알아낼 수 있다.
      */
     @Transactional(readOnly = true)
     public Long resolve(String token, Instant now) {

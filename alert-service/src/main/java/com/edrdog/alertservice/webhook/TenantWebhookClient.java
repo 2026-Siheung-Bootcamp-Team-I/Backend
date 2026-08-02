@@ -14,8 +14,7 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * api-service 내부 엔드포인트로 tenant 별 Slack webhook 을 조회한다 (API 컴포지션).
  * {@code GET {base}/api/internal/tenants/{tenantId}/webhook}, 헤더 {@code X-Internal-Key}.
- * 확정 결과(200 또는 404 미등록)만 짧은 TTL 로 캐시한다. 일시 조회 오류(api-service 다운 등)는
- * 캐시하지 않아 다음 alert 때 재시도되도록 한다(오류를 미등록으로 굳혀 알림을 유실시키지 않기 위함).
+ * 확정 결과(200/404)만 짧은 TTL 로 캐시하고, 일시 조회 오류는 캐시하지 않는다.
  */
 @Component
 public class TenantWebhookClient {
@@ -37,7 +36,7 @@ public class TenantWebhookClient {
         this.ttlMs = ttlMs;
     }
 
-    /** tenantId 의 webhook 을 조회. 미등록은 empty. 확정 결과만 TTL 캐시, 일시 오류는 캐시 안 함(재시도). */
+    /** tenantId 의 webhook 을 조회. 미등록은 empty. */
     public Optional<String> resolve(String tenantId) {
         if (tenantId == null || tenantId.isBlank()) {
             return Optional.empty();
