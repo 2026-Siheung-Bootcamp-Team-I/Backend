@@ -18,7 +18,6 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 /**
  * alert 조회/트리아지 로직. 판정기록(불변)은 ClickHouse(alerts), 트리아지 status(가변)는 MySQL 오버레이(alert_status)에 있다.
@@ -83,9 +82,9 @@ public class AlertService {
         // open 경로는 반환 행이 이미 전부 트리아지 제외분(=open)이라 오버레이 조회가 불필요하다.
         Map<String, String> overlay = AlertStatus.OPEN.equals(status)
                 ? Map.of()
-                : statusByIds(rowIds(rows));
+                : TriageOverlay.load(statuses, rowIds(rows));
         List<AlertResponse> items = rows.stream()
-                .map(r -> AlertResponse.fromRow(r, overlay.getOrDefault(str(r, "id"), AlertStatus.OPEN)))
+                .map(r -> AlertResponse.fromRow(r, TriageOverlay.statusOf(overlay, str(r, "id"))))
                 .toList();
         Long total = withTotal
                 ? countOf(tenantId, host, severity, domain, destIp, from, to, includeIds, excludeIds)
@@ -106,7 +105,7 @@ public class AlertService {
     @Transactional(readOnly = true)
     public AlertResponse get(String tenantId, String id) {
         Map<String, Object> row = ownedRow(tenantId, id);
-        return AlertResponse.fromRow(row, statusOf(id), sourceEvent(tenantId, row));
+        return AlertResponse.fromRow(row, TriageOverlay.statusOf(statuses, id), sourceEvent(tenantId, row));
     }
 
     /** 판정을 유발한 원본 이벤트. alert.ts 근처 events 를 긁어와 SourceEventMatcher 로 고른다(못 찾으면 null). */
@@ -225,20 +224,6 @@ public class AlertService {
                 .filter(r -> status == null || status.equals(r.getStatus()))
                 .map(AlertStatusRecord::getId)
                 .toList();
-    }
-
-    /** id 목록의 오버레이 status 를 한 번에 조회한다(트리아지 안 된 id 는 결과에 없음). */
-    private Map<String, String> statusByIds(List<String> ids) {
-        if (ids.isEmpty()) {
-            return Map.of();
-        }
-        return statuses.findAllById(ids).stream()
-                .collect(Collectors.toMap(AlertStatusRecord::getId, AlertStatusRecord::getStatus));
-    }
-
-    /** 단건 id 의 status(오버레이 없으면 open). */
-    private String statusOf(String id) {
-        return statuses.findById(id).map(AlertStatusRecord::getStatus).orElse(AlertStatus.OPEN);
     }
 
     private static List<String> rowIds(List<Map<String, Object>> rows) {

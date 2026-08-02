@@ -2,11 +2,11 @@ package com.edrdog.apiservice.incident;
 
 import com.edrdog.apiservice.alert.AlertQueryBuilder;
 import com.edrdog.apiservice.alert.AlertStatus;
-import com.edrdog.apiservice.alert.AlertStatusRecord;
 import com.edrdog.apiservice.alert.AlertStatusRepository;
 import com.edrdog.apiservice.alert.LineageGraphBuilder;
 import com.edrdog.apiservice.alert.SourceEventMatcher;
 import com.edrdog.apiservice.alert.ThreatCatalog;
+import com.edrdog.apiservice.alert.TriageOverlay;
 import com.edrdog.apiservice.alert.web.AlertResponse;
 import com.edrdog.apiservice.alert.web.LineageResponse;
 import com.edrdog.apiservice.alert.web.SourceEvent;
@@ -26,7 +26,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * 사건(incident) 조회·트리아지. <b>사건 본체 테이블은 없다.</b> 조회할 때마다 기간 내 알림을 읽어
@@ -85,15 +84,15 @@ public class IncidentService {
                               Integer limit, Integer offset, boolean withTotal) {
         int start = resolveOffset(offset);
         List<Incident> incidents = incidents(tenantId, from, to);
-        Map<String, String> overlay = statusByIds(incidents.stream().map(Incident::id).toList());
+        Map<String, String> overlay = TriageOverlay.load(statuses, incidents.stream().map(Incident::id).toList());
         List<Incident> matched = incidents.stream()
                 .filter(i -> matchesHost(i.host(), host))
-                .filter(i -> matchesStatus(overlay.getOrDefault(i.id(), AlertStatus.OPEN), status))
+                .filter(i -> matchesStatus(TriageOverlay.statusOf(overlay, i.id()), status))
                 .toList();
         List<IncidentResponse> page = matched.stream()
                 .skip(start)
                 .limit(clampLimit(limit))
-                .map(i -> summary(i, overlay.getOrDefault(i.id(), AlertStatus.OPEN)))
+                .map(i -> summary(i, TriageOverlay.statusOf(overlay, i.id())))
                 .toList();
         // 총계는 tenant 안에서만 센다. 알림 조회에 tenant 가 강제되므로 남의 조직 사건은 애초에 없다.
         return new IncidentPage(page, withTotal ? (long) matched.size() : null);
@@ -103,13 +102,13 @@ public class IncidentService {
     @Transactional(readOnly = true)
     public IncidentResponse get(String tenantId, String id, long from, long to) {
         Incident incident = owned(tenantId, id, from, to);
-        String status = statusOf(id);
+        String status = TriageOverlay.statusOf(statuses, id);
         List<Map<String, Object>> chain = chainEvents(tenantId, incident);
         // 구성 알림은 사건과 별개로 개별 트리아지될 수 있으므로 alert 오버레이를 그대로 병합한다.
-        Map<String, String> perAlert = alertStatusByIds(
+        Map<String, String> perAlert = TriageOverlay.load(alertStatuses,
                 incident.alerts().stream().map(r -> str(r, "id")).toList());
         List<AlertResponse> alerts = incident.alerts().stream()
-                .map(r -> AlertResponse.fromRow(r, perAlert.getOrDefault(str(r, "id"), AlertStatus.OPEN)))
+                .map(r -> AlertResponse.fromRow(r, TriageOverlay.statusOf(perAlert, str(r, "id"))))
                 .toList();
         return detail(incident, status, alerts, lineage.build(chain));
     }
@@ -277,27 +276,6 @@ public class IncidentService {
             throw AuthException.invalidInput("offset 은 0 이상 " + MAX_OFFSET + " 이하여야 합니다: " + offset);
         }
         return offset;
-    }
-
-    private Map<String, String> statusByIds(List<String> ids) {
-        if (ids.isEmpty()) {
-            return Map.of();
-        }
-        return statuses.findAllById(ids).stream()
-                .collect(Collectors.toMap(IncidentStatusRecord::getId, IncidentStatusRecord::getStatus));
-    }
-
-    /** 구성 알림들의 개별 트리아지 status(alert 오버레이). 없는 id 는 결과에 없다. */
-    private Map<String, String> alertStatusByIds(List<String> ids) {
-        if (ids.isEmpty()) {
-            return Map.of();
-        }
-        return alertStatuses.findAllById(ids).stream()
-                .collect(Collectors.toMap(AlertStatusRecord::getId, AlertStatusRecord::getStatus));
-    }
-
-    private String statusOf(String id) {
-        return statuses.findById(id).map(IncidentStatusRecord::getStatus).orElse(AlertStatus.OPEN);
     }
 
     /** offset 과 달리 limit 은 상한을 넘어도 400 이 아니라 상한으로 자른다. */
