@@ -61,10 +61,7 @@ public final class TopologyGraphBuilder {
                 relations.size() < totalRelations, nodes, edges);
     }
 
-    /**
-     * 목적지를 등록가능 도메인(eTLD+1)별로 묶는다. 원소가 하나뿐인 묶음은 만들지 않는다
-     * (상자만 하나 늘고 알려 주는 것이 없다). IP 나 PSL 로 해석되지 않는 목적지는 애초에 후보가 아니다.
-     */
+    /** 목적지를 등록가능 도메인(eTLD+1)별로 묶는다. 원소가 하나뿐인 묶음은 상자만 늘고 알려 주는 것이 없어 만들지 않는다. */
     private static Map<String, String> groupDestinations(Set<String> destinations) {
         Map<String, List<String>> byDomain = new LinkedHashMap<>();
         for (String dest : destinations) {

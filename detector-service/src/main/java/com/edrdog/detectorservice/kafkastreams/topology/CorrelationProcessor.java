@@ -50,8 +50,7 @@ public class CorrelationProcessor implements Processor<String, Event, String, Al
         Rules.evaluate(buffer.events, current).ifPresent(alert ->
                 ctx.forward(record.withKey(host).withValue(alert)));
 
-        // 룰이 선행으로 참조하는 이벤트만 적재한다. 전부 담으면 상한(EventBuffer.MAX)이 금방 차서
-        // 5분 윈도우가 사실상 십여 초로 줄어든다(실기기는 초당 십여 건씩 프로세스 이벤트를 낸다).
+        // 전부 담으면 상한(EventBuffer.MAX)이 금방 차서 5분 윈도우가 십여 초로 줄어든다.
         if (Rules.isCorrelatable(current)) {
             buffer.events.add(current);
             while (buffer.events.size() > EventBuffer.MAX) {

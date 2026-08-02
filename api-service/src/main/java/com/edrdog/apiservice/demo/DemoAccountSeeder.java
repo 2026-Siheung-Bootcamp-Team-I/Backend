@@ -17,25 +17,16 @@ import java.time.Instant;
 import java.util.Optional;
 
 /**
- * 발표용 데모 계정을 부팅 시 만든다. {@code edrdog.demo.seed=true} 일 때만 빈으로 올라온다.
- *
- * <p>가입 API(signup)로는 만들 수 없다. AuthValidation 이 이메일 형식과 8자 이상 비밀번호를 요구하기 때문이다.
- * 실제 가입 규칙을 느슨하게 푸는 대신 여기서 저장소에 직접 넣는다. 로그인(login)은 형식 검증 없이
- * 이메일로 조회만 하므로 {@code test@edrdog.local} / {@code 1234} 로 그대로 로그인된다.
- * 이메일 형식으로 두는 이유는 프론트 로그인 폼이 {@code type="email"} 이라 형식이 아니면 브라우저가 막기 때문이다.
- *
- * <p>tenant PK 를 {@link #TENANT_ID} 로 고정하는 이유는 시나리오 발행 API 가 tenantId 를 직접 받기 때문이다.
- * 값이 고정이라야 발표 중에 {@code /api/auth/me} 로 PK 를 확인하는 단계를 건너뛸 수 있다.
- * PK 는 IDENTITY 라 JPA 로는 값을 지정할 수 없어 네이티브 INSERT 를 쓴다.
+ * 발표용 데모 계정을 부팅 시 만든다.
+ * 조건부 빈을 풀면 운영 DB 에도 비밀번호 1234 짜리 계정이 생긴다({@code edrdog.demo.seed} 가 그걸 막는 유일한 장치다).
+ * 가입 API 의 형식 검증(AuthValidation)을 통과하지 못하는 계정이라 저장소에 직접 넣고,
+ * tenant PK 는 IDENTITY 라 JPA 로 지정할 수 없어 네이티브 INSERT 를 쓴다.
  */
 @Component
 @ConditionalOnProperty(name = "edrdog.demo.seed", havingValue = "true")
 public class DemoAccountSeeder {
 
-    /**
-     * 발표 자료에 박아두는 고정 tenant PK. 가입으로 생기는 PK(1,2,3...)와 겹치지 않게 큰 값을 쓴다
-     * (같은 DB 에서 실제 조직과 공존시키기 위해서다).
-     */
+    /** 발표 자료에 박아두는 고정 tenant PK. 작은 값으로 내리면 가입으로 생기는 PK(1,2,3...)와 부딪힌다. */
     public static final long TENANT_ID = 99L;
 
     /** 데모 계정 이메일. 데모 API 가 이 계정으로 쓸 tenant 를 찾는다(DemoTenant). */
@@ -66,7 +57,7 @@ public class DemoAccountSeeder {
      * 데모 tenant 와 계정을 보장한다.
      *
      * @return 데모 tenant 를 우리가 쓰고 있으면 true. 다른 조직이 PK 를 선점했으면 false
-     *         (이 경우 호출자는 데이터 시드도 중단해야 한다. 남의 조직에 데모 데이터를 섞으면 안 된다)
+     *         (호출자는 이때 데이터 시드도 중단해야 한다. 남의 조직에 데모 데이터를 섞으면 안 된다)
      */
     @Transactional
     public boolean seed() {

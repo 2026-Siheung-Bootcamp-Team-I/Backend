@@ -19,9 +19,6 @@ import org.springframework.web.server.ResponseStatusException;
 /**
  * 도메인/IP 하나를 기준으로 얽힌 관계를 보여 주는 읽기 전용 REST.
  * 관측 조회는 세션 Bearer 토큰의 tenant 로만 격리한다(EventQueryController 와 같은 패턴).
- *
- * <p>실시간 DNS 조회에는 tenant 개념이 없다. 우리 데이터가 아니라 외부에 묻는 것이라 격리와
- * 무관하다. 대신 사용자가 준 문자열을 그대로 질의에 싣지 않도록 형식을 먼저 검증한다.
  */
 @RestController
 @RequestMapping("/api/intelligence")

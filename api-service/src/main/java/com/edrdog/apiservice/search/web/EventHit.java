@@ -5,11 +5,8 @@ import com.edrdog.apiservice.web.EventId;
 import java.util.Map;
 
 /**
- * 검색 결과의 이벤트 한 줄.
- *
- * <p>host 와 ts 를 싣는 이유는 화면 표시가 아니라 이동 때문이다. 이벤트 단건 조회는
- * GET /api/events/{id}?host=&ts= 라서(id 가 저장된 값이 아니라 행을 접어 만든 것이므로) 셋이 다 있어야
- * 검색 결과에서 그 이벤트로 넘어갈 수 있다.
+ * 검색 결과의 이벤트 한 줄. host 와 ts 는 화면 표시가 아니라 이동 때문에 싣는다.
+ * 이벤트 단건 조회가 GET /api/events/{id}?host=&ts= 라서 셋이 다 있어야 그 이벤트로 넘어갈 수 있다.
  */
 public record EventHit(
         String id,

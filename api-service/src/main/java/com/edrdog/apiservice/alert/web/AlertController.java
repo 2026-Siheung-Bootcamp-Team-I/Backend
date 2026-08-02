@@ -30,8 +30,7 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * alert 조회·트리아지 REST. 모든 요청은 세션 Bearer 토큰으로 인증하고 그 tenant 로만 격리한다
- * (EventQueryController 와 동일 패턴). 남의 tenant alert 는 404 로 숨긴다.
+ * alert 조회·트리아지 REST. 세션 Bearer 토큰으로 인증하고 그 tenant 로만 격리한다(EventQueryController 와 동일 패턴).
  */
 @RestController
 @RequestMapping("/api/alerts")
@@ -91,7 +90,7 @@ public class AlertController {
                 from != null ? from : 0L, resolvedTo);
     }
 
-    /** 상한을 넘은 offset 은 조용히 자르지 않고 400 으로 거절한다(자르면 화면이 빈 페이지로 읽는다). */
+    // 상한 밖 offset 을 조용히 자르면 화면이 자기가 요청한 페이지를 빈 페이지로 읽는다.
     private static void requireValidOffset(Integer offset) {
         if (offset != null && (offset < 0 || offset > AlertQueryBuilder.MAX_OFFSET)) {
             throw AuthException.invalidInput("offset 은 0.." + AlertQueryBuilder.MAX_OFFSET + " 여야 합니다: " + offset);
@@ -139,9 +138,7 @@ public class AlertController {
             @RequestHeader(name = "Authorization", required = false) String authorization,
             @PathVariable String id) {
         String tenantId = currentTenantId(authorization);
-        // 사건 id 는 incident 쪽에서 오므로 조립을 여기서 한다. 지금 의존 방향이 incident → alert 라
-        // (IncidentService 가 AlertQueryBuilder 등을 쓴다) AlertService 가 IncidentService 를 부르면
-        // 서비스 계층에 양방향 순환이 생긴다. 웹 계층은 양쪽을 다 알아도 되는 자리다.
+        // 사건 id 조립을 AlertService 로 내리면 의존이 alert ↔ incident 양방향이 되어 순환한다.
         return alerts.get(tenantId, id).withIncidentId(incidents.incidentIdOf(tenantId, id));
     }
 

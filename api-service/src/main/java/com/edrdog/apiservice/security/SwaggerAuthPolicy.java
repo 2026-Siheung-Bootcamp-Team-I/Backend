@@ -6,9 +6,7 @@ import java.util.List;
 
 /**
  * Swagger 를 가리는 Basic 인증 판단(순수).
- *
- * <p>브라우저로 여는 화면이라 X-API-Key 를 붙일 수가 없어서(ApiKeyPolicy 가 예외로 둔 이유)
- * 브라우저가 스스로 붙일 수 있는 Basic 만 본다.
+ * 브라우저로 여는 화면이라 X-API-Key 를 못 붙인다(ApiKeyPolicy 가 예외로 둔 이유). 그래서 Basic 만 본다.
  */
 public class SwaggerAuthPolicy {
 

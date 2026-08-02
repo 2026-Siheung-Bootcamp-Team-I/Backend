@@ -13,9 +13,7 @@ import java.util.Optional;
 
 /**
  * alerts 토픽을 소비해 host 소유 유저(없으면 tenant 관리자 채널)의 Slack 으로 알림을 보내는 리스너.
- * 라우팅은 {@link AlertRouter} 가 결정하고, 같은 대상(user 또는 tenant)+host+ruleId 는
- * 쿨다운 창 안에서 중복 발송을 억제한다 (Slack 스팸 방지).
- * tenantId 없는 alert 는 목적지 조회가 불가능하므로 skip 한다.
+ * 라우팅은 {@link AlertRouter} 가 결정하고, 같은 대상+host+ruleId 는 쿨다운 창 안에서 중복 발송을 억제한다.
  */
 @Component
 public class AlertListener {
@@ -50,8 +48,7 @@ public class AlertListener {
         }
         String key = route.get().cooldownId() + "|" + alert.host() + "|" + alert.ruleId();
         if (cooldown.allow(key, alert.ts())) {
-            // 발송이 실패하면 기록을 되돌린다. 안 그러면 실패한 발송이 쿨다운 창을 태워
-            // 같은 alert 의 재발생분까지 조용히 막힌다.
+            // 되돌리지 않으면 실패한 발송이 쿨다운 창을 태워 재발생분까지 막힌다.
             if (!slack.send(alert, route.get().webhookUrl())) {
                 cooldown.forget(key);
             }

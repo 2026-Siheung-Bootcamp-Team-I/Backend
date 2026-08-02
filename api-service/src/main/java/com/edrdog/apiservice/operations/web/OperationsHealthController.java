@@ -10,9 +10,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 파이프라인(Kafka→ClickHouse) 상태 화면용 REST. tenant 격리는 없다(운영 지표는 조직별로 갈리지 않음).
- * 세션 Bearer 토큰으로만 인증한다(EventQueryController/HostController 와 동일 패턴) — 로그인 여부만 보고
- * tenant 는 쓰지 않는다.
+ * 파이프라인(Kafka→ClickHouse) 상태 화면용 REST.
+ * 세션 Bearer 토큰으로 로그인 여부만 보고, 운영 지표라 tenant 격리는 두지 않는다.
  */
 @RestController
 @RequestMapping("/api/operations")
@@ -35,7 +34,7 @@ public class OperationsHealthController {
     @GetMapping("/health")
     public OperationsHealthResponse health(
             @RequestHeader(name = "Authorization", required = false) String authorization) {
-        // tenant 는 안 쓰지만 로그인 여부는 다른 조회 API 와 동일하게 검사한다(토큰 없거나 만료면 401).
+        // 반환값을 안 쓴다고 지우면 운영 지표가 인증 없이 열린다. 토큰 없거나 만료면 여기서 401 이다.
         auth.resolve(bearerToken(authorization));
         return service.health();
     }

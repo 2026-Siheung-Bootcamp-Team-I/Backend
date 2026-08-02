@@ -17,19 +17,10 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
 /**
- * 발표용 전체 플로우 시연 REST. 스웨거에서 Execute 한 번이면 끝난다 — 토큰을 받아 붙이는 단계가 없다.
+ * 발표용 전체 플로우 시연 REST. 인증 없이 실제 파이프라인을 그대로 태운다.
  *
- * <p>엔드포인트 에이전트가 로그를 보낸 것처럼 events 토픽에 발행하고, detector 의 판정이 alerts 토픽으로
- * 돌아와 저장되기까지를 한 번의 호출로 보여준다. 실제 파이프라인을 그대로 태우므로 Slack 알림(alert-service)과
- * responder 조치 판단도 같이 흘러간다.
- *
- * <p>인증을 받지 않는 대신 할 수 있는 일을 좁혀 뒀다. 이 API 는
- * <b>데모 계정의 tenant</b>({@link DemoTenant})에만 쓰고, <b>미리 정해진 시나리오 4종</b>만 발행한다.
- * 호출자가 tenant 를 지정할 수도, 임의 이벤트를 넣을 수도 없어서 남의 조직 데이터에 닿을 경로가 없다.
- * 데모 계정이 없는 환경(시드를 켠 적 없는 곳)에서는 403 으로 아무 일도 하지 않는다.
- *
- * <p>임의 이벤트를 발행하고 싶으면 detector 의 {@code POST /api/events} 를 쓴다. 그쪽은 발표용이 아니라
- * 개발용이라 이 API 와 목적이 다르다.
+ * <p>인증을 받지 않는 대신 할 수 있는 일을 좁혀 뒀다. 데모 계정의 tenant({@link DemoTenant})에만 쓰고
+ * 미리 정해진 시나리오 4종만 발행한다. 둘 중 하나라도 풀면 인증 없이 남의 조직에 쓰는 경로가 열린다.
  */
 @RestController
 @RequestMapping("/api/demo")

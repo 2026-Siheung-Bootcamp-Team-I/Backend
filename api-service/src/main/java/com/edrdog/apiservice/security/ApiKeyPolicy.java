@@ -22,21 +22,12 @@ public class ApiKeyPolicy {
             "/api/me",      // 유저 개인 알림 설정도 세션 Bearer 로 인증(UserNotifyController)
             "/api/demo/",   // 발표용 데모 시연도 세션 Bearer 로 인증하고 데모 계정만 통과시킨다(DemoController)
             "/api/internal/",  // 서비스 간 조회는 별도 X-Internal-Key 로 인증(TenantController), 프론트 키와 분리
-            "/i/"          // 설치 스크립트 배포. 링크의 설치 토큰 자체가 인증이다(InstallController).
-                           // curl 한 줄로 받아야 해서 헤더를 붙일 수가 없다. 대신 토큰을 짧게 살린다.
+            "/i/"          // 설치 스크립트 배포. curl 한 줄이라 헤더를 못 붙이고, 링크의 설치 토큰 자체가 인증이다.
     );
 
-    /**
-     * 정확히 이 경로일 때만 예외인 것들.
-     *
-     * <p>접두어로 두지 않는 이유는 {@code /api/tenant} 아래에 enroll secret 과 webhook 이 같이
-     * 있어서다. 접두어로 열면 그 둘까지 딸려 열린다. 설치 링크는 만료되지만 enroll secret 은
-     * 테넌트당 하나에 만료가 없어서, 한 번 새면 되돌릴 방법이 마땅치 않다.
-     */
+    /** 정확한 일치만 예외. 접두어로 열면 {@code /api/tenant} 아래 만료 없는 enroll secret 까지 딸려 열린다. */
     private static final List<String> EXEMPT_PATHS = List.of(
-            // 대시보드(또는 그 대신 쓰는 스크립트)가 부르고 Bearer 로 이미 인증한다. API 키까지
-            // 요구하면 기기 하나 추가하려고 사람이 키 두 개를 손에 쥐어야 한다. 설치하는 사람에게서
-            // 키를 없애 놓고 만드는 사람에게 남겨 두면 절반만 한 것이다.
+            // Bearer 로 이미 인증한다. API 키까지 요구하면 기기 하나 추가하려고 키를 두 개 쥐어야 한다.
             "/api/tenant/install-link"
     );
 
@@ -46,12 +37,7 @@ public class ApiKeyPolicy {
         this.configuredKey = configuredKey;
     }
 
-    /**
-     * CORS preflight 여부. 브라우저는 preflight 에 커스텀 헤더(X-API-Key)를 싣지 않으므로
-     * 여기서 막으면 본 요청이 아예 발사되지 않는다(프론트에는 "서버에 연결하지 못했습니다"로 보인다).
-     * preflight 는 본문 없는 협상 요청이라 통과시켜도 데이터가 새지 않고, 실제 요청은 그대로 검사된다.
-     * 판정은 브라우저가 붙이는 두 헤더의 존재로 한다(단순 OPTIONS 는 preflight 가 아니다).
-     */
+    /** CORS preflight 여부. preflight 에는 X-API-Key 가 안 붙어, 여기서 막으면 본 요청이 아예 발사되지 않는다. */
     public static boolean isPreflight(String method, String origin, String requestMethodHeader) {
         return "OPTIONS".equalsIgnoreCase(method) && origin != null && requestMethodHeader != null;
     }

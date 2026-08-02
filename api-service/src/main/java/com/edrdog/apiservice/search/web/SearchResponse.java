@@ -4,9 +4,7 @@ import com.edrdog.apiservice.host.web.HostResponse;
 
 /**
  * GET /api/search 응답. 화면이 섹션으로 그리므로 종류별로 나눠 준다.
- *
- * <p>from/to 를 돌려주는 이유. 검색은 기본 기간 안에서만 훑는데, 화면이 그 범위를 모르면
- * "없다" 와 "이 기간에는 없다" 를 구분해 보여 줄 수 없다.
+ * from/to 를 안 돌려주면 화면이 "없다" 와 "이 기간에는 없다" 를 구분해 보여 줄 수 없다.
  *
  * @param query 실제로 적용된 질의어(앞뒤 공백을 뗀 값)
  * @param from  적용된 시간 하한 (epoch millis)

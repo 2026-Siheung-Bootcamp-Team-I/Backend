@@ -1,6 +1,11 @@
 spring:
   application:
     name: responder
+  config:
+    import:
+      - classpath:observability.yml
+      # 메트릭 익스포터 꺼짐: observability-metrics.yml 을 넣지 않는다.
+      # micrometer-registry-otlp 가 없는 서비스라 트레이스만 보낸다(메트릭은 api/detector/archiver 에만).
   kafka:
     bootstrap-servers: localhost:9092
     consumer:
@@ -27,17 +32,3 @@ edrdog:
     command:
       timeout-ms: ${RESPONDER_COMMAND_TIMEOUT_MS:30000}  # 에이전트 결과를 기다리는 상한. 넘기면 TIMEOUT
       ttl-ms: ${RESPONDER_COMMAND_TTL_MS:300000}         # 아무도 안 가져간 명령 만료 (호스트가 꺼져 있는 경우)
-
-management:
-  endpoints:
-    web:
-      exposure:
-        include: health, info
-  # 관측 — 트레이스만 보낸다(메트릭 익스포터는 api/detector/archiver 에만).
-  tracing:
-    enabled: ${OTEL_ENABLED:true}
-    sampling:
-      probability: ${OTEL_TRACE_SAMPLING:1.0}
-  otlp:
-    tracing:
-      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/traces

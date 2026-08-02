@@ -11,10 +11,7 @@ package sensor
 #include <arpa/inet.h>
 
 // conn_row 는 소켓 fd 하나에서 뽑아낸 값이다.
-//
-// cgo 는 C 의 union 을 바이트 배열로만 보여 주기 때문에 Go 에서 soi_proto 나 insi_faddr 를
-// 직접 읽으면 오프셋을 손으로 계산해야 한다. 그러면 SDK 가 바뀔 때 조용히 틀린 값을 읽는다.
-// 그래서 union 접근은 C 쪽에서 끝내고 Go 로는 평평한 구조체만 넘긴다.
+// union 접근은 C 에서 끝낸다. Go 로 옮겨 오프셋을 손으로 계산하면 SDK 가 바뀌는 날 틀린 값을 읽는다.
 typedef struct {
 	int  ok;                    // 1 이면 established TCP 이고 아래 값이 유효하다
 	int  port;                  // 원격 포트, 호스트 바이트 순서
@@ -31,8 +28,7 @@ static conn_row edrdog_socket_conn(int pid, int fd) {
 		return row; // 권한이 없거나 그 사이 닫힌 fd
 	}
 
-	// TCP 이면서 established 인 것만 연결로 본다.
-	// listen 소켓은 아직 상대가 없고, bind 만 된 UDP 는 목적지가 정해지지 않는다.
+	// established 만 통과시킨다. listen 소켓은 상대가 없고 bind 만 된 UDP 는 목적지가 없다.
 	if (si.psi.soi_kind != SOCKINFO_TCP) {
 		return row;
 	}
@@ -42,8 +38,7 @@ static conn_row edrdog_socket_conn(int pid, int fd) {
 
 	struct in_sockinfo *ini = &si.psi.soi_proto.pri_tcp.tcpsi_ini;
 
-	// insi_vflag 가 IPv4/IPv6 를 알려 준다. AF_INET6 소켓이 v4 매핑 주소를 쥐고 있을 수 있어서
-	// soi_family 보다 이쪽이 정확하다. 다만 vflag 가 비어 오는 경우가 있어 family 로 보정한다.
+	// insi_vflag 로 IPv4/IPv6 를 가른다. vflag 가 비어 오면 soi_family 로 보정한다.
 	int v4 = (ini->insi_vflag & INI_IPV4) != 0;
 	int v6 = (ini->insi_vflag & INI_IPV6) != 0;
 	if (!v4 && !v6) {
@@ -80,15 +75,11 @@ import (
 )
 
 // maxSnapshotFailures 는 연속 실패를 몇 번까지 참을지다.
-// 한 주기 실패는 흔하다(프로세스가 그 사이 죽는다). 계속 실패하면 조용히 0 건으로 도는 것보다
-// 센서를 죽여 로그에 남기는 쪽이 낫다.
+// 상한을 없애면 조회가 계속 실패해도 센서가 조용히 0건으로 돈다.
 const maxSnapshotFailures = 5
 
 // NetSnapSensor 는 열린 TCP 연결을 주기마다 훑어 새로 생긴 것만 이벤트로 낸다.
-//
-// 이 센서만 폴링이다. 이유는 netsnap.go 위쪽 주석에 적었다. eslogger 로 받는 프로세스/파일
-// 이벤트와 달리 커널이 밀어 주는 것이 아니라 우리가 물어보는 구조라, 주기보다 짧게 살다 간
-// 연결은 놓친다.
+// 이 센서만 폴링이라 주기보다 짧게 살다 간 연결은 놓친다.
 type NetSnapSensor struct {
 	Factory  event.Factory
 	Interval time.Duration
@@ -98,7 +89,6 @@ type NetSnapSensor struct {
 func (s *NetSnapSensor) Name() string { return "netsnap" }
 
 // Run 은 Interval 마다 스냅샷을 떠 새 연결만 내보내고 ctx 가 끝나면 멈춘다.
-//
 // 첫 스냅샷은 기준선이라 이벤트가 나오지 않는다(Differ.New 참고).
 func (s *NetSnapSensor) Run(ctx context.Context, out chan<- event.Event) error {
 	interval := s.Interval
@@ -141,10 +131,7 @@ func (s *NetSnapSensor) Run(ctx context.Context, out chan<- event.Event) error {
 }
 
 // snapshot 은 지금 열려 있는 established TCP 연결을 전부 모은다.
-//
-// proc_listpids 로 PID 를 훑고, PID 마다 fd 목록을 받아 소켓 fd 를 하나씩 들여다본다.
-// 권한이 없어 못 읽는 프로세스는 조용히 건너뛴다. 다른 사용자의 프로세스는 root 로 돌아도
-// 일부 실패하는데, 그것 때문에 스냅샷 전체를 버리면 볼 수 있는 것까지 못 본다.
+// 못 읽는 프로세스는 건너뛴다. 오류로 올리면 root 로 돌아도 흔한 일부 실패에 스냅샷 전체를 버린다.
 func snapshot() ([]Conn, error) {
 	pids, err := listPIDs()
 	if err != nil {

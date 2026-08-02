@@ -18,18 +18,9 @@ import java.util.Optional;
 /**
  * 발표용 전체 플로우 실행. 엔드포인트가 로그를 보낸 것처럼 events 토픽에 발행하고,
  * detector 가 alerts 토픽으로 되돌려준 판정이 저장돼 조회 가능해질 때까지 기다린 뒤 단계별 결과를 만든다.
+ * 수집/탐지({@link AlertArrivals} 관측)/저장 세 단계를 각각 실측한다.
  *
- * <p>세 단계를 각각 실측한다. 발표에서 보여줄 구간이 "Kafka → Streams → Kafka" 라, 판정이 토픽에 돌아온
- * 시점(2단계)과 그게 저장돼 조회되는 시점(3단계)을 분리해야 스트림즈가 한 일이 눈에 보인다.
- *
- * <ol>
- *   <li>수집 — api-service → Kafka(events). 발행에 걸린 시간</li>
- *   <li>탐지 — detector Kafka Streams → Kafka(alerts). {@link AlertArrivals} 가 관측한 도착 시각</li>
- *   <li>저장 — api-service → ClickHouse(판정기록) + MySQL(status). 조회 API 로 읽히는 시점</li>
- * </ol>
- *
- * <p>alert id 는 발행 <b>전에</b> 계산한다({@link AlertId} 가 tenant|host|rule|ts 로 결정적이고, 판정 ts 는
- * 마지막 이벤트의 ts 와 같다). 그래서 과거 회차의 같은 룰 alert 를 이번 결과로 착각하지 않는다.
+ * <p>alert id 는 발행 <b>전에</b> 계산한다. 발행 후에 조회로 찾으면 과거 회차의 같은 룰 alert 를 이번 결과로 집는다.
  */
 @Service
 public class DemoFlowService {
@@ -145,9 +136,7 @@ public class DemoFlowService {
         }
     }
 
-    /**
-     * 다음 폴링까지 대기. 제한시간이 남아 있으면 true(계속), 넘겼거나 인터럽트되면 false(중단).
-     */
+    /** 다음 폴링까지 대기. 제한시간이 남아 있으면 true(계속), 넘겼거나 인터럽트되면 false(중단). */
     private boolean sleepUntil(long deadline) {
         if (System.currentTimeMillis() >= deadline) {
             return false;

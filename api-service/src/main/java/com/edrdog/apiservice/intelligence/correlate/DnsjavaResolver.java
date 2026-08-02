@@ -24,12 +24,9 @@ import java.util.Set;
 
 /**
  * dnsjava 로 실제 DNS 서버에 묻는 구현.
- *
- * <p>타임아웃을 짧게 잡는다. 이 조회는 화면 하나를 그리는 요청 안에서 동기로 일어나므로,
- * 응답 없는 서버 하나를 기다리다 요청 전체가 늘어지면 관측 데이터까지 늦게 나온다.
- *
- * <p>어떤 실패도 예외로 새어 나가지 않는다. 조회 실패는 "그런 이름이 없다"와 다른 사실이고,
- * 둘 다 응답 안에 상태로 담겨야 한다.
+ * 이 조회는 화면 하나를 그리는 요청 안에서 동기로 일어난다. 타임아웃을 늘리면 응답 없는 서버 하나에
+ * 요청 전체가 잡혀 관측 데이터까지 늦게 나온다.
+ * 어떤 실패도 예외로 새어 나가지 않는다. 조회 실패와 "그런 이름이 없다"는 다른 사실이라 둘 다 상태로 담는다.
  */
 @Component
 public class DnsjavaResolver implements DnsResolver {
@@ -44,8 +41,7 @@ public class DnsjavaResolver implements DnsResolver {
             r = new SimpleResolver();
             r.setTimeout(Duration.ofMillis(timeoutMs));
         } catch (Exception e) {
-            // 시스템에 DNS 서버 설정이 없으면 생성에서 실패한다. 그 이유로 기동을 막지는 않는다.
-            // 조회 기능만 못 쓰는 것이고, 관측 데이터 조회는 그것과 무관하게 계속 되어야 한다.
+            // 여기서 던지면 DNS 설정이 없는 환경에서 기동 자체가 막힌다. 관측 데이터 조회는 DNS 와 무관하다.
             log.warn("DNS 리졸버를 만들지 못했다. 실시간 조회는 FAILED 로 응답한다: {}", e.toString());
         }
         this.resolver = r;

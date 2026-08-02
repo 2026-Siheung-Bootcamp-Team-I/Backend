@@ -78,13 +78,12 @@ public class EventQueryController {
         List<EventResponse> items = (hasMore ? rows.subList(0, size) : rows).stream()
                 .map(row -> EventResponse.fromRow(row, mapper))
                 .toList();
-        // 총 건수는 같은 WHERE 로 count() 를 한 번 더 도는 것이라, 화면이 명시적으로 요청할 때만 센다.
-        // 대개는 "다음 페이지가 있는지" 만 알면 되고 그건 탐침 한 행으로 이미 알 수 있다.
+        // 같은 WHERE 로 count() 를 한 번 더 도는 것이라 화면이 명시적으로 요청할 때만 센다.
         Long total = withTotal ? countEvents(tenantId, host, type, sha256, from, resolvedTo) : null;
         return PageHeaders.body(items, hasMore, total, from != null ? from : 0L, resolvedTo);
     }
 
-    /** 같은 필터·같은 tenant 로 총 건수를 센다(남의 조직 건수가 총계에 섞이면 그 자체로 정보가 샌다). */
+    /** 같은 필터·같은 tenant 로 총 건수를 센다. tenant 를 빼면 남의 조직 건수가 총계에 섞여 그 자체로 정보가 샌다. */
     private long countEvents(String tenantId, String host, String type, String sha256, Long from, Long to) {
         List<Map<String, Object>> rows = reader.query(builder.countEvents(tenantId, host, type, sha256, from, to));
         return rows.isEmpty() ? 0L : Long.parseLong(String.valueOf(rows.get(0).get("cnt")));
@@ -113,8 +112,7 @@ public class EventQueryController {
             throw AuthException.invalidInput("host 는 필수입니다");
         }
         List<Map<String, Object>> rows = reader.query(builder.eventAt(tenantId, host, ts));
-        // 같은 host 의 같은 밀리초에 이벤트가 여럿일 수 있다. 창 안에서 시각으로 아무거나 고르는 대신
-        // 행마다 id 를 다시 접어 정확히 일치하는 것만 고른다. 링크가 조작되면 다른 이벤트 대신 404 다.
+        // 같은 host 의 같은 밀리초에 이벤트가 여럿일 수 있다. id 로 안 거르면 조작된 링크가 다른 이벤트를 연다.
         return rows.stream()
                 .map(row -> EventResponse.fromRow(row, mapper))
                 .filter(event -> event.id().equals(id))

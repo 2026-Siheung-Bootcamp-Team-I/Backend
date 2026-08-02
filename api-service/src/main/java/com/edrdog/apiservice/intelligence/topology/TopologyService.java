@@ -13,9 +13,7 @@ import java.util.Map;
 
 /**
  * egress 토폴로지 조회. events(관계)와 alerts(관계별 알림 수, 호스트 위험 점수)를 각각 집계해 그래프로 합친다.
- * 조회는 항상 tenant 로 격리한다.
- *
- * <p>관계는 이벤트 많은 순 Top-N 으로 자르되, 자르기 전 전체 수를 함께 세서 응답에 담는다.
+ * 조회는 항상 tenant 로 격리하고, 관계는 이벤트 많은 순 Top-N 으로 자르되 자르기 전 전체 수를 함께 담는다.
  */
 @Service
 public class TopologyService {

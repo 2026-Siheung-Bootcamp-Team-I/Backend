@@ -24,8 +24,7 @@ var eslEventTypes = []string{"exec", "create", "rename", "unlink"}
 
 const (
 	// eslMaxLineBytes 는 한 줄의 상한이다.
-	// exec 이벤트는 인자와 파일 서술자 목록까지 담아 수백 KB 가 되기도 한다.
-	// bufio.Scanner 의 기본 상한 64KB 로는 그런 줄이 통째로 잘려 파싱이 실패한다.
+	// Scanner 기본값 64KB 로는 수백 KB 짜리 exec 줄이 잘려 파싱이 실패한다.
 	eslMaxLineBytes = 4 << 20
 
 	// 재기동 간격. 상한을 두지 않으면 eslogger 가 계속 죽을 때 간격이 무한정 늘어난다.
@@ -35,16 +34,12 @@ const (
 	// eslStderrKeep 은 오류 메시지에 붙일 stderr 마지막 줄 수다.
 	eslStderrKeep = 5
 
-	// eslHashHealthInterval 은 해시 집계를 로그로 남기는 주기다.
-	// ETW 센서의 etwHealthInterval 과 같은 값으로 맞춰 두 플랫폼의 로그가 같은 리듬으로 나오게 한다.
+	// eslHashHealthInterval 은 해시 집계를 로그로 남기는 주기다. etwHealthInterval 과 같은 값이다.
 	eslHashHealthInterval = time.Minute
 )
 
 // ESLoggerSensor 는 /usr/bin/eslogger 를 자식 프로세스로 띄워 EndpointSecurity 이벤트를 읽는다.
-//
-// EndpointSecurity API 를 직접 쓰려면 Apple 의 entitlement 심사를 통과해야 한다. eslogger 는
-// 그 entitlement 를 이미 가진 애플 서명 바이너리라 심사 없이 같은 이벤트를 받을 수 있다.
-// 대신 root 권한과 전체 디스크 접근 권한이 필요하다.
+// root 권한과 전체 디스크 접근 권한이 필요하다.
 type ESLoggerSensor struct {
 	Factory    event.Factory
 	WatchPaths []string
@@ -60,10 +55,8 @@ type ESLoggerSensor struct {
 func (s *ESLoggerSensor) Name() string { return "eslogger" }
 
 // Run 은 eslogger 를 띄우고 출력을 이벤트로 바꿔 내보낸다. ctx 가 끝나면 멈춘다.
-//
-// eslogger 가 죽으면 백오프를 두고 다시 띄운다. 다만 한 줄도 읽지 못한 채 끝났다면
-// 재시도하지 않고 오류를 올린다. 원인이 환경에 있는데(바이너리 없음, root 아님,
-// 전체 디스크 접근 권한 없음) 조용히 재시도만 하면 이벤트 0건의 이유를 찾을 수 없다.
+// 한 줄도 못 읽었으면 재시도하지 않고 오류를 올린다.
+// 조용히 재시도만 하면 원인(바이너리 없음, root 아님, 전체 디스크 접근 없음)이 로그에 안 남는다.
 func (s *ESLoggerSensor) Run(ctx context.Context, out chan<- event.Event) error {
 	binPath := s.ESLoggerPath
 	if binPath == "" {
@@ -73,8 +66,7 @@ func (s *ESLoggerSensor) Run(ctx context.Context, out chan<- event.Event) error 
 	log := s.logger()
 	log.Info("eslogger 센서 시작", "path", binPath, "events", eslEventTypes, "watchPaths", watch)
 
-	// 해시 집계를 주기적으로 남긴다. 해시가 전부 비어 있을 때 그 원인이 권한 부족인지 크기
-	// 상한인지 로그만 보고 가릴 수 있어야 한다. ctx 가 끝나면 같이 멈춘다.
+	// 해시가 전부 빈 상태의 원인을 가리려면 이 집계가 있어야 한다. ctx 가 끝나면 같이 멈춘다.
 	if s.Hasher != nil {
 		go s.reportHashHealth(ctx)
 	}
@@ -128,9 +120,7 @@ func (s *ESLoggerSensor) runOnce(ctx context.Context, binPath string, watch []st
 		return 0, fmt.Errorf("실행할 수 없다: %w", err)
 	}
 
-	// ctx 가 끝나면 파이프를 직접 닫는다.
-	// CommandContext 는 eslogger 만 죽이는데, 파이프를 물려받은 자식이 남아 있으면
-	// 읽기가 끝나지 않아 센서가 종료하지 못한다.
+	// ctx 가 끝나면 파이프를 직접 닫는다. 파이프를 물려받은 손자 프로세스가 남으면 읽기가 안 끝난다.
 	stop := make(chan struct{})
 	defer close(stop)
 	go func() {

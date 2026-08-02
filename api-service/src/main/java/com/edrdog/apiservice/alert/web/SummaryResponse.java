@@ -8,9 +8,7 @@ import java.util.List;
  */
 public record SummaryResponse(long total, Severity severity, List<ThreatCount> topThreats) {
 
-    /**
-     * severity 3단계 분포. 현재 데이터에는 MEDIUM 이 없어 medium 은 사실상 항상 0 이다.
-     */
+    /** severity 3단계 분포. 현재 데이터에는 MEDIUM 이 없어 medium 은 사실상 항상 0 이다. */
     public record Severity(long critical, long high, long medium) {
     }
 

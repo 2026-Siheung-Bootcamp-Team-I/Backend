@@ -1,6 +1,11 @@
 spring:
   application:
     name: alert
+  config:
+    import:
+      - classpath:observability.yml
+      # 메트릭 익스포터 꺼짐: observability-metrics.yml 을 넣지 않는다.
+      # micrometer-registry-otlp 가 없는 서비스라 트레이스만 보낸다(메트릭은 api/detector/archiver 에만).
   kafka:
     bootstrap-servers: localhost:9092
     consumer:
@@ -27,17 +32,3 @@ edrdog:
     webhook-cache-ttl-ms: 60000                              # tenant webhook 조회 캐시 TTL
   internal:
     key: ${INTERNAL_API_KEY:dev-internal-key}                # 내부 엔드포인트 인증 X-Internal-Key (api-service 와 동일)
-
-management:
-  endpoints:
-    web:
-      exposure:
-        include: health, info
-  # 관측 — 트레이스만 보낸다(메트릭 익스포터는 api/detector/archiver 에만).
-  tracing:
-    enabled: ${OTEL_ENABLED:true}
-    sampling:
-      probability: ${OTEL_TRACE_SAMPLING:1.0}
-  otlp:
-    tracing:
-      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/traces

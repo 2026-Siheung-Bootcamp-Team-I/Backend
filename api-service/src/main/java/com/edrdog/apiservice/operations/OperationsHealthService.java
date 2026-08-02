@@ -13,8 +13,8 @@ import java.util.List;
 
 /**
  * 파이프라인 상태 화면(operations/health) 데이터를 모은다.
- * Kafka/ClickHouse 조회는 inspector 내부에서 이미 예외를 삼키고 error 로 감싸므로, 여기서는 조립만
- * 한다 — 항목 하나(가령 Kafka)가 죽어 있어도 나머지(ClickHouse/MySQL) 결과는 그대로 나가야 한다.
+ * Kafka/ClickHouse 조회는 inspector 가 이미 예외를 삼키고 error 로 감싸므로 여기서는 조립만 한다.
+ * 항목 하나(가령 Kafka)가 죽어 있어도 나머지(ClickHouse/MySQL) 결과는 그대로 나가야 한다.
  */
 @Service
 public class OperationsHealthService {
@@ -69,14 +69,14 @@ public class OperationsHealthService {
         return new OperationsHealthResponse(kafkaLag, ingestion, dependencies, Instant.now().toEpochMilli());
     }
 
-    /** 토픽 하나를 소비하는 그룹마다 (토픽, 그룹) 쌍의 lag 을 따로 담는다 — 어느 소비자가 밀렸는지 구분하기 위함. */
+    /** 토픽 하나를 소비하는 그룹마다 (토픽, 그룹) 쌍의 lag 을 따로 담는다. 합치면 어느 소비자가 밀렸는지 구분이 사라진다. */
     private void addLag(List<KafkaTopicLagResult> results, String topic, List<String> groups) {
         for (String group : groups) {
             results.add(kafkaLagInspector.lag(topic, group));
         }
     }
 
-    /** actuator 의 DataSourceHealthIndicator("db")를 그대로 재사용한다. 없거나 조회 자체가 죽으면 null(모름 처리는 DependencyStatuses 가 한다). */
+    /** actuator 의 DataSourceHealthIndicator("db")를 그대로 재사용한다. 없거나 조회가 죽으면 null 이고 모름 처리는 DependencyStatuses 가 한다. */
     private HealthComponent dbHealth() {
         try {
             return healthEndpoint.healthForPath("db");
@@ -85,7 +85,6 @@ public class OperationsHealthService {
         }
     }
 
-    /** CorsConfig.parseOrigins 와 동일 패턴(쉼표 구분, 앞뒤 공백 제거, 빈 항목 제외). */
     private static List<String> parseGroups(String raw) {
         return Arrays.stream(raw.split(","))
                 .map(String::trim)

@@ -11,10 +11,6 @@ import (
 )
 
 // PacketSource 는 캡처한 프레임을 흘려보낸다. 플랫폼별 캡처 구현이 이걸 만족한다.
-//
-// 센서가 /dev/bpf 를 직접 열지 않고 이 인터페이스를 거치는 이유는 조립 로직을 테스트하기
-// 위해서다. BPF 장치는 root 가 있어야 열리고 결과가 그때그때 네트워크 상태에 달려 있어서,
-// 그 위에 로직을 얹으면 개발 기기에서 검증할 수 있는 것이 사실상 없어진다.
 type PacketSource interface {
 	// Packets 는 캡처한 프레임을 준다. 채널이 닫히면 캡처가 끝난 것이다.
 	Packets() <-chan []byte
@@ -22,18 +18,12 @@ type PacketSource interface {
 }
 
 // SocketOwner 는 흐름의 주인 프로세스를 찾는다.
-//
-// 메서드 이름이 Owner 가 아니라 Lookup 인 이유는 L7Sensor 의 필드 이름이 Owner 이기 때문이다.
-// 양쪽을 다 Owner 로 두면 호출부가 s.Owner.Owner(...) 가 되어 무엇이 무엇인지 읽히지 않는다.
 type SocketOwner interface {
 	// Lookup 은 로컬 포트로 프로세스 실행 경로를 찾는다. 못 찾으면 빈 문자열이다.
 	Lookup(localPort int, remoteIP string, remotePort int) string
 }
 
-// L7Sensor 는 캡처한 패킷에서 DNS 응답과 TLS SNI 를 뽑아 이벤트로 만든다.
-//
-// 이 센서 하나가 dns 와 l7 두 종류를 다 낸다. 둘 다 같은 패킷 흐름에서 나오는 값이라
-// 캡처를 두 번 열 이유가 없다. BPF 장치는 프로세스마다 하나씩 점유하는 자원이기도 하다.
+// L7Sensor 는 캡처한 패킷에서 DNS 응답과 TLS SNI 를 뽑아 dns 와 l7 이벤트로 만든다.
 type L7Sensor struct {
 	Factory  event.Factory
 	Source   PacketSource
@@ -79,10 +69,7 @@ func (s *L7Sensor) Run(ctx context.Context, out chan<- event.Event) error {
 }
 
 // handle 은 프레임 하나에서 이벤트를 뽑는다. 뽑을 것이 없으면 두 번째 값이 false 다.
-//
-// 입력은 네트워크에서 온 신뢰할 수 없는 바이트다. packet 패키지는 어떤 입력에도 panic 하지
-// 않기로 되어 있지만, 그 계약이 깨지는 날 에이전트 전체가 죽는 것과 패킷 한 장을 잃는 것
-// 사이의 차이가 커서 여기서 한 번 더 막는다. 관측을 계속하는 것이 이 프로그램의 존재 이유다.
+// recover 를 빼면 packet 파싱이 panic 하는 날 패킷 한 장 대신 에이전트가 통째로 죽는다.
 func (s *L7Sensor) handle(frame []byte, assembler *packet.Assembler, now time.Time) (e event.Event, ok bool) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -107,20 +94,8 @@ func (s *L7Sensor) handle(frame []byte, assembler *packet.Assembler, now time.Ti
 }
 
 // dnsEvent 는 DNS 응답에서 이벤트를 만든다.
-//
-// **응답만 낸다.** 질의와 응답은 같은 도메인을 담고 있어서 둘 다 내면 대시보드에 같은 줄이
-// 두 번 올라간다. 그중 응답을 고른 이유는 도메인이 어느 IP 로 풀렸는지까지 담기 때문이다.
-// 그 IP 가 있어야 나중에 network 이벤트의 목적지와 이어 붙여 "이 프로세스가 이 도메인에
-// 접속했다" 를 복원할 수 있다.
-//
-// 놓치는 것: 응답이 아예 오지 않은 질의다. DNS 서버가 닿지 않거나 타임아웃된 경우가 그렇다.
-// 없는 도메인을 물었을 때는 서버가 NXDOMAIN 응답을 주므로 이쪽은 answers 만 빈 채로 잡힌다.
-//
-// **프로세스는 붙이지 않는다.** macOS 의 DNS 질의는 앱이 직접 53번 포트로 쏘는 것이 아니라
-// 전부 mDNSResponder 를 거쳐 나간다. 그래서 이 UDP 소켓의 주인을 찾으면 언제나
-// mDNSResponder 가 나오고, 그건 실제로 질의한 앱이 아니다. 틀린 프로세스를 채우면 조사하는
-// 사람이 그 값을 믿고 엉뚱한 결론을 내므로, 비워 두는 편이 낫다. 진짜 질의자는 같은 시각의
-// l7 이벤트나 network 이벤트에서 찾아야 한다.
+// 질의(IsResponse=false)도 내보내면 같은 도메인이 대시보드에 두 번 올라간다.
+// 프로세스는 일부러 안 붙인다. macOS 질의는 전부 mDNSResponder 를 거쳐 그 주인이 질의자가 아니다.
 func (s *L7Sensor) dnsEvent(flow packet.Flow, payload []byte, now time.Time) (event.Event, bool) {
 	msg, ok := packet.ParseDNS(payload)
 	if !ok || !msg.IsResponse {
@@ -131,15 +106,12 @@ func (s *L7Sensor) dnsEvent(flow packet.Flow, payload []byte, now time.Time) (ev
 	if len(msg.Answers) > 0 {
 		detail["answers"] = msg.Answers
 	}
-	// 프로토콜은 지어내지 않고 패킷에서 본 것을 그대로 쓴다. 이 자리에 오는 것은 UDP 뿐이지만
-	// (handle 의 분기) 관측한 값을 넘기면 나중에 TCP DNS 를 받게 돼도 저절로 맞는다.
+	// 프로토콜은 지어내지 않고 패킷에서 본 것을 그대로 쓴다.
 	return s.Factory.DNS(now, event.DNSInfo{Protocol: flow.Protocol, Domain: msg.Domain}, detail), true
 }
 
 // tlsEvent 는 ClientHello 가 완성되면 이벤트를 만든다.
-//
-// 같은 흐름에서 SNI 를 두 번 내지 않는 것은 Assembler 가 보장한다. 완성한 흐름을 바로
-// 버리므로 재전송된 ClientHello 는 다시 완성되지 않는다.
+// 같은 흐름에서 SNI 를 두 번 내지 않는 것은 Assembler 가 보장한다.
 func (s *L7Sensor) tlsEvent(flow packet.Flow, payload []byte, assembler *packet.Assembler, now time.Time) (event.Event, bool) {
 	if len(payload) == 0 {
 		return event.Event{}, false // 순수 ACK 이나 SYN. 조립기에 넣을 것이 없다
@@ -150,14 +122,12 @@ func (s *L7Sensor) tlsEvent(flow packet.Flow, payload []byte, assembler *packet.
 		return event.Event{}, false
 	}
 
-	// 소켓 주인은 지금 이 자리에서 찾는다. ClientHello 를 방금 봤다는 것은 그 소켓이 이 순간
-	// 확실히 열려 있다는 뜻이라 거의 반드시 찾힌다. 주기적으로 훑는 방식이었다면 짧게 살다 간
-	// 연결은 다음 주기 전에 닫혀 영영 못 찾는다.
+	// 주인은 이 자리에서 찾는다. 주기적으로 훑는 방식으로 바꾸면 짧게 산 연결은 영영 못 찾는다.
 	var process string
 	if s.Owner != nil {
 		process = s.Owner.Lookup(flow.SrcPort, flow.DstIP, flow.DstPort)
 	}
-	// 주인을 못 찾아도 이벤트는 낸다. 어느 도메인에 접속했는지는 프로세스를 몰라도 쓸모가 있다.
+	// 주인을 못 찾아도 버리지 않는다. 버리면 어느 도메인에 접속했는지까지 같이 잃는다.
 
 	detail := map[string]any{"l7Protocol": l7ProtocolTLS}
 	if hello.Version != "" {
@@ -176,37 +146,24 @@ func (s *L7Sensor) tlsEvent(flow packet.Flow, payload []byte, assembler *packet.
 }
 
 // l7 이벤트가 어느 프로토콜에서 나왔는지 표시하는 값.
-// 한 타입에 TLS 와 HTTP 가 같이 들어오므로 이게 없으면 조사할 때 둘을 구분할 수 없다.
+// 한 타입에 TLS 와 HTTP 가 같이 들어와서, 이게 없으면 조사할 때 둘을 구분할 수 없다.
 const (
 	l7ProtocolTLS  = "TLS"
 	l7ProtocolHTTP = "HTTP"
 )
 
-// httpEvent 는 평문 HTTP 에서 이벤트를 만든다.
-//
-// TLS 와 달리 응답도 받는다. 상태 코드가 조사에 쓸모가 있어서다. TLS 쪽 응답에 든 것은
-// 인증서뿐인데 그건 TLS 1.3 에서 암호화돼 어차피 못 읽는다.
-//
-// **재조립하지 않는다.** 요청 라인과 Host 는 헤더 맨 앞이라 첫 세그먼트에 거의 항상 들어온다.
-// 조립기는 TLS 전용이라(첫 바이트가 핸드셰이크인지 보고 거른다) 여기 그대로 쓸 수 없다.
-// 아주 긴 헤더가 쪼개지면 뒤쪽 값을 놓치지만 그때도 "어디에 접속했나" 는 남는다.
-//
-// 요청과 응답이 한 연결에서 둘 다 잡히면 이벤트가 두 건 나간다. 같은 값이 겹쳐 올라오는 것이
-// 아니라 서로 다른 사실(무엇을 요청했나, 서버가 뭐라 답했나)이라 그대로 둔다.
+// httpEvent 는 평문 HTTP 에서 이벤트를 만든다. TLS 와 달리 응답도 받고, 재조립은 하지 않는다.
 func (s *L7Sensor) httpEvent(flow packet.Flow, payload []byte, now time.Time) (event.Event, bool) {
 	msg, ok := packet.ParseHTTP(payload)
 	if !ok {
 		return event.Event{}, false // 80 번을 쓰는 다른 프로토콜이거나 헤더가 아닌 조각이다
 	}
-	// Host 없는 요청은 어느 도메인에 갔는지 말해 주지 않는다. TLS 에서 SNI 없는 핸드셰이크를
-	// 버리는 것과 같은 이유다. 목적지 IP 는 network 이벤트에 이미 있으므로 잃는 것이 없다.
-	// 응답은 예외다. Host 헤더가 원래 없고, 이 이벤트의 값은 상태 코드다.
+	// Host 없는 요청은 도메인을 말해 주지 않는다. 응답까지 이 조건에 넣으면 상태 코드를 다 잃는다.
 	if !msg.IsResponse && msg.Host == "" {
 		return event.Event{}, false
 	}
 
-	// 프로세스는 요청을 낸 쪽에서만 찾는다. 응답 패킷의 출발지 포트는 서버 것이라
-	// 그 값으로 로컬 소켓을 뒤지면 엉뚱한 프로세스가 나오거나 아무것도 안 나온다.
+	// 요청 쪽에서만 찾는다. 응답의 출발지 포트는 서버 것이라 엉뚱한 프로세스가 붙는다.
 	var process string
 	if s.Owner != nil && !msg.IsResponse {
 		process = s.Owner.Lookup(flow.SrcPort, flow.DstIP, flow.DstPort)

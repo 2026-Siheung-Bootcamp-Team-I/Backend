@@ -27,29 +27,23 @@ type Options struct {
 	Logger   *slog.Logger
 }
 
-// Loop 는 하트비트로 명령을 받아 실행하고 결과를 보고한다.
-//
-// 서버가 먼저 접속해 오지 않고 에이전트가 물어보는 이유는 엔드포인트가 방화벽 안쪽에 있기 때문이다.
-// 대신 서버가 결과를 기다려 주기 때문에 대시보드에서는 동기처럼 보인다(docs/agent-protocol.md).
+// Loop 는 하트비트로 명령을 받아 실행하고 결과를 보고한다. 엔드포인트가 방화벽 안쪽이라 에이전트가 먼저 물어본다.
 type Loop struct {
 	client   Client
 	killer   Killer
 	interval time.Duration
 	log      *slog.Logger
 
-	// done 은 이미 실행한 명령의 결과다. 같은 명령을 두 번 실행하지 않으려고 들고 있는다.
-	// 결과 보고가 유실되면 서버가 같은 명령을 다시 내려주는데, 그 사이 같은 이름으로 뜬
-	// 정상 프로세스를 죽일 수 있다. 다시 받으면 실행 없이 저장해 둔 결과만 다시 보고한다.
+	// done 은 이미 실행한 명령의 결과다. 다시 내려온 명령을 재실행하면 그 사이 같은 이름으로 뜬 정상 프로세스를 죽인다.
 	done map[string]transport.CommandResult
 }
 
-// doneLimit 은 기억할 명령 수 상한이다.
-// 명령은 사람이 버튼을 눌러야 생기므로 실제로는 몇 건뿐이다. 오래 도는 에이전트에서
-// 맵이 무한정 커지는 것만 막으면 된다.
+// doneLimit 은 기억할 명령 수 상한이다. 오래 도는 에이전트에서 맵이 무한정 커지는 것만 막는다.
 const doneLimit = 256
 
 // New 는 명령 루프를 만든다.
 func New(client Client, killer Killer, opts Options) *Loop {
+	// 이 주기가 곧 하트비트 주기다. 늘리면 조치가 그만큼 늦게 나가고 서버가 보는 마지막 접속 시각도 늦어진다.
 	if opts.Interval <= 0 {
 		opts.Interval = 3 * time.Second
 	}
@@ -66,7 +60,6 @@ func New(client Client, killer Killer, opts Options) *Loop {
 }
 
 // Run 은 주기마다 서버에 명령을 물어보고 실행한다. ctx 가 끝나면 nil 을 돌려준다.
-//
 // 하트비트가 실패해도 루프를 끝내지 않는다. 서버가 잠깐 죽었다고 조치 채널이 영구히 닫히면 안 된다.
 func (l *Loop) Run(ctx context.Context) error {
 	ticker := time.NewTicker(l.interval)
@@ -94,11 +87,7 @@ func (l *Loop) poll(ctx context.Context) error {
 	return nil
 }
 
-// Execute 는 명령 묶음을 실행하고 결과를 보고한다.
-//
-// 밖에서 부를 수 있게 열어 둔 이유가 있다. 에이전트는 기동할 때 수집 설정을 받으려고 하트비트를
-// 한 번 부르는데, 그 응답에도 대기 중인 명령이 실려 온다. 서버는 한 번 내준 명령을 다시 주지
-// 않으므로 그걸 버리면 조치가 실행되지 않고 서버는 결과를 기다리다 TIMEOUT 으로 끝난다.
+// Execute 는 명령 묶음을 실행하고 결과를 보고한다. 기동 시 첫 하트비트에 실려 온 명령도 처리하려고 열어 뒀다.
 func (l *Loop) Execute(ctx context.Context, commands []transport.Command) {
 	for _, cmd := range commands {
 		result := l.run(cmd)
@@ -121,8 +110,7 @@ func (l *Loop) run(cmd transport.Command) transport.CommandResult {
 		status, message := l.killer.Kill(cmd.Target)
 		result = transport.CommandResult{CommandID: cmd.ID, Status: status, Message: message}
 	default:
-		// 모르는 명령을 조용히 무시하면 서버는 결과가 올 때까지 기다리다 TIMEOUT 으로 끝난다.
-		// 왜 안 됐는지가 남지 않으므로 명시적으로 실패를 보고한다.
+		// 조용히 무시하면 서버가 결과를 기다리다 TIMEOUT 으로 끝나므로 실패를 명시한다.
 		result = transport.CommandResult{
 			CommandID: cmd.ID,
 			Status:    transport.StatusFailed,

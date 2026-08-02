@@ -13,13 +13,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * 에이전트 수집 API(enroll/heartbeat/events/command-result). 자체 enroll_secret/node_key 로 인증한다.
- *
- * <p>인증 실패는 전부 HTTP 401 이다. 200 본문에 실패를 담지 않는다. 에이전트는 401 을 받으면
- * 저장한 node_key 를 버리고 다시 등록한 뒤 한 번 재시도한다. 서버가 재시작해 키를 잃어도
- * 사람이 손대지 않고 복구되어야 하기 때문이다.
- *
- * <p>node_key 는 해시로만 저장한다. 이전에 api-service 가 평문으로 발급해 둔 키는 여기서 인증되지
- * 않지만 마이그레이션은 필요 없다. 그 에이전트는 401 을 받고 스스로 다시 등록한다.
+ * 인증 실패는 전부 HTTP 401 이다. 200 본문에 실패를 담으면 에이전트가 node_key 를 버리고 재등록하지 못한다.
  */
 @RestController
 @RequestMapping("/api/agent")

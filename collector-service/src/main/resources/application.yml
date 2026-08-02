@@ -1,6 +1,11 @@
 spring:
   application:
     name: collector
+  config:
+    import:
+      - classpath:observability.yml
+      # 메트릭 익스포터 꺼짐: observability-metrics.yml 을 넣지 않는다.
+      # micrometer-registry-otlp 가 없는 서비스라 트레이스만 보낸다(메트릭은 api/detector/archiver 에만).
   datasource:
     url: ${DB_URL:jdbc:mysql://localhost:3306/edrdog_collector}
     username: ${DB_USER:edrdog}
@@ -38,17 +43,3 @@ edrdog:
     url: ${API_URL:http://api-service}               # enroll secret → tenant 조회 대상. 로컬은 http://localhost:8084
   responder:
     url: ${RESPONDER_URL:http://responder-service}   # 대기 명령 조회·결과 전달 대상(ClusterIP)
-
-management:
-  endpoints:
-    web:
-      exposure:
-        include: health, info
-  # 관측 — 트레이스만 보낸다(메트릭 익스포터는 api/detector/archiver 에만).
-  tracing:
-    enabled: ${OTEL_ENABLED:true}
-    sampling:
-      probability: ${OTEL_TRACE_SAMPLING:1.0}
-  otlp:
-    tracing:
-      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/traces

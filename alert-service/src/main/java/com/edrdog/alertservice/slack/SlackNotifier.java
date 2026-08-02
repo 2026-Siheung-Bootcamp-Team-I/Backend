@@ -11,8 +11,7 @@ import java.util.Map;
 
 /**
  * alert 를 지정된 Slack Incoming Webhook 으로 전송한다.
- * 목적지(webhook) 결정은 {@link com.edrdog.alertservice.webhook.AlertRouter} 가 담당하고,
- * 여기서는 받은 URL 로 POST 만 한다. 메시지 포맷(format)은 순수 로직으로 분리해 단위 테스트한다.
+ * 목적지(webhook) 결정은 {@link com.edrdog.alertservice.webhook.AlertRouter} 가 담당하고, 여기서는 받은 URL 로 POST 만 한다.
  */
 @Component
 public class SlackNotifier {
@@ -25,11 +24,7 @@ public class SlackNotifier {
         this.client = builder.build();
     }
 
-    /**
-     * alert 를 주어진 webhook URL 로 전송하고 성공 여부를 돌려준다.
-     * 예외를 밖으로 던지지는 않는다(한 건 실패로 컨슈머를 멈추지 않는다). 대신 false 를 돌려줘
-     * 호출자가 쿨다운을 롤백할 수 있게 한다.
-     */
+    /** alert 를 전송하고 성공 여부를 돌려준다. 한 건 실패로 컨슈머가 멈추지 않도록 예외 대신 false 를 준다. */
     public boolean send(Alert alert, String webhookUrl) {
         try {
             client.post()

@@ -22,6 +22,10 @@ subprojects {
         targetCompatibility = JavaVersion.VERSION_21
     }
 
+    // 공통 관측 설정(shared-resources/observability*.yml)을 전 서비스 클래스패스에 올린다.
+    // 각 서비스 application.yml 이 spring.config.import 로 이 파일들을 가져간다.
+    sourceSets.main.resources.srcDir rootProject.file('shared-resources')
+
     dependencies {
         implementation 'org.springframework.boot:spring-boot-starter-actuator'
         // 분산 트레이싱 — 전 서비스 공통. Kafka 로 흩어진 이벤트 흐름을 traceId 하나로 잇는 게 목적.

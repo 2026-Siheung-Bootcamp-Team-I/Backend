@@ -14,8 +14,7 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * api-service 내부 엔드포인트로 host 소유 유저의 알림 목적지를 조회한다 (API 컴포지션).
  * {@code GET {base}/api/internal/alert-target?tenantId={}&host={}}, 헤더 {@code X-Internal-Key}.
- * {@link TenantWebhookClient} 와 같은 캐시 규칙: 확정 결과(200/404)만 짧은 TTL 로 캐시하고
- * 일시 오류(api-service 다운 등)는 캐시하지 않아 다음 alert 때 재시도한다.
+ * 캐시 규칙은 {@link TenantWebhookClient} 와 같다.
  */
 @Component
 public class HostTargetClient {
@@ -37,7 +36,7 @@ public class HostTargetClient {
         this.ttlMs = ttlMs;
     }
 
-    /** tenantId+host 의 소유 목적지를 조회. 소유자 없음/미설정은 empty. 확정 결과만 TTL 캐시. */
+    /** tenantId+host 의 소유 목적지를 조회. 소유자 없음/미설정은 empty. */
     public Optional<Target> resolve(String tenantId, String host) {
         if (tenantId == null || tenantId.isBlank() || host == null || host.isBlank()) {
             return Optional.empty();

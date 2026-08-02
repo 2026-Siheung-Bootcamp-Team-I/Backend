@@ -12,9 +12,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 
 /**
- * 탐지 룰 카탈로그 조회 REST. 룰 설명은 정적 데이터라 알림 목록에 싣지 않고 별도 엔드포인트로 제공한다
- * (프론트가 한 번 받아 캐시). tenant 별로 다른 값이 아니므로 로그인 여부만 확인하고 tenant 격리는 하지 않는다
- * (AlertController 와 동일한 세션 Bearer 패턴).
+ * 탐지 룰 카탈로그 조회 REST. 룰 설명은 정적 데이터라 알림 목록에 싣지 않고 별도 엔드포인트로 준다(프론트가 받아 캐시).
  */
 @RestController
 @RequestMapping("/api/alerts")

@@ -10,10 +10,7 @@ import org.springframework.web.client.RestClientException;
 
 /**
  * responder-service 내부 API 호출 래퍼(kill 위임).
- *
- * <p>responder 는 클러스터 내부(ClusterIP)로만 노출되고 앱 레벨 인증이 없다. 접근 통제는 이 프록시
- * (api-service)의 Bearer 세션 인증 + tenant 소유 검증으로 대신한다(AlertController).
- * 다른 내부 RestClient(ClickHouseReader 등)와 같은 per-component builder 패턴을 따른다.
+ * responder 에는 앱 레벨 인증이 없어, 접근 통제는 이 프록시의 Bearer 세션 인증 + tenant 소유 검증(AlertController)이 전부다.
  */
 @Component
 public class ResponderClient {
@@ -28,8 +25,8 @@ public class ResponderClient {
 
     /**
      * host 의 target 프로세스 kill 을 responder 에 요청하고 실행 결과를 그대로 돌려준다.
-     * responder 가 죽어있거나 오류를 주면(연결 실패·4xx/5xx) 불투명한 500 대신 FAILED 결과로 매핑한다
-     * (responder 상태 어휘와 동일). 실패해도 실제 kill 은 일어나지 않으므로 fail-closed 다.
+     * 연결 실패·4xx/5xx·빈 응답을 FAILED 로 매핑한다. 그냥 던지면 불투명한 500 이 나가고,
+     * 반대로 KILLED 로 두면 종료되지 않은 프로세스를 처리 완료로 넘긴다(fail-closed).
      */
     public KillResult kill(String host, String target) {
         try {

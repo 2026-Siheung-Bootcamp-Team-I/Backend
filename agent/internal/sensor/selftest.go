@@ -1,6 +1,4 @@
 // Package sensor 는 플랫폼별 관찰 지점을 담는다.
-//
-// 현재는 자체 점검용 센서 하나뿐이다. Windows ETW 와 macOS eslogger 센서가 여기에 들어온다.
 package sensor
 
 import (
@@ -12,9 +10,6 @@ import (
 )
 
 // SelfTest 는 커널을 건드리지 않고 네 가지 이벤트 타입을 한 벌씩 만들어 낸다.
-//
-// 센서를 붙이기 전에 스키마와 전송 경로가 서버 끝까지 맞는지 확인하려는 용도다.
-// 이게 대시보드까지 올라오면 남은 일은 진짜 이벤트 소스를 끼우는 것뿐이다.
 type SelfTest struct {
 	Factory  event.Factory
 	Interval time.Duration
@@ -49,12 +44,8 @@ func (s *SelfTest) Run(ctx context.Context, out chan<- event.Event) error {
 func (s *SelfTest) emit(ctx context.Context, out chan<- event.Event) error {
 	now := time.Now()
 
-	// pid 와 해시는 지어내지 않고 에이전트 자신의 것을 쓴다. 해시는 실행 파일을 실제로 읽어
-	// 구하므로, 값이 대시보드까지 올라오면 해시기가 이 기기에서 실제로 먹힌다는 뜻이 된다.
-	// 지어낸 64자를 넣으면 값이 보여도 그건 확인이 아니다.
-	//
-	// 그래서 경로는 가짜인데 pid 와 해시는 진짜다. 이 이벤트가 관측 결과로 읽히면 안 되는 이유는
-	// 나머지 필드도 마찬가지라(203.0.113.1 은 문서용 주소다) 이 센서 전체에 걸린 전제다.
+	// pid 와 해시는 진짜 값이어야 한다. 지어낸 64자를 넣으면 해시기가 먹히는지 확인할 수 없다.
+	// 나머지 필드는 가짜다(203.0.113.1 은 문서용 주소). 이 이벤트를 관측 결과로 읽으면 안 된다.
 	self := event.ProcessInfo{
 		Path:    "/usr/bin/selftest",
 		Cmdline: "selftest --process",
@@ -112,7 +103,6 @@ func (s *SelfTest) emit(ctx context.Context, out chan<- event.Event) error {
 }
 
 // selfSHA256 은 에이전트 실행 파일 자신의 해시다. 구하지 못하면 빈 값이다.
-// 경로를 알 수 없는 경우(os.Executable 실패)까지 점검을 세울 이유는 없다. 해시 자리만 비면 된다.
 func (s *SelfTest) selfSHA256() string {
 	path, err := os.Executable()
 	if err != nil {

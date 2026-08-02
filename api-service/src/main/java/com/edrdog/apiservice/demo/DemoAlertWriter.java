@@ -2,13 +2,12 @@ package com.edrdog.apiservice.demo;
 
 import com.edrdog.apiservice.alert.AlertId;
 import com.edrdog.apiservice.alert.dto.Alert;
+import com.edrdog.apiservice.clickhouse.ClickHouseHttp;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestClient;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -17,43 +16,34 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
- * 데모 시드 alerts 를 ClickHouse 에 직접 적재한다(DemoEventWriter 와 같은 패턴).
- * 평소 적재는 archiver 담당이고 여기는 발표용 과거 데이터 전용이라, 시드 플래그가 켜진 경우에만 빈으로 올라온다.
- * 테이블 스키마도 archiver 가 보장하므로 여기서는 INSERT 만 한다.
+ * 데모 시드 alerts 를 archiver 를 거치지 않고 ClickHouse 에 직접 적재한다(테이블 스키마는 archiver 가 보장하는 걸 쓴다).
+ * 조건부 빈을 풀면 운영 판정기록에 데모 alert 가 섞인다({@code edrdog.demo.seed} 가 그걸 막는 유일한 장치다).
  *
- * <p>id 는 적재 경로와 같은 {@link AlertId} 로 계산한다. 결정적이라 재기동으로 다시 넣어도
- * ReplacingMergeTree 가 병합 시 한 행으로 접는다(트리아지한 status 오버레이도 그대로 붙는다).
+ * <p>id 는 적재 경로와 같은 {@link AlertId} 로 계산한다. 임의 id 로 바꾸면 재기동마다 같은 alert 가
+ * 새 행으로 쌓인다(결정적이라야 ReplacingMergeTree 가 한 행으로 접는다).
  */
 @Component
 @ConditionalOnProperty(name = "edrdog.demo.seed", havingValue = "true")
 public class DemoAlertWriter {
 
-    private final RestClient client;
+    private final ClickHouseHttp http;
     private final ObjectMapper mapper;
     private final String table;
 
     public DemoAlertWriter(
-            @Value("${edrdog.clickhouse.url}") String url,
-            @Value("${edrdog.clickhouse.database}") String database,
-            @Value("${edrdog.clickhouse.user}") String user,
-            @Value("${edrdog.clickhouse.password}") String password,
+            ClickHouseHttp http,
             @Value("${edrdog.clickhouse.alerts-table}") String table,
             ObjectMapper mapper) {
+        this.http = http;
         this.table = table;
         this.mapper = mapper;
-        this.client = RestClient.builder()
-                .baseUrl(url)
-                .defaultHeader("X-ClickHouse-User", user)
-                .defaultHeader("X-ClickHouse-Key", password)
-                .defaultHeader("X-ClickHouse-Database", database)
-                .build();
     }
 
     public void insert(List<Alert> alerts) {
         if (alerts.isEmpty()) {
             return;
         }
-        execute("INSERT INTO " + table + " FORMAT JSONEachRow\n"
+        http.execute("INSERT INTO " + table + " FORMAT JSONEachRow\n"
                 + alerts.stream().map(this::toJson).collect(Collectors.joining("\n")));
     }
 
@@ -76,15 +66,6 @@ public class DemoAlertWriter {
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("데모 alert 직렬화 실패: " + row, e);
         }
-    }
-
-    private void execute(String sql) {
-        client.post()
-                .uri("/")
-                .contentType(MediaType.TEXT_PLAIN)
-                .body(sql)
-                .retrieve()
-                .toBodilessEntity();
     }
 
     private static String nz(String s) {

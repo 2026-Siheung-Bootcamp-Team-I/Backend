@@ -25,11 +25,7 @@ public class SearchController {
 
     private static final String BEARER_PREFIX = "Bearer ";
 
-    /**
-     * 기본 조회 기간: 최근 7일. 목록 조회의 24시간보다 넓게 잡는 이유는 검색이 "어디 있는지 모를 때"
-     * 쓰는 것이라서다. 어제 본 것을 못 찾으면 상단바를 다시 안 쓴다.
-     * 이벤트는 TTL 이 7일이라 이보다 넓혀도 나올 것이 없다.
-     */
+    /** 기본 조회 기간: 최근 7일. 이벤트 TTL 이 7일이라 이보다 넓혀도 나올 것이 없다. */
     private static final long DEFAULT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000L;
 
     private final SearchService search;

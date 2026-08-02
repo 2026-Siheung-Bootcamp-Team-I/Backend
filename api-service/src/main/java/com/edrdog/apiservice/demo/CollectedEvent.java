@@ -2,9 +2,6 @@ package com.edrdog.apiservice.demo;
 
 /**
  * events 토픽 발행 스키마 사본 (detector 의 Event 와 동일 필드).
- * 데모 수집 API 가 이 형태로 발행하면 detector Kafka Streams 가 그대로 상관분석한다.
- *
- * <p>detector/archiver 모듈이 각자 사본을 두는 것과 같은 이유로 여기에도 사본을 둔다(모듈 간 의존 없음).
  * 필드명이 detector 의 Event 와 어긋나면 판정 입력이 null 로 들어가므로 바꿀 때 함께 맞춰야 한다.
  *
  * @param host      엔드포인트 식별자 (상관분석 키 = Kafka 파티션 키)

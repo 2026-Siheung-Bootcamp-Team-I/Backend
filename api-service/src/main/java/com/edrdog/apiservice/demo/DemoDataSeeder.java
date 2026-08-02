@@ -13,16 +13,10 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 발표용 과거 데이터를 부팅 시 채운다. {@code edrdog.demo.seed=true} 일 때만 빈으로 올라온다.
- *
- * <p>events 와 alerts 를 ClickHouse 에 직접 넣는다. Kafka 를 거치지 않는 이유는
- * 과거 시각으로 발행하면 detector 의 event-time 윈도우가 성립하지 않아 판정이 안 나오기 때문이다.
- * 실시간 시연은 detector 의 시나리오 발행 API 로 하고, 여기서는 배경만 만든다.
- *
- * <p>재적재 기준이 둘로 나뉜다. events 는 ClickHouse 가 emptyDir 라 파드 재시작으로 사라질 수 있어
- * "비어 있으면 다시" 채우고, alerts 는 DemoAlertWriter 가 결정적 id 로 멱등 적재하므로 매번 호출해도 안전하다.
- *
- * <p>시드 실패로 앱이 못 뜨면 발표 자체가 막히므로, 예외는 삼키고 경고만 남긴다.
+ * 발표용 과거 데이터(events + alerts)를 부팅 시 ClickHouse 에 직접 채운다.
+ * 조건부 빈을 풀면 운영 데이터에 데모 과거 기록이 섞인다({@code edrdog.demo.seed} 가 그걸 막는 유일한 장치다).
+ * Kafka 로 돌리면 과거 시각이라 detector 의 event-time 윈도우가 성립하지 않아 판정이 안 나온다.
+ * 시드 실패로 앱이 못 뜨면 발표 자체가 막히므로 예외는 삼키고 경고만 남긴다.
  */
 @Component
 @ConditionalOnProperty(name = "edrdog.demo.seed", havingValue = "true")
@@ -52,11 +46,7 @@ public class DemoDataSeeder {
         seedAlerts(now);
     }
 
-    /**
-     * 데모 events 가 없을 때만 채운다. ClickHouse 는 dedup 이 없어 두 번 넣으면 그대로 두 배가 된다.
-     * 판별은 대표 호스트({@link DemoData#MARKER_HOST}) 유무로 한다. 같은 tenant 에 개발 중 남은
-     * 다른 이벤트가 있어도 데모 데이터는 정상적으로 채워져야 하기 때문이다.
-     */
+    /** 데모 events 가 없을 때만 채운다. events 는 dedup 이 없어 두 번 넣으면 그대로 두 배가 된다. */
     private void seedEvents(long now) {
         try {
             if (alreadySeeded()) {

@@ -36,14 +36,12 @@ public final class Rules {
     private static final Set<String> FILE_AUTORUN_MARKERS = Set.of(
             "\\startup\\", "\\currentversion\\run");
 
-    /**
-     * 현재 이벤트가 선행 버퍼와 상관되어 룰을 완성하면 Alert 반환. 여러 룰 매칭 시 가장 심각한 것 채택.
-     */
+    /** 현재 이벤트가 선행 버퍼와 상관되어 룰을 완성하면 Alert 반환. 여러 룰 매칭 시 가장 심각한 것 채택. */
     public static Optional<Alert> evaluate(List<Event> prior, Event current) {
         if (current == null || current.host() == null) {
             return Optional.empty();
         }
-        // 더 심각한 R2(CRITICAL) 를 먼저 시도
+        // 시도 순서가 곧 우선순위다. 순서를 바꾸면 CRITICAL 이 될 이벤트가 낮은 심각도로 덮인다.
         Optional<Alert> r2 = downloadAndExecute(prior, current);
         if (r2.isPresent()) {
             return r2;
@@ -60,17 +58,9 @@ public final class Rules {
         return fileInAutorunPath(current);
     }
 
-/**
+    /**
      * 선행 이벤트로 버퍼에 남길 가치가 있는지 (순수 판정).
-     *
-     * <p>버퍼는 상태 크기 때문에 상한이 있는데, 실기기는 초당 십여 건씩 프로세스 이벤트를 낸다.
-     * 전부 담으면 상한이 금방 차서 5분 윈도우가 사실상 십여 초로 줄고, 상관 룰이 발화하지 못한다.
-     * 룰이 '선행'으로 실제 참조하는 것만 남긴다. 나머지는 현재 이벤트로 판정될 때 이미 쓰였다.
-     *
-     * <ul>
-     *   <li>network: 다운로드 포트만 (R2)</li>
-     *   <li>process: office 앱(R1 의 부모 후보) 또는 임시·다운로드 경로 실행(R2 역방향)</li>
-     * </ul>
+     * 전부 담으면 버퍼 상한이 금방 차서 5분 윈도우가 십여 초로 줄고 상관 룰이 발화하지 못한다.
      */
     public static boolean isCorrelatable(Event e) {
         if (e == null) {
@@ -110,12 +100,7 @@ public final class Rules {
 
     /**
      * R2 T1105+T1204: network 다운로드 → 이후 process 실행.
-     *
-     * <p>판정은 <b>이벤트 시각</b> 순서로 한다. 도착 순서로만 보면 이 조합을 거의 놓친다.
-     * 예전 구성(네트워크는 Zeek, 프로세스는 osquery)에서 실기기 R2 가 한 번도 발화하지 않은 원인이
-     * 이것이었다. Zeek 는 연결이 끝난 뒤에 기록하고 전송기가 묶어 보내서 네트워크 이벤트가 항상
-     * 늦게 도착했다. 지금은 한 에이전트가 둘 다 보내지만, 센서마다 지연이 다른 것은 그대로라
-     * 도착 순서에 기대지 않는다. 어느 쪽이 나중에 도착하든 시각상 다운로드가 먼저면 판정한다.
+     * 판정은 이벤트 시각 순서로 한다. 도착 순서로 보면 이 조합을 거의 놓친다.
      */
     private static Optional<Alert> downloadAndExecute(List<Event> prior, Event current) {
         // 네트워크가 늦게 도착한 경우: 버퍼에서 그 뒤에 실행된 프로세스를 찾는다.
@@ -132,10 +117,7 @@ public final class Rules {
         if (!isProcess(current) || isBaseline(lower(current.process()))) {
             return Optional.empty();
         }
-        // 받아온 것을 "실행"했는지가 핵심이다(T1105+T1204). 조건이 없으면 웹 접속 한 번 뒤의
-        // 모든 프로세스 실행이 CRITICAL 이 된다. 인자까지 보면 정상 프로세스가 임시 경로를
-        // 인자로 받는 경우(find /private/tmp/..., mount_apfs ... /private/tmp/PKInstallSandbox/...)
-        // 까지 걸리므로, 실행된 파일 자체(argv[0])만 본다.
+        // 이 검사가 없으면 웹 접속 한 번 뒤의 모든 프로세스 실행이 CRITICAL 이 된다.
         if (!executableFromTempPath(current.cmdline())) {
             return Optional.empty();
         }
@@ -169,11 +151,7 @@ public final class Rules {
                 current, List.of()));
     }
 
-    /**
-     * 판정 결과 조립. 근거는 선행(prior) 뒤에 트리거를 붙인 순서이고, 따라서 <b>matched 의 마지막은 항상
-     * 트리거</b>(= alert.ts 인 이벤트)다. api-service 가 알림에서 원본 이벤트를 되찾을 때 이 순서에 기댄다
-     * (SourceEventMatcher). 서비스 경계를 넘는 규약이라 호출부가 순서를 틀릴 수 없도록 트리거를 여기서 붙인다.
-     */
+    /** 판정 결과 조립. matched 의 마지막은 항상 트리거다. 순서를 바꾸면 api-service 가 원본 이벤트를 되찾지 못한다. */
     private static Alert alertOf(String ruleId, String mitre, String severity, Event trigger, List<Event> prior) {
         List<Event> evidence = new ArrayList<>(prior);
         evidence.add(trigger);
@@ -192,15 +170,7 @@ public final class Rules {
                 destination == null ? "" : nz(destination.destIp()));
     }
 
-    /**
-     * 근거 중 목적지를 관측한 이벤트 (없으면 null).
-     *
-     * <p>방금 도착한 이벤트 하나만 보면 안 된다. R2 는 다운로드(network)와 실행(process)을 상관하는데
-     * 목적지를 아는 건 다운로드 쪽뿐이다. 네트워크가 늦게 도착한 갈래는 도착한 이벤트가 network 라
-     * 목적지가 실리고, 정상 순서로 도착한 갈래는 process 라 목적지가 빈다. 같은 공격인데 도착 순서에
-     * 따라 값이 갈리면 topology 화면에서 절반만 그려진다. 룰이 도착 순서에 독립적으로 판정하는 만큼
-     * 목적지도 그래야 한다.
-     */
+    /** 근거 중 목적지를 관측한 이벤트 (없으면 null). 트리거만 보면 도착 순서에 따라 목적지가 빈다. */
     private static Event destinationOf(List<Event> evidence) {
         return evidence.stream()
                 .filter(e -> !nz(e.destIp()).isBlank() || !nz(e.domain()).isBlank())
@@ -231,7 +201,7 @@ public final class Rules {
     /** 셸 연산자 — 여기부터는 실행 대상이 아니라 출력/후속 명령이라 판정에서 제외한다. */
     private static final Set<String> SHELL_OPERATORS = Set.of(">", ">>", ">|", "<", "|", "||", "&&", ";", "&");
 
-    /** 실행된 파일 자체(argv[0])만 본다. 인자까지 보면 정상 프로세스의 오탐이 난다(find/mount_apfs 사례, downloadAndExecute 참고). */
+    /** 실행된 파일 자체(argv[0])만 본다. 인자까지 보면 임시 경로를 인자로 받는 정상 프로세스가 오탐된다. */
     private static boolean executableFromTempPath(String cmdline) {
         String c = lower(cmdline);
         if (c == null) {
@@ -241,13 +211,7 @@ public final class Rules {
         return !tokens.isEmpty() && isTempOrDownloadPath(tokens.get(0));
     }
 
-    /**
-     * cmdline 에서 "실행 대상으로 보이는 경로 인자"가 임시·다운로드 경로인지 본다.
-     *
-     * <p>cmdline 전체를 문자열로 훑으면 실행과 무관한 위치의 경로까지 걸린다. 실제로
-     * {@code ... && pwd -P >| /tmp/x} 처럼 리다이렉션 대상이 임시 경로라는 이유로 알림이 나갔다.
-     * 그래서 셸 연산자가 나오면 거기서 끊는다.
-     */
+    /** cmdline 에서 "실행 대상으로 보이는 경로 인자"가 임시·다운로드 경로인지 본다. */
     private static boolean pathArgumentFromTempPath(String cmdline) {
         String c = lower(cmdline);
         if (c == null) {
@@ -255,7 +219,7 @@ public final class Rules {
         }
         for (String token : tokenize(c)) {
             if (SHELL_OPERATORS.contains(token)) {
-                return false;   // 연산자 뒤는 실행 대상이 아니다
+                return false;   // 여기서 안 끊으면 리다이렉션 대상(>| /tmp/x)이 임시 경로라고 알림이 나간다
             }
             if (isTempOrDownloadPath(token)) {
                 return true;
@@ -264,13 +228,7 @@ public final class Rules {
         return false;
     }
 
-    /**
-     * 공백으로 자르되 인용부호로 묶인 구간은 한 토큰으로 유지하고 인용부호는 벗긴다.
-     *
-     * <p>경로가 인용부호로 감싸여 온다(실측: {@code launchctl unload "/Applications/.../tmp/x.plist"}).
-     * 단순히 공백으로만 자르면 사용자명에 공백이 있는 경로({@code "C:\Users\John Doe\Downloads\x.ps1"})가
-     * 조각나서, 시작 위치로 판정하는 방식이 그런 경로를 아예 못 본다.
-     */
+    /** 공백으로 자르되 인용부호 구간은 한 토큰으로 유지한다. 공백으로만 자르면 공백 포함 경로를 아예 못 본다. */
     private static List<String> tokenize(String cmdline) {
         List<String> tokens = new ArrayList<>();
         StringBuilder token = new StringBuilder();
@@ -299,13 +257,7 @@ public final class Rules {
         return tokens;
     }
 
-    /**
-     * 시스템 임시·다운로드 경로인지 경로 구조로 판정한다 (소문자 기준).
-     *
-     * <p>{@code /tmp/} 같은 조각을 경로 어디서든 찾으면 앱 내부 폴더가 시스템 임시 경로로 오인된다.
-     * 실기기에서 R3 알림 42건이 전부 이것이었다: AhnLab 보안제품이 자기 업데이트 plist 를 다루는
-     * {@code "/Applications/AhnLab/ASTx/tmp/..."} 가 걸렸다. 조각을 더 빼는 대신 시작 위치를 고정한다.
-     */
+    /** 시스템 임시·다운로드 경로인지 (소문자 기준). 조각 검색으로 바꾸면 앱 내부 tmp 폴더가 오탐된다. */
     private static boolean isTempOrDownloadPath(String p) {
         if (p.startsWith("/")) {
             return p.startsWith("/tmp/")
@@ -335,11 +287,7 @@ public final class Rules {
                 || underUserHome(p, "/users/", "library/launchagents/");
     }
 
-    /**
-     * 홈 바로 아래가 tail 인지 (예: {@code /users/me/downloads/...}).
-     *
-     * <p>사용자명 한 칸을 강제해서, 홈 밑이 아닌 곳에 같은 이름 폴더가 있는 경우를 거른다.
-     */
+    /** 홈 바로 아래가 tail 인지 (예: {@code /users/me/downloads/...}). 사용자명 한 칸을 안 강제하면 홈 밑이 아닌 동명 폴더까지 걸린다. */
     private static boolean underUserHome(String path, String homeRoot, String tail) {
         if (!path.startsWith(homeRoot)) {
             return false;

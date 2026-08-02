@@ -1,5 +1,6 @@
 package com.edrdog.apiservice.intelligence.correlate;
 
+import com.edrdog.apiservice.clickhouse.ClickHouseHttp;
 import com.edrdog.apiservice.clickhouse.ClickHouseReader;
 import com.edrdog.apiservice.query.ClickHouseQuery;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -161,7 +162,7 @@ class CorrelateServiceTest {
 
         @SafeVarargs
         FakeReader(List<Map<String, Object>>... responses) {
-            super("http://localhost:8123", "edrdog", "u", "p", new ObjectMapper());
+            super(new ClickHouseHttp("http://localhost:8123", "edrdog", "u", "p", 1000, 1000), new ObjectMapper());
             this.responses = List.of(responses);
         }
 

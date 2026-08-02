@@ -1,15 +1,14 @@
 package com.edrdog.archiverservice.alert;
 
 import com.edrdog.archiverservice.alert.dto.Alert;
+import com.edrdog.archiverservice.clickhouse.ClickHouseHttp;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestClient;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -17,56 +16,42 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 판정기록(불변)을 ClickHouse HTTP(8123) 로 적재하고, 부팅 시 alerts 테이블 스키마를 보장한다.
- * archiver 의 ClickHouseWriter(events)와 같은 패턴이다(쿼리는 POST 본문 첫 줄, 데이터는 JSONEachRow 로 이어붙임).
- *
- * <p>테이블은 ReplacingMergeTree 라 같은 id 가 재삽입돼도 병합 시 한 행으로 접힌다.
- * 다만 병합은 비동기라 조회 쪽(api-service AlertQueryBuilder)은 반드시 FINAL 로 dedup 한다.
+ * 판정기록(불변)을 ClickHouse 에 적재하고, 부팅 시 alerts 테이블 스키마를 보장한다.
+ * ReplacingMergeTree 병합은 비동기라 조회 쪽(api-service AlertQueryBuilder)은 반드시 FINAL 로 dedup 한다.
  */
 @Component
 public class AlertClickHouseWriter {
 
     private static final Logger log = LoggerFactory.getLogger(AlertClickHouseWriter.class);
 
-    private final RestClient client;
+    private final ClickHouseHttp http;
     private final ObjectMapper mapper;
     private final String table;
     private volatile boolean schemaReady = false;
 
-    /** 나중에 추가된 컬럼. CREATE 문에도 있지만 ALTER 로 한 번 더 보장한다(아래 ensureSchema 주석 참고). */
+    /** 나중에 추가돼 ALTER 로 한 번 더 보장하는 컬럼. */
     private static final List<String> ADDED_COLUMNS = List.of(
             "domain String",
             "dest_ip String"
     );
 
-    /** 보관기간 90일. 판정기록은 건수가 적어 events(7일)보다 길게 둔다. 정규형인 건 SHOW CREATE 와 비교하기 때문. */
+    /** 보관기간 90일. SHOW CREATE 결과와 문자열 비교하므로 정규형으로 쓴다. */
     private static final String TTL = "toDateTime(created_at) + toIntervalDay(90)";
 
     public AlertClickHouseWriter(
-            @Value("${edrdog.clickhouse.url}") String url,
-            @Value("${edrdog.clickhouse.database}") String database,
-            @Value("${edrdog.clickhouse.user}") String user,
-            @Value("${edrdog.clickhouse.password}") String password,
+            ClickHouseHttp http,
             @Value("${edrdog.clickhouse.alerts-table}") String table,
             ObjectMapper mapper) {
+        this.http = http;
         this.table = table;
         this.mapper = mapper;
-        this.client = RestClient.builder()
-                .baseUrl(url)
-                .defaultHeader("X-ClickHouse-User", user)
-                .defaultHeader("X-ClickHouse-Key", password)
-                .defaultHeader("X-ClickHouse-Database", database)
-                .build();
     }
 
-    /**
-     * 부팅 시 alerts 테이블 생성 (개발용: 매 기동마다 IF NOT EXISTS).
-     * CH 가 아직 없어도 앱은 떠야 하므로(적재는 요청 시점에 다시 붙는다) 실패는 삼키고 경고만 남긴다.
-     */
+    /** 부팅 시 alerts 테이블 생성. CH 가 없어도 앱은 떠야 하므로 실패는 경고만 남긴다. */
     @PostConstruct
     void ensureSchema() {
         try {
-            execute("""
+            http.execute("""
                     CREATE TABLE IF NOT EXISTS %s (
                         id String,
                         tenant_id String,
@@ -85,11 +70,9 @@ public class AlertClickHouseWriter {
                     TTL %s
                     """.formatted(table, TTL));
 
-            // CREATE TABLE IF NOT EXISTS 는 이미 있는 테이블의 스키마를 바꾸지 않는다. 그래서 배포된 서버처럼
-            // 예전 컬럼 구성으로 만들어진 테이블에는 위 DDL 로 새 컬럼이 붙지 않고, 그 컬럼을 담은 INSERT 가
-            // 통째로 실패해 적재가 끊긴다. 나중에 늘어난 컬럼은 ALTER 로 한 번 더 보장한다.
+            // 기존 테이블에는 위 DDL 이 새 컬럼을 못 붙인다. 나중에 늘어난 컬럼은 ALTER 로 보장한다.
             for (String column : ADDED_COLUMNS) {
-                execute("ALTER TABLE " + table + " ADD COLUMN IF NOT EXISTS " + column);
+                http.execute("ALTER TABLE " + table + " ADD COLUMN IF NOT EXISTS " + column);
             }
             ensureTtl();
             schemaReady = true;
@@ -99,19 +82,19 @@ public class AlertClickHouseWriter {
         }
     }
 
-    /** CREATE IF NOT EXISTS 는 기존 테이블을 안 바꾸니 TTL 은 ALTER 로 건다. 매번 걸면 전 파트 재계산이라 없을 때만. */
+    // 매번 걸면 전 파트 재계산 mutation 이 돌아 없을 때만 건다.
     private void ensureTtl() {
-        if (query("SHOW CREATE TABLE " + table).contains(TTL)) {
+        if (http.query("SHOW CREATE TABLE " + table).contains(TTL)) {
             return;
         }
-        execute("ALTER TABLE " + table + " MODIFY TTL " + TTL);
+        http.execute("ALTER TABLE " + table + " MODIFY TTL " + TTL);
         log.info("ClickHouse TTL 적용: {} TTL {}", table, TTL);
     }
 
-    /** id 는 결정적(AlertId)이라 재소비돼도 병합 시 한 행만 남는다. created_at 은 CH 기본값(now64)에 맡겨 재삽입 시 최신본이 이기게 한다. */
+    /** 판정 한 건을 적재한다. created_at 은 CH 기본값(now64)에 맡겨 재삽입 시 최신본이 이기게 한다. */
     public void insert(String id, Alert alert) {
         if (!schemaReady) {
-            // CH 가 부팅 시점에 죽어있었으면 테이블이 아직 없다. 첫 적재 때 한 번 더 시도해 자가복구한다.
+            // 부팅 때 CH 가 죽어 있었으면 테이블이 없다. 첫 적재에서 한 번 더 시도한다.
             ensureSchema();
         }
         Map<String, Object> row = new LinkedHashMap<>();
@@ -126,7 +109,7 @@ public class AlertClickHouseWriter {
         row.put("matched", alert.matched() == null ? new ArrayList<>() : alert.matched());
         row.put("domain", nz(alert.domain()));
         row.put("dest_ip", nz(alert.destIp()));
-        execute("INSERT INTO " + table + " FORMAT JSONEachRow\n" + toJson(row));
+        http.execute("INSERT INTO " + table + " FORMAT JSONEachRow\n" + toJson(row));
     }
 
     private String toJson(Map<String, Object> row) {
@@ -135,25 +118,6 @@ public class AlertClickHouseWriter {
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("alert JSON 직렬화 실패: " + row, e);
         }
-    }
-
-    private void execute(String sql) {
-        client.post()
-                .uri("/")
-                .contentType(MediaType.TEXT_PLAIN)
-                .body(sql)
-                .retrieve()
-                .toBodilessEntity();
-    }
-
-    private String query(String sql) {
-        String body = client.post()
-                .uri("/")
-                .contentType(MediaType.TEXT_PLAIN)
-                .body(sql)
-                .retrieve()
-                .body(String.class);
-        return body == null ? "" : body;
     }
 
     private static String nz(String s) {

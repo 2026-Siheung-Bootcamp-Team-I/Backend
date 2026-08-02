@@ -23,7 +23,6 @@ public class AlertRouter {
         this.tenantWebhooks = tenantWebhooks;
     }
 
-    /** alert 의 발송 대상을 해결. 유저 목적지 우선, 없으면 tenant fallback, 그것도 없으면 empty. */
     public Optional<Route> route(Alert alert) {
         Optional<HostTargetClient.Target> target = hostTargets.resolve(alert.tenantId(), alert.host());
         if (target.isPresent()) {

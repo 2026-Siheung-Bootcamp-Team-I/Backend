@@ -1,23 +1,15 @@
 package com.edrdog.apiservice.intelligence.topology;
 
 import com.edrdog.apiservice.query.ClickHouseQuery;
+import com.edrdog.apiservice.query.QueryGuards;
+import com.edrdog.apiservice.query.TenantScope;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
-
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
 
 /**
  * egress 토폴로지(엔드포인트→목적지) 집계 SQL 을 만드는 순수 로직
  * (EventQueryBuilder/AlertQueryBuilder 와 동일 패턴: 값은 파라미터 바인딩, tenant 는 항상 필수).
- *
- * <p>목적지는 도메인이 있으면 도메인, 없으면 dest_ip 다. dns 이벤트는 dest_ip 가 비어 있고
- * network 이벤트는 domain 이 비어 있어서, 한 칸으로 합치지 않으면 같은 관계가 두 노드로 갈린다.
- * IP 만 관측된 목적지에 이름을 붙이지는 않는다(관측하지 않은 것을 지어내지 않는다).
- *
- * <p>alerts 조회는 ReplacingMergeTree dedup 때문에 AlertQueryBuilder 와 같이 FROM ... FINAL 을 쓴다.
+ * 목적지를 domain/dest_ip 한 칸으로 합치지 않으면 dns 와 network 이벤트가 같은 관계를 두 노드로 가른다.
  */
 @Component
 public class TopologyQueryBuilder {
@@ -43,18 +35,15 @@ public class TopologyQueryBuilder {
      * 프로토콜은 detail 안에 있어 l4(protocol)와 l7(l7Protocol)을 각각 꺼내 관측된 값만 모은다.
      */
     public ClickHouseQuery egressRelations(String tenantId, long from, long to, String search, Integer limit) {
-        Map<String, String> params = new LinkedHashMap<>();
-        List<String> conds = base(tenantId, from, to, params);
-        conds.add(HAS_DEST);
-        addSearch(search, conds, params);
-        String sql = "SELECT host, " + DEST + " AS dest, "
-                + "if(domain != '', 'domain', 'ip') AS destKind, "
-                + "count() AS events, max(ts) AS lastSeen, "
-                + "groupUniqArray(8)(JSONExtractString(detail, 'protocol')) AS protocols, "
-                + "groupUniqArray(8)(JSONExtractString(detail, 'l7Protocol')) AS l7Protocols"
-                + " FROM " + eventsTable + where(conds)
-                + " GROUP BY host, dest, destKind ORDER BY events DESC LIMIT " + clampLimit(limit);
-        return new ClickHouseQuery(sql, params);
+        return withSearch(base(tenantId, from, to).add(HAS_DEST), search)
+                .toQuery("SELECT host, " + DEST + " AS dest, "
+                                + "if(domain != '', 'domain', 'ip') AS destKind, "
+                                + "count() AS events, max(ts) AS lastSeen, "
+                                + "groupUniqArray(8)(JSONExtractString(detail, 'protocol')) AS protocols, "
+                                + "groupUniqArray(8)(JSONExtractString(detail, 'l7Protocol')) AS l7Protocols"
+                                + " FROM " + eventsTable,
+                        " GROUP BY host, dest, destKind ORDER BY events DESC LIMIT "
+                                + QueryGuards.clampLimit(limit, DEFAULT_LIMIT, MAX_LIMIT));
     }
 
     /**
@@ -62,66 +51,36 @@ public class TopologyQueryBuilder {
      * egressRelations 와 같은 조건(기간·검색어)으로 세야 같은 모집단의 부분집합이 된다.
      */
     public ClickHouseQuery relationTotal(String tenantId, long from, long to, String search) {
-        Map<String, String> params = new LinkedHashMap<>();
-        List<String> conds = base(tenantId, from, to, params);
-        conds.add(HAS_DEST);
-        addSearch(search, conds, params);
-        String sql = "SELECT uniqExact((host, " + DEST + ")) AS total FROM " + eventsTable + where(conds);
-        return new ClickHouseQuery(sql, params);
+        return withSearch(base(tenantId, from, to).add(HAS_DEST), search)
+                .toQuery("SELECT uniqExact((host, " + DEST + ")) AS total FROM " + eventsTable);
     }
 
-    /**
-     * 관계별 알림 수. 엣지가 실선(알림 있음)인지 점선(관측만)인지를 가른다.
-     * 검색어를 다시 걸지 않는 이유는 (host, 목적지) 키로 붙이므로 남는 행은 어차피 버려지기 때문이다.
-     * 트리아지 여부도 빼지 않는다. "이 관계에서 알림이 났다" 는 관측 사실이고, 사람이 처리했다고
-     * 없던 일이 되지는 않는다(호스트 위험 점수 쪽은 반대로 열린 것만 센다).
-     */
+    /** 관계별 알림 수. 엣지가 실선(알림 있음)인지 점선(관측만)인지를 가른다. 트리아지된 알림도 빼지 않는다. */
     public ClickHouseQuery relationAlertCounts(String tenantId, long from, long to) {
-        Map<String, String> params = new LinkedHashMap<>();
-        List<String> conds = base(tenantId, from, to, params);
-        conds.add(HAS_DEST);
-        String sql = "SELECT host, " + DEST + " AS dest, count() AS alerts"
-                + " FROM " + alertsTable + " FINAL" + where(conds) + " GROUP BY host, dest";
-        return new ClickHouseQuery(sql, params);
+        // FINAL 을 빼면 ReplacingMergeTree dedup 이 안 돼 같은 알림이 여러 번 세진다.
+        return base(tenantId, from, to).add(HAS_DEST)
+                .toQuery("SELECT host, " + DEST + " AS dest, count() AS alerts"
+                        + " FROM " + alertsTable + " FINAL", " GROUP BY host, dest");
     }
 
-    /** tenant(필수) + 기간[from,to) 공통 조건. tenant 격리는 항상 첫 조건으로 강제한다. */
-    private static List<String> base(String tenantId, long from, long to, Map<String, String> params) {
-        if (tenantId == null || tenantId.trim().isEmpty()) {
-            throw new IllegalArgumentException("tenant 는 필수입니다(격리)");
-        }
-        List<String> conds = new ArrayList<>();
-        conds.add("tenant_id = {tenant:String}");
-        params.put("tenant", tenantId.trim());
-        conds.add("ts >= {from:UInt64}");
-        params.put("from", String.valueOf(from));
-        conds.add("ts < {to:UInt64}");
-        params.put("to", String.valueOf(to));
-        return conds;
+    /** tenant(필수) + 기간[from,to) 공통 조건. tenant 는 조립기 생성 시점에 강제된다. */
+    private static TenantScope base(String tenantId, long from, long to) {
+        return TenantScope.of(tenantId)
+                .add("ts >= {from:UInt64}", "from", String.valueOf(from))
+                .add("ts < {to:UInt64}", "to", String.valueOf(to));
     }
 
     /** 검색어는 host/domain/dest_ip 부분일치. 값에 든 LIKE 와일드카드는 문자로 찾도록 이스케이프한다. */
-    private static void addSearch(String search, List<String> conds, Map<String, String> params) {
-        if (search == null || search.trim().isEmpty()) {
-            return;
+    private static TenantScope withSearch(TenantScope scope, String search) {
+        if (!QueryGuards.hasText(search)) {
+            return scope;
         }
-        conds.add("(host ILIKE {q:String} OR domain ILIKE {q:String} OR dest_ip ILIKE {q:String})");
-        params.put("q", "%" + escapeLike(search.trim()) + "%");
+        return scope.add("(host ILIKE {q:String} OR domain ILIKE {q:String} OR dest_ip ILIKE {q:String})",
+                "q", "%" + escapeLike(search.trim()) + "%");
     }
 
     /** 사용자가 넣은 %/_ 를 그대로 두면 검색어 하나가 전체 매치가 된다. 역슬래시부터 먼저 바꾼다. */
     private static String escapeLike(String s) {
         return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
-    }
-
-    private static String where(List<String> conds) {
-        return " WHERE " + String.join(" AND ", conds);
-    }
-
-    private static int clampLimit(Integer limit) {
-        if (limit == null || limit <= 0) {
-            return DEFAULT_LIMIT;
-        }
-        return Math.min(limit, MAX_LIMIT);
     }
 }

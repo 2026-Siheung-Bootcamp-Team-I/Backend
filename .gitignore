@@ -54,6 +54,7 @@ CLAUDE.md
 
 # ===== 로컬 설계 노트 =====
 edr-notes.md
+notes/
 
 # ===== Misc =====
 *.tmp

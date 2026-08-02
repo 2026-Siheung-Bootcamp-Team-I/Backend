@@ -17,11 +17,7 @@ type DNSMessage struct {
 }
 
 // ParseDNS 는 UDP 페이로드에서 DNS 질의 이름과 응답 IP 를 꺼낸다.
-//
-// 파싱을 golang.org/x/net/dns/dnsmessage 에 맡기는 이유는 이름 압축 때문이다. DNS 이름은
-// 앞서 나온 이름을 가리키는 포인터로 줄여 쓸 수 있는데, 이걸 손으로 따라가면 서로를 가리키는
-// 포인터에 무한 루프로 빠진다. 악의적 패킷 한 장으로 에이전트를 멈추는 길이다.
-// 이 패키지는 표준 라이브러리 계열이고 그 방어가 되어 있다.
+// 파싱을 손으로 하면 이름 압축 포인터가 서로를 가리킬 때 무한 루프에 빠진다. dnsmessage 에 맡긴다.
 func ParseDNS(payload []byte) (DNSMessage, bool) {
 	var p dnsmessage.Parser
 	header, err := p.Start(payload)
@@ -58,12 +54,7 @@ func ParseDNS(payload []byte) (DNSMessage, bool) {
 }
 
 // answerIPs 는 응답 섹션에서 A/AAAA 레코드의 IP 만 모은다.
-//
-// CNAME 체인은 담지 않는다. 별칭이 몇 단계를 거쳤는지는 양만 늘리고 "어디에 접속했나" 에
-// 답하지 못한다. 최종 IP 만 있으면 network 이벤트와 상관분석이 된다.
-//
-// 도중에 깨진 레코드를 만나면 거기서 멈추고 그때까지 모은 것을 돌려준다. 뒷부분이 잘렸다고
-// 앞에서 이미 읽은 IP 를 버릴 이유는 없다.
+// 도중에 깨진 레코드를 만나면 거기서 멈추고 그때까지 모은 것을 돌려준다.
 func answerIPs(p *dnsmessage.Parser) []string {
 	var ips []string
 	for {
@@ -93,26 +84,19 @@ func answerIPs(p *dnsmessage.Parser) []string {
 }
 
 // normalizeDomain 은 도메인을 소문자로 낮추고 후행 점을 뗀다.
-//
-// DNS 는 대소문자를 구분하지 않아 같은 이름이 Example.COM 으로도 오는데, 정규화하지 않으면
-// 대시보드에서 한 도메인이 여러 건으로 쪼개져 집계된다.
+// 정규화를 빼면 Example.COM 과 example.com 이 갈려 한 도메인이 여러 건으로 집계된다.
 func normalizeDomain(name string) string {
 	return strings.ToLower(strings.TrimSuffix(name, "."))
 }
 
 // isReverseLookup 은 IP 를 이름으로 바꾸는 질의인지 본다.
-//
-// 역방향 조회는 "어디에 접속했나" 와 무관하다. 이미 붙은 IP 의 이름을 묻는 것이라 접속 자체는
-// 다른 이벤트로 이미 잡혀 있고, 양은 정방향 질의만큼 많다.
+// 이 필터를 빼면 "어디에 접속했나" 와 무관한 역방향 조회가 정방향 질의만큼 쏟아져 들어온다.
 func isReverseLookup(domain string) bool {
 	return strings.HasSuffix(domain, ".in-addr.arpa") || strings.HasSuffix(domain, ".ip6.arpa") ||
 		domain == "in-addr.arpa" || domain == "ip6.arpa"
 }
 
-// queryTypeName 은 질의 타입을 사람이 읽는 이름으로 바꾼다.
-//
-// 모르는 타입은 숫자 문자열로 둔다. 새 레코드 타입이 나올 때마다 이 목록을 고치지 않아도
-// 조사 화면에서 값을 잃지 않는다.
+// queryTypeName 은 질의 타입을 사람이 읽는 이름으로 바꾼다. 모르는 타입은 숫자 문자열로 둔다.
 func queryTypeName(t dnsmessage.Type) string {
 	switch t {
 	case dnsmessage.TypeA:

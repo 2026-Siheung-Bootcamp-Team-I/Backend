@@ -10,15 +10,14 @@ import java.util.stream.Collectors;
 
 /**
  * Event 를 ClickHouse JSONEachRow 한 줄(JSON object)로 변환하는 순수 매핑.
- * 컬럼 순서를 events 테이블 정의와 맞추고, null String 필드는 ""(빈 문자열)로 치환한다
- * (ClickHouse 의 input_format_null_as_default 설정과 무관하게 항상 결정적으로 치환하기 위함).
+ * 컬럼 순서를 events 테이블 정의와 맞추고, null String 필드는 ""(빈 문자열)로 치환한다.
  */
 public final class EventRow {
 
     private EventRow() {
     }
 
-    /** 여러 건을 JSONEachRow 본문으로 잇는다. 한 INSERT 로 묶어야 ClickHouse 파트가 건수만큼 생기지 않는다. */
+    /** 여러 건을 JSONEachRow 본문 한 덩어리로 잇는다. */
     public static String toJsonRows(List<Event> events, ObjectMapper mapper) {
         return events.stream()
                 .map(e -> toJson(e, mapper))

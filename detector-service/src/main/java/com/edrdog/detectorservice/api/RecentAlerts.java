@@ -13,8 +13,7 @@ import java.util.List;
 import java.util.concurrent.ConcurrentLinkedDeque;
 
 /**
- * alerts 토픽을 구독해 최근 판정 결과를 메모리에 보관한다 (조회 엔드포인트용).
- * detector 가 발행한 alert 를 그대로 되읽어 GET /api/alerts/recent 로 노출 = 발행→판정 결과 확인 루프.
+ * alerts 토픽을 구독해 최근 판정 결과를 메모리에 보관한다 (GET /api/alerts/recent 용).
  * responder 와는 별도 컨슈머 그룹이라 서로 간섭하지 않는다.
  */
 @Component
