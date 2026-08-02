@@ -1,8 +1,6 @@
 package com.edrdog.collectorservice.agent.exception;
 
-/**
- * 수집 API 인증 실패. collector 가 내는 인증 실패는 401 하나뿐이라 kind 구분을 두지 않는다.
- */
+/** 수집 API 인증 실패(401). */
 public class AuthException extends RuntimeException {
 
     public AuthException(String message) {

@@ -13,10 +13,7 @@ import (
 // serviceName 은 설치 스크립트가 등록하는 서비스 이름과 같아야 한다.
 const serviceName = "edrdog-agent"
 
-// agentService 는 서비스 제어 관리자(SCM)와 대화하는 껍데기다.
-//
-// SCM 은 서비스를 띄우고 정해진 시간 안에 Running 보고를 받지 못하면 프로세스를 죽인다.
-// 그래서 일반 콘솔 프로그램을 그대로 New-Service 로 등록하면 기동에 실패한다.
+// agentService 는 서비스 제어 관리자(SCM)와 대화하는 껍데기다. SCM 은 제때 Running 보고를 못 받으면 프로세스를 죽인다.
 type agentService struct {
 	opts options
 	log  *slog.Logger
@@ -45,15 +42,14 @@ func (s *agentService) Execute(_ []string, requests <-chan svc.ChangeRequest, st
 			case svc.Stop, svc.Shutdown:
 				status <- svc.Status{State: svc.StopPending}
 				cancel()
-				// 남은 이벤트를 흘려보낼 시간을 준다. runAgent 가 끝나면 바로 나간다.
+				// 남은 이벤트를 흘려보낼 시간을 준다.
 				<-done
 				return false, 0
 			default:
 				s.log.Warn("모르는 서비스 제어 요청", "cmd", req.Cmd)
 			}
 		case err := <-done:
-			// 에이전트가 스스로 멈췄다. 설정이 틀렸거나 서버에 붙지 못한 경우다.
-			// 0 이 아닌 코드로 끝내야 SCM 이 실패로 기록하고 복구 정책을 적용한다.
+			// 에이전트가 스스로 멈춘 경우. 0 이 아닌 코드로 끝내야 SCM 이 실패로 기록하고 복구 정책을 적용한다.
 			status <- svc.Status{State: svc.StopPending}
 			if err != nil {
 				s.log.Error("에이전트가 멈췄다", "err", err)

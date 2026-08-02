@@ -19,6 +19,7 @@ public class Cooldown {
     /** 키가 윈도우 밖이면 통과시키고 시각을 갱신, 윈도우 안이면 억제. */
     public boolean allow(String key, long nowMs) {
         Long last = lastShown.get(key);
+        // 경계는 < 다. <= 로 바꾸면 정확히 windowMs 만큼 뒤에 온 요청까지 억제된다.
         if (last != null && nowMs - last < windowMs) {
             return false;
         }

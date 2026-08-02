@@ -26,11 +26,7 @@ public final class Tokens {
         return ENCODER.encodeToString(buf);
     }
 
-    /**
-     * 저장·조회용 SHA-256 hex(소문자 64자). BCrypt 를 쓰지 않는 이유는 node_key 가 32바이트
-     * SecureRandom 이라 사전공격 대상이 아니고, 매 요청 인증에 BCrypt 를 태우면 heartbeat/events
-     * 경로가 그만큼 느려지기 때문이다.
-     */
+    /** 저장·조회용 SHA-256 hex(소문자 64자). BCrypt 로 바꾸면 매 요청 인증(heartbeat/events)이 그만큼 느려진다. */
     public static String hash(String token) {
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256")

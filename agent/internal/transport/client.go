@@ -1,7 +1,4 @@
-// Package transport 는 서버의 에이전트 API 에 붙는다.
-//
-// 계약은 docs/agent-protocol.md 다. 인증은 enroll_secret 으로 node_key 를 받아
-// X-Node-Key 헤더에 실어 보내는 방식이고, 실패는 HTTP 상태 코드로 온다.
+// Package transport 는 서버의 에이전트 API 에 붙는다. 계약은 docs/agent-protocol.md 다.
 package transport
 
 import (
@@ -21,9 +18,7 @@ import (
 // ErrUnauthorized 는 서버가 node_key 나 enroll_secret 을 거부했다는 뜻이다.
 var ErrUnauthorized = errors.New("서버가 인증을 거부했다")
 
-// 에이전트가 명령 실행 결과로 보고하는 상태.
-// 서버의 ExecuteResult 어휘 중 엔드포인트가 판단할 수 있는 것만 쓴다.
-// TIMEOUT/COOLDOWN/DISABLED 는 서버가 붙인다.
+// 에이전트가 명령 실행 결과로 보고하는 상태. TIMEOUT/COOLDOWN/DISABLED 는 서버가 붙인다.
 const (
 	StatusKilled  = "KILLED"
 	StatusNoMatch = "NO_MATCH"
@@ -48,8 +43,7 @@ type ServerConfig struct {
 }
 
 // Enabled 는 센서를 켜야 하는지 알려준다.
-// 서버가 그 센서를 언급하지 않았으면 켠 것으로 본다. 설정이 빠졌다고 수집이 조용히 멈추면
-// 원인을 찾기 어렵다. 끄는 것은 명시적이어야 한다.
+// 언급 없는 센서를 꺼진 것으로 보면 설정 하나가 빠졌을 때 수집이 조용히 멈춘다. 끄는 것은 명시적이어야 한다.
 func (c ServerConfig) Enabled(name string) bool {
 	if c.Sensors == nil {
 		return true
@@ -162,7 +156,8 @@ func (c *Client) ReportCommand(ctx context.Context, result CommandResult) error 
 }
 
 // authed 는 요청을 실행하고, 인증이 거부되면 한 번 재등록한 뒤 다시 시도한다.
-// 서버가 재시작해 node_key 를 잃어도 사람이 손대지 않고 복구되어야 한다.
+// 이 재등록이 없으면 서버가 재시작해 node_key 를 잃은 순간부터 사람이 손댈 때까지 모든 요청이 막힌다.
+// 재시도는 한 번뿐이다. 반복하면 거부하는 서버에 계속 등록을 밀어 넣는다.
 func (c *Client) authed(ctx context.Context, do func() error) error {
 	err := do()
 	if !errors.Is(err, ErrUnauthorized) {
@@ -194,6 +189,7 @@ func (c *Client) post(ctx context.Context, path, nodeKey string, body, out any) 
 	}
 	defer res.Body.Close()
 
+	// 401 을 다른 오류와 뭉뚱그리면 authed 가 재등록을 걸지 못한다.
 	if res.StatusCode == http.StatusUnauthorized {
 		return ErrUnauthorized
 	}

@@ -86,6 +86,7 @@ func (c Config) FlushInterval() time.Duration {
 // CACertPath 가 있으면 그 CA 하나만 신뢰한다. 시스템 저장소를 같이 쓰면 고정이 아니게 된다.
 func (c Config) HTTPClient() (*http.Client, error) {
 	timeout := c.FlushInterval()
+	// Timeout 0 은 무제한 대기다. 서버가 응답을 붙들면 전송이 영영 안 돌아온다.
 	if timeout <= 0 {
 		timeout = 5 * time.Second
 	}

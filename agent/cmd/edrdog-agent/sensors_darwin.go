@@ -12,10 +12,7 @@ import (
 	"github.com/2026-Siheung-Bootcamp-Team-I/Backend/agent/internal/transport"
 )
 
-// platformSensors 는 macOS 에서 돌릴 센서를 고른다.
-//
-// 프로세스와 파일은 eslogger 로 EndpointSecurity 이벤트를 받고, 네트워크만 스냅샷으로 훑는다.
-// EndpointSecurity API 에 소켓 연결 이벤트가 없어서 그렇다. 이 프로젝트에서 유일한 폴링이다.
+// platformSensors 는 macOS 에서 돌릴 센서를 고른다. 네트워크만 스냅샷인 것은 EndpointSecurity 에 소켓 연결 이벤트가 없어서다.
 func platformSensors(factory event.Factory, cfg transport.ServerConfig, log *slog.Logger) []runtime.Sensor {
 	var sensors []runtime.Sensor
 
@@ -37,12 +34,7 @@ func platformSensors(factory event.Factory, cfg transport.ServerConfig, log *slo
 	return sensors
 }
 
-// appendL7Sensor 는 패킷 캡처 센서를 붙인다. 캡처를 못 열면 붙이지 않는다.
-//
-// 여기서 에이전트를 죽이지 않는 이유는 나머지 센서가 멀쩡하기 때문이다. 캡처는 root 와
-// 이더넷 인터페이스를 요구해서 못 여는 상황이 흔한데, 그때 프로세스와 파일 관측까지 같이
-// 잃으면 손해가 더 크다. 대신 왜 못 열었는지는 반드시 로그에 남긴다. 조용히 0건이 되면
-// 캡처가 도는 줄 알고 없는 이벤트를 기다리게 된다.
+// appendL7Sensor 는 패킷 캡처 센서를 붙인다. 캡처를 못 열면 나머지 센서를 살리려고 이것만 빼고 간다.
 func appendL7Sensor(sensors []runtime.Sensor, factory event.Factory, log *slog.Logger) []runtime.Sensor {
 	capture, err := sensor.OpenCapture(log)
 	if err != nil {
