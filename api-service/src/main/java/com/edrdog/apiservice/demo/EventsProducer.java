@@ -9,8 +9,8 @@ import org.springframework.stereotype.Component;
  * 데모 이벤트를 events 토픽으로 발행한다 (detector Kafka Streams 의 입력).
  * host 를 파티션 키로 보내 같은 엔드포인트 이벤트의 순서를 보존한다 — 시퀀스 룰이 순서에 의존한다.
  *
- * <p>에이전트 수집 입구(EventsRawProducer, events-raw)와 달리 정규화된 events 로 바로 보낸다.
- * 발표에서 보여줄 구간이 "Kafka → Streams → Kafka" 라 collector 정규화 단계는 지나가지 않는다.
+ * <p>실기기 경로는 collector 가 에이전트 HTTP 를 받아 정규화한 뒤 이 토픽으로 넣는다. 데모는
+ * 발표에서 보여줄 구간이 "Kafka → Streams → Kafka" 라 collector 를 거치지 않고 여기서 바로 넣는다.
  */
 @Component
 public class EventsProducer {

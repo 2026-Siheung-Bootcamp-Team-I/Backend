@@ -13,7 +13,7 @@ import java.util.Optional;
 /**
  * alerts 토픽에 판정 결과가 <b>도착한 시각</b>을 alert id 별로 기록한다 (데모 타임라인 계측용).
  *
- * <p>적재용 리스너(AlertIngestListener)와 별도 컨슈머 그룹이라 서로 간섭하지 않는다. 굳이 분리한 이유는
+ * <p>적재용 리스너(archiver)와 별도 컨슈머 그룹이라 서로 간섭하지 않는다. 도착 시각을 따로 찍는 이유는
  * 발표에서 보여줄 구간이 "Kafka → Streams → Kafka" 이기 때문이다. detector 가 판정을 alerts 토픽에
  * 되돌려준 시점과, 그게 ClickHouse 에 적재돼 조회 가능해진 시점을 따로 찍어야 두 단계를 구분해 보여줄 수 있다.
  *

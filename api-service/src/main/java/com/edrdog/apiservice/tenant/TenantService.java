@@ -40,6 +40,18 @@ public class TenantService {
         return Optional.ofNullable(tenant.getSlackWebhookUrl());
     }
 
+    /**
+     * enroll secret 이 가리키는 tenant PK. 매칭이 없거나 시크릿이 비면 empty(컨트롤러가 404 로 매핑).
+     * collector 가 에이전트 enroll 을 받을 때만 부른다(tenants 테이블은 api-service 소유로 남는다).
+     */
+    @Transactional(readOnly = true)
+    public Optional<Long> resolveTenant(String enrollSecret) {
+        if (enrollSecret == null || enrollSecret.isBlank()) {
+            return Optional.empty();
+        }
+        return tenants.findByEnrollSecret(enrollSecret).map(Tenant::getId);
+    }
+
     @Transactional
     public String rotateEnrollSecret(Long tenantId) {
         Tenant tenant = tenants.findById(tenantId)

@@ -30,7 +30,7 @@ public class OperationsHealthController {
     }
 
     @Operation(summary = "파이프라인 상태",
-            description = "alerts/events-raw/events 토픽의 컨슈머 lag, ClickHouse(edrdog.events/edrdog.alerts) 적재 지연, "
+            description = "alerts/events 토픽의 컨슈머 lag, ClickHouse(edrdog.events/edrdog.alerts) 적재 지연, "
                     + "Kafka/ClickHouse/MySQL 도달 여부를 한 번에 준다. 항목 하나가 실패해도 나머지는 담아 200으로 준다.")
     @GetMapping("/health")
     public OperationsHealthResponse health(

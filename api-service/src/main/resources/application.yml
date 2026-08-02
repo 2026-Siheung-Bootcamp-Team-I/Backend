@@ -12,14 +12,14 @@ spring:
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:9092}
     consumer:
-      group-id: api-alerts
+      group-id: api-demo-arrivals        # 이 서비스가 alerts 를 소비하는 유일한 리스너(데모 도착 계측)
       auto-offset-reset: latest
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
       properties:
         spring.json.value.default.type: com.edrdog.apiservice.alert.dto.Alert
         spring.json.trusted.packages: com.edrdog.apiservice.alert.dto
-    producer:                            # 에이전트가 보낸 이벤트를 events-raw 로 발행(문자열)
+    producer:                            # 발표용 데모 수집 API 가 events 로 발행(문자열)
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
     # 발행/소비 스팬 생성 → Kafka 를 건너도 traceId 가 이어진다
@@ -33,27 +33,19 @@ server:
 
 edrdog:
   kafka:
-    alerts-topic: alerts                 # detector 가 발행한 판정 결과 (소비 → MySQL 적재)
-    events-raw-topic: events-raw         # 에이전트가 보낸 이벤트 (발행 → collector 정규화)
-    events-topic: events                 # 정규화된 이벤트 (발표용 데모 수집 API 가 발행 → detector 판정)
+    alerts-topic: alerts                 # detector 가 발행한 판정 결과 (적재는 archiver, 이 서비스는 데모 계측용으로만 소비)
+    events-topic: events                 # 정규화된 이벤트 (collector 와 발표용 데모 수집 API 가 발행 → detector 판정)
     # 파이프라인 상태 화면(operations/health)이 토픽별 컨슈머 lag 를 볼 때 쓰는 컨슈머 그룹 목록(쉼표 구분).
+    # 이 서비스가 발행/소비하지 않는 토픽도 여기 있는 이유는, 화면이 파이프라인 전체를 보여주기 때문이다.
     # 토픽 하나를 여러 그룹이 각자 소비하기도 해서(events 는 detector 와 archiver 가, alerts 는 이 서비스와
-    # alert-service 가 따로 소비) 토픽당 하나가 아니라 목록으로 둔다 — 하나만 잡으면 나머지 소비자가 밀려도
-    # 화면에는 "정상"으로 보인다(archiver 가 밀려 ClickHouse 적재가 멈춘 적이 실제로 있었다).
-    # alerts 의 첫 항목은 이 서비스 자신의 그룹을 그대로 참조하고, 나머지는 다른 서비스
-    # (collector-service/detector-service/archiver-service/alert-service) application.yml 의
-    # group-id/application-id 값을 그대로 옮겨 적었다.
-    alerts-consumer-groups: ${spring.kafka.consumer.group-id}, alert
-    events-raw-consumer-groups: collector
+    # alert-service/archiver-service 가 따로 소비) 토픽당 하나가 아니라 목록으로 둔다. 하나만 잡으면
+    # 나머지 소비자가 밀려도 화면에는 "정상"으로 보인다(archiver 가 밀려 ClickHouse 적재가 멈춘 적이 실제로 있었다).
+    # 값은 각 서비스(detector-service/archiver-service/alert-service) application.yml 의
+    # group-id/application-id 를 그대로 옮겨 적었다. api-demo-arrivals 는 이 서비스의 AlertArrivals 다.
+    alerts-consumer-groups: api-demo-arrivals, alert, archiver-alerts
     events-consumer-groups: detector, archiver
-  agent:
-    tls:                                 # 에이전트 전용 HTTPS 커넥터 (프론트 HTTP 8084 와 별도 포트)
-      enabled: ${AGENT_TLS_ENABLED:false}            # 켜면 keystore 필수 (scripts/gen-dev-keystore.sh)
-      port: ${AGENT_TLS_PORT:8443}
-      keystore: ${AGENT_TLS_KEYSTORE:}               # PKCS12 경로 또는 classpath:...
-      keystore-password: ${AGENT_TLS_KEYSTORE_PASSWORD:changeit}
-      keystore-type: PKCS12
-      key-alias: ${AGENT_TLS_KEY_ALIAS:agent}
+  collector:
+    url: ${COLLECTOR_URL:http://collector-service}   # 내부 collector-service(등록 노드 조회 대상, ClusterIP). 로컬은 collector-service 의 server.port 로
   api:
     key: ${EDRDOG_API_KEY:dev-api-key}   # 프론트가 X-API-Key 헤더로 보낼 값 (운영은 환경변수로 주입)
   swagger:                               # Swagger 를 가리는 Basic 계정 (운영은 Infisical 주입)
@@ -65,8 +57,8 @@ edrdog:
     # 링크의 앞부분. 대시보드가 보여줄 명령줄을 서버가 조립하는 데 쓴다.
     # 브라우저가 API 를 부르는 주소와 같다.
     public-base: ${INSTALL_PUBLIC_BASE:}
-    # 에이전트가 붙을 주소(host:port). 위와 다를 수 있다. 에이전트는 프론트용 HTTP 가 아니라
-    # 별도 TLS 포트로 붙기 때문이다(server.agent.tls.port).
+    # 에이전트가 붙을 주소(host:port). 위와 다를 수 있다. 에이전트는 api-service 가 아니라
+    # 수집 입구인 collector-service 의 TLS 포트로 붙기 때문이다.
     agent-server: ${INSTALL_AGENT_SERVER:}
     # 에이전트 바이너리를 받는 곳. CI 가 릴리스에 올린다(.github/workflows/agent-release.yml).
     download-base: ${INSTALL_DOWNLOAD_BASE:https://github.com/EDRdog/Backend/releases/latest/download}
@@ -95,7 +87,7 @@ edrdog:
     user: edrdog
     password: ${CLICKHOUSE_PASSWORD:edrdog}   # 시크릿은 Infisical 주입, 기본값은 로컬 kind ClickHouse 와 일치
     table: edrdog.events                 # 조회 대상 테이블 (archiver 가 적재)
-    alerts-table: edrdog.alerts          # 판정기록(불변) 저장 테이블 (api-service 가 적재)
+    alerts-table: edrdog.alerts          # 판정기록(불변) 조회 대상 테이블 (archiver 가 적재)
   geoip:
     db-path: ${GEOIP_DB_PATH:}           # GeoLite2-Country.mmdb 외부 경로. 비면 클래스패스 번들 사용, 둘 다 없으면 geo API 빈 배열
 

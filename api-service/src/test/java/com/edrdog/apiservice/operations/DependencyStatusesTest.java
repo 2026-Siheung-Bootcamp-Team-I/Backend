@@ -19,8 +19,8 @@ class DependencyStatusesTest {
     @Test
     void 하나라도_성공하면_kafka는_up() {
         List<KafkaTopicLagResult> lags = List.of(
-                KafkaTopicLagResult.of("alerts", "api-alerts", 5L),
-                KafkaTopicLagResult.error("events-raw", "collector", "timeout"));
+                KafkaTopicLagResult.of("alerts", "api-demo-arrivals", 5L),
+                KafkaTopicLagResult.error("events", "detector", "timeout"));
         DependencyResult result = DependencyStatuses.kafka(lags);
         assertEquals("up", result.status());
         assertNull(result.error());
@@ -29,7 +29,7 @@ class DependencyStatusesTest {
     @Test
     void 전부_실패하면_kafka는_down_이고_첫_에러를_담는다() {
         List<KafkaTopicLagResult> lags = List.of(
-                KafkaTopicLagResult.error("alerts", "api-alerts", "broker unreachable"),
+                KafkaTopicLagResult.error("alerts", "api-demo-arrivals", "broker unreachable"),
                 KafkaTopicLagResult.error("events", "detector", "timeout"));
         DependencyResult result = DependencyStatuses.kafka(lags);
         assertEquals("down", result.status());

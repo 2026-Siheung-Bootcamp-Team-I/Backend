@@ -1,20 +1,21 @@
 spring:
   application:
     name: collector
+  datasource:
+    url: ${DB_URL:jdbc:mysql://localhost:3306/edrdog_collector}
+    username: ${DB_USER:edrdog}
+    password: ${DB_PASSWORD:edrdog}
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
   kafka:
     bootstrap-servers: localhost:9092
-    consumer:
-      group-id: collector
-      auto-offset-reset: earliest       # 원시 이벤트는 유실 없이 처음부터 정규화
-      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-    producer:                           # 정규화 결과(Event JSON 문자열)를 events 로 발행
+    producer:                           # 검증 통과분(Event JSON 문자열)을 events 로 발행
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
-    # 발행/소비 스팬 생성 → Kafka 를 건너도 traceId 가 이어진다
+    # 발행 스팬 생성 → Kafka 를 건너도 traceId 가 이어진다
     template:
-      observation-enabled: true
-    listener:
       observation-enabled: true
 
 server:
@@ -22,8 +23,21 @@ server:
 
 edrdog:
   kafka:
-    events-raw-topic: events-raw        # 에이전트가 보낸 이벤트 (소비 입력)
-    events-topic: events                # 정규화된 이벤트 (재발행 출력, detector/archiver 입력)
+    events-topic: events                # 검증 통과 이벤트 (발행 출력, detector/archiver 입력)
+  agent:
+    tls:                                # 에이전트 전용 HTTPS 커넥터 (내부 HTTP 8082 와 별도 포트)
+      enabled: ${AGENT_TLS_ENABLED:false}            # 켜면 keystore 필수 (scripts/gen-dev-keystore.sh)
+      port: ${AGENT_TLS_PORT:8443}
+      keystore: ${AGENT_TLS_KEYSTORE:}               # PKCS12 경로 또는 classpath:...
+      keystore-password: ${AGENT_TLS_KEYSTORE_PASSWORD:changeit}
+      keystore-type: PKCS12
+      key-alias: ${AGENT_TLS_KEY_ALIAS:agent}
+  internal:
+    key: ${INTERNAL_API_KEY:dev-internal-key}        # 서비스 간 조회 전용 키 (X-Internal-Key 헤더, api-service 와 같은 값)
+  api:
+    url: ${API_URL:http://api-service}               # enroll secret → tenant 조회 대상. 로컬은 http://localhost:8084
+  responder:
+    url: ${RESPONDER_URL:http://responder-service}   # 대기 명령 조회·결과 전달 대상(ClusterIP)
 
 management:
   endpoints:

@@ -1,3 +1,5 @@
+# events 와 alerts 를 ClickHouse 에 그대로 적재한다. alerts 는 컨슈머 그룹 archiver-alerts 로
+# 별도로 읽어서, 두 토픽을 한 그룹으로 묶었을 때 생기는 오프셋 간섭이 없다.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

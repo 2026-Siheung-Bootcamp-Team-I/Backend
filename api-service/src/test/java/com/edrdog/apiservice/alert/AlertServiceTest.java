@@ -1,6 +1,5 @@
 package com.edrdog.apiservice.alert;
 
-import com.edrdog.apiservice.alert.dto.Alert;
 import com.edrdog.apiservice.alert.web.AlertResponse;
 import com.edrdog.apiservice.auth.exception.AuthException;
 import com.edrdog.apiservice.clickhouse.ClickHouseReader;
@@ -18,7 +17,6 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -26,24 +24,18 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * AlertService 오케스트레이션 단위 검증(ClickHouse 없이 reader/writer/오버레이를 목으로).
- * 여기서 검증하는 건 앱 쪽 로직이다: 적재 위임, status 필터의 include/exclude id 계산, 오버레이 병합, 404 처리.
+ * AlertService 오케스트레이션 단위 검증(ClickHouse 없이 reader/오버레이를 목으로).
+ * 여기서 검증하는 건 앱 쪽 로직이다: status 필터의 include/exclude id 계산, 오버레이 병합, 404 처리.
  * (실제 dedup·집계·격리 SQL 실행은 ClickHouse 몫이라 SQL 자체는 AlertQueryBuilderTest 가 검증한다.)
  */
 class AlertServiceTest {
 
-    private final AlertClickHouseWriter writer = mock(AlertClickHouseWriter.class);
     private final AlertStatusRepository statuses = mock(AlertStatusRepository.class);
     private final ClickHouseReader reader = mock(ClickHouseReader.class);
 
-    private final AlertService service = new AlertService(writer, statuses, reader,
+    private final AlertService service = new AlertService(statuses, reader,
             new AlertQueryBuilder("edrdog.alerts"), new EventQueryBuilder("edrdog.events"),
             new LineageGraphBuilder());
-
-    private static Alert alert(String tenantId, long ts) {
-        return new Alert("h1", "RULE_A", "T1059", "HIGH", "notify", ts, List.of("m1"), tenantId,
-                "evil.example.com", "203.0.113.9");
-    }
 
     private static Map<String, Object> row(String id, String tenant, String host, long ts) {
         return Map.of("id", id, "tenant_id", tenant, "host", host, "rule_id", "RULE_A",
@@ -53,29 +45,6 @@ class AlertServiceTest {
 
     private static AlertStatusRecord triaged(String id, String tenant, String status) {
         return AlertStatusRecord.of(id, tenant, status, Instant.now());
-    }
-
-    // --- ingest ---
-
-    @Test
-    void ingest_는_결정적id로_writer에_위임한다() {
-        service.ingest(alert("A", 100L));
-        String expected = AlertId.of("A", "h1", "RULE_A", 100L);
-        verify(writer).insert(eq(expected), any(Alert.class));
-    }
-
-    @Test
-    void ingest_두번이면_writer도_두번_dedup은_CH몫() {
-        service.ingest(alert("A", 100L));
-        service.ingest(alert("A", 100L));
-        verify(writer, times(2)).insert(any(), any());
-    }
-
-    @Test
-    void ingest_tenant없으면_skip() {
-        service.ingest(alert(null, 100L));
-        service.ingest(alert("  ", 100L));
-        verify(writer, never()).insert(any(), any());
     }
 
     // --- query: status 필터 -> include/exclude id, 병합 ---

@@ -6,6 +6,7 @@ import com.edrdog.apiservice.auth.service.Principal;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -15,7 +16,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * tenant Slack webhook 등록/조회.
+ * tenant Slack webhook·enroll secret 등록/조회.
  * /api/tenant/** 은 로그인 유저가 자기 tenant 것만(Bearer + 프론트 X-API-Key),
  * /api/internal/** 은 서비스 간 조회로 별도 X-Internal-Key 로만 인증한다(프론트 키로는 열 수 없음 → tenant 열거 방지).
  */
@@ -78,11 +79,28 @@ public class TenantController {
     public WebhookResponse getWebhookInternal(
             @PathVariable Long tenantId,
             @RequestHeader(name = "X-Internal-Key", required = false) String internalKeyHeader) {
+        requireInternalKey(internalKeyHeader);
+        String url = tenants.getWebhook(tenantId).orElse(null);
+        return new WebhookResponse(tenantId, url);
+    }
+
+    @Operation(summary = "내부 enroll secret 검증",
+            description = "collector 가 에이전트 enroll 을 받을 때 부른다(X-Internal-Key). 시크릿에 맞는 tenant 가 없으면 404.")
+    @PostMapping("/api/internal/agent/resolve-tenant")
+    public ResponseEntity<ResolveTenantResponse> resolveTenant(
+            @RequestHeader(name = "X-Internal-Key", required = false) String internalKeyHeader,
+            @RequestBody ResolveTenantRequest req) {
+        requireInternalKey(internalKeyHeader);
+        // 못 찾은 이유(시크릿이 빈 값인지 틀린 값인지)는 알려주지 않는다. 대입 시도에 힌트가 된다.
+        return tenants.resolveTenant(req.enrollSecret())
+                .map(id -> ResponseEntity.ok(new ResolveTenantResponse(id)))
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    private void requireInternalKey(String internalKeyHeader) {
         if (internalKeyHeader == null || !internalKey.equals(internalKeyHeader)) {
             throw AuthException.unauthorized("유효한 X-Internal-Key 가 필요합니다");
         }
-        String url = tenants.getWebhook(tenantId).orElse(null);
-        return new WebhookResponse(tenantId, url);
     }
 
     private static String bearerToken(String authorization) {

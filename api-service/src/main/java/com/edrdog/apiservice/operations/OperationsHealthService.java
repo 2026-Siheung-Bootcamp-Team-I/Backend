@@ -24,11 +24,9 @@ public class OperationsHealthService {
     private final HealthEndpoint healthEndpoint;
 
     private final String alertsTopic;
-    private final String eventsRawTopic;
     private final String eventsTopic;
     // 토픽 하나를 여러 그룹이 각자 소비할 수 있어(events 는 detector+archiver) 그룹은 목록이다.
     private final List<String> alertsConsumerGroups;
-    private final List<String> eventsRawConsumerGroups;
     private final List<String> eventsConsumerGroups;
     private final String eventsTable;
     private final String alertsTable;
@@ -38,10 +36,8 @@ public class OperationsHealthService {
             ClickHouseIngestionInspector ingestionInspector,
             HealthEndpoint healthEndpoint,
             @Value("${edrdog.kafka.alerts-topic}") String alertsTopic,
-            @Value("${edrdog.kafka.events-raw-topic}") String eventsRawTopic,
             @Value("${edrdog.kafka.events-topic}") String eventsTopic,
             @Value("${edrdog.kafka.alerts-consumer-groups}") String alertsConsumerGroups,
-            @Value("${edrdog.kafka.events-raw-consumer-groups}") String eventsRawConsumerGroups,
             @Value("${edrdog.kafka.events-consumer-groups}") String eventsConsumerGroups,
             @Value("${edrdog.clickhouse.table}") String eventsTable,
             @Value("${edrdog.clickhouse.alerts-table}") String alertsTable) {
@@ -49,10 +45,8 @@ public class OperationsHealthService {
         this.ingestionInspector = ingestionInspector;
         this.healthEndpoint = healthEndpoint;
         this.alertsTopic = alertsTopic;
-        this.eventsRawTopic = eventsRawTopic;
         this.eventsTopic = eventsTopic;
         this.alertsConsumerGroups = parseGroups(alertsConsumerGroups);
-        this.eventsRawConsumerGroups = parseGroups(eventsRawConsumerGroups);
         this.eventsConsumerGroups = parseGroups(eventsConsumerGroups);
         this.eventsTable = eventsTable;
         this.alertsTable = alertsTable;
@@ -61,7 +55,6 @@ public class OperationsHealthService {
     public OperationsHealthResponse health() {
         List<KafkaTopicLagResult> kafkaLag = new ArrayList<>();
         addLag(kafkaLag, alertsTopic, alertsConsumerGroups);
-        addLag(kafkaLag, eventsRawTopic, eventsRawConsumerGroups);
         addLag(kafkaLag, eventsTopic, eventsConsumerGroups);
 
         List<ClickHouseIngestionResult> ingestion = List.of(
