@@ -3,7 +3,7 @@ package com.edrdog.apiservice.demo;
 import com.edrdog.apiservice.alert.AlertId;
 import com.edrdog.apiservice.alert.AlertService;
 import com.edrdog.apiservice.alert.web.AlertResponse;
-import com.edrdog.apiservice.auth.exception.AuthException;
+import com.edrdog.apiservice.auth.AuthException;
 import com.edrdog.apiservice.demo.web.DemoFlowResponse;
 import com.edrdog.apiservice.demo.web.DemoFlowStep;
 import org.slf4j.Logger;

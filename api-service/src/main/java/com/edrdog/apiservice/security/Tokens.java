@@ -4,9 +4,9 @@ import java.security.SecureRandom;
 import java.util.Base64;
 
 /**
- * 인증 토큰 생성(순수 랜덤). enroll secret(테넌트가 엔드포인트에 배포)과
- * node_key(enroll 성공 시 발급) 둘 다 추측 불가한 URL-safe 랜덤 문자열이면 된다.
- * 수집(agent)과 테넌트 관리(tenant) 양쪽이 같은 규칙을 써야 해서 어느 한쪽 패키지에 두지 않고 security 에 둔다.
+ * 인증 토큰 생성(순수 랜덤). enroll secret(테넌트가 엔드포인트에 배포), install token, 로그인 세션 토큰이
+ * 모두 추측 불가한 URL-safe 랜덤 문자열이면 된다.
+ * 여러 패키지(tenant/install/auth)가 같은 규칙을 써야 해서 어느 한쪽에 두지 않고 security 에 둔다.
  */
 public final class Tokens {
 

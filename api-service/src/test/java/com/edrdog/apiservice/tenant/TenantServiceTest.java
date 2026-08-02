@@ -1,8 +1,8 @@
 package com.edrdog.apiservice.tenant;
 
-import com.edrdog.apiservice.auth.domain.Tenant;
-import com.edrdog.apiservice.auth.exception.AuthException;
-import com.edrdog.apiservice.auth.repository.TenantRepository;
+import com.edrdog.apiservice.auth.Tenant;
+import com.edrdog.apiservice.auth.AuthException;
+import com.edrdog.apiservice.auth.TenantRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

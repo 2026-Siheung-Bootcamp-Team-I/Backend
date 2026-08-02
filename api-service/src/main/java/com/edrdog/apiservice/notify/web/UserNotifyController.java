@@ -1,8 +1,8 @@
 package com.edrdog.apiservice.notify.web;
 
-import com.edrdog.apiservice.auth.exception.AuthException;
-import com.edrdog.apiservice.auth.service.AuthService;
-import com.edrdog.apiservice.auth.service.Principal;
+import com.edrdog.apiservice.auth.AuthException;
+import com.edrdog.apiservice.auth.AuthService;
+import com.edrdog.apiservice.auth.Principal;
 import com.edrdog.apiservice.notify.AlertTarget;
 import com.edrdog.apiservice.notify.UserNotifyService;
 import io.swagger.v3.oas.annotations.Operation;

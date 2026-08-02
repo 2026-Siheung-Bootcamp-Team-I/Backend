@@ -1,6 +1,6 @@
 package com.edrdog.apiservice.demo;
 
-import com.edrdog.apiservice.auth.repository.UserRepository;
+import com.edrdog.apiservice.auth.UserRepository;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 

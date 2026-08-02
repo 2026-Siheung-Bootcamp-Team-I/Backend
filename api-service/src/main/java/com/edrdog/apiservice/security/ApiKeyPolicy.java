@@ -20,7 +20,9 @@ public class ApiKeyPolicy {
             "/api/incidents",  // 사건 조회·트리아지도 세션 Bearer 로 인증(IncidentController)
             "/api/search",  // 통합 검색도 세션 Bearer 로 인증(SearchController)
             "/api/me",      // 유저 개인 알림 설정도 세션 Bearer 로 인증(UserNotifyController)
-            "/api/demo/",   // 발표용 데모 시연도 세션 Bearer 로 인증하고 데모 계정만 통과시킨다(DemoController)
+            // 데모 시연만 인증이 아예 없다. 다른 예외 경로와 달리 DemoController 는 Principal 을 받지 않는다.
+            // 대신 쓰기 대상을 데모 계정의 tenant 로, 발행 내용을 시나리오 4종으로 좁혀 막는다(DemoController).
+            "/api/demo/",
             "/api/internal/",  // 서비스 간 조회는 별도 X-Internal-Key 로 인증(TenantController), 프론트 키와 분리
             "/i/"          // 설치 스크립트 배포. curl 한 줄이라 헤더를 못 붙이고, 링크의 설치 토큰 자체가 인증이다.
     );

@@ -1,7 +1,7 @@
 package com.edrdog.apiservice.alert.web;
 
 import com.edrdog.apiservice.alert.ThreatCatalog;
-import com.edrdog.apiservice.auth.service.AuthService;
+import com.edrdog.apiservice.auth.AuthService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.GetMapping;

@@ -1,8 +1,8 @@
 package com.edrdog.apiservice.tenant;
 
-import com.edrdog.apiservice.auth.domain.Tenant;
-import com.edrdog.apiservice.auth.exception.AuthException;
-import com.edrdog.apiservice.auth.repository.TenantRepository;
+import com.edrdog.apiservice.auth.Tenant;
+import com.edrdog.apiservice.auth.AuthException;
+import com.edrdog.apiservice.auth.TenantRepository;
 import com.edrdog.apiservice.security.Tokens;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;

@@ -1,6 +1,6 @@
 package com.edrdog.apiservice.operations.web;
 
-import com.edrdog.apiservice.auth.service.AuthService;
+import com.edrdog.apiservice.auth.AuthService;
 import com.edrdog.apiservice.operations.OperationsHealthService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;

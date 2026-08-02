@@ -1,5 +1,6 @@
 package com.edrdog.apiservice.incident;
 
+import com.edrdog.apiservice.alert.TriageOverlay;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -8,12 +9,12 @@ import jakarta.persistence.Table;
 import java.time.Instant;
 
 /**
- * 사건 트리아지 status 오버레이(MySQL). alert_status 와 같은 구조다.
+ * 사건 트리아지 status 오버레이(MySQL). alert_status 와 같은 구조라 병합 규칙도 {@link TriageOverlay} 로 같이 쓴다.
  * 행이 있으면 트리아지된 것(confirmed/false_positive), 없으면 open 으로 본다.
  */
 @Entity
 @Table(name = "incident_status")
-public class IncidentStatusRecord {
+public class IncidentStatusRecord implements TriageOverlay {
 
     @Id
     private String id;
