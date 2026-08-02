@@ -3,8 +3,7 @@ package com.edrdog.apiservice.alert.dto;
 import java.util.List;
 
 /**
- * alerts 토픽 소비 스키마 사본 (detector 발행 Alert 와 동일 필드).
- * api-service 는 이 값을 ClickHouse(판정기록)에 적재하고 조회/트리아지 API 로 서빙한다(status 는 MySQL 오버레이).
+ * alerts 토픽 소비 스키마 사본. detector 발행 Alert 와 필드가 어긋나면 역직렬화에서 값이 조용히 빈다.
  *
  * @param ts       판정 시각 (epoch millis)
  * @param tenantId 조직(tenant) 식별자 (문자열)

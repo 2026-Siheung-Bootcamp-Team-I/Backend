@@ -15,18 +15,12 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * 알림들을 프로세스 계보로 묶는 순수 로직.
+ * 알림들을 프로세스 계보로 묶는 순수 로직. 알림마다 원본 이벤트를 {@link SourceEventMatcher} 로 찾아
+ * 프로세스 노드에 걸고(anchor), <b>anchor 가 같거나 한쪽이 다른 쪽의 조상일 때만</b> 같은 사건으로 본다.
  *
- * <p>알림마다 그 판정을 유발한 원본 이벤트를 {@link SourceEventMatcher} 로 찾아 프로세스 노드에 건다(anchor).
- * 두 알림은 <b>anchor 가 같거나 한쪽이 다른 쪽의 조상일 때만</b> 같은 사건이다. 사건은 계보 트리 위의 한 갈래다.
- *
- * <p>시간 윈도우로 묶지 않는 이유는 명확하다. "같은 호스트 10분 안" 은 바쁜 호스트에서 무관한 알림을
- * 전부 한 덩어리로 만든다. 조상-자손은 "이 프로세스가 저 프로세스를 띄웠다" 는 관측된 사실이다.
- *
- * <p>형제(공통 조상만 같은 경우)는 잇지 않는다. 실제 호스트에서 거의 모든 프로세스는
- * explorer.exe/launchd 같은 한 뿌리로 올라가므로, 공통 조상까지 근거로 인정하면 호스트 하나가
- * 통째로 사건 하나가 된다. anchor 를 못 찾은 알림은 혼자 사건이 된다(근거 없이 옆 알림에 붙이지 않는다).
- * 호스트가 다르면 절대 묶지 않는다. 호스트를 잇는 관측이 없다.
+ * <p>시간 윈도우로 묶지 않는다. "같은 호스트 10분 안" 은 바쁜 호스트에서 무관한 알림을 한 덩어리로 만든다.
+ * <p>형제(공통 조상만 같은 경우)는 잇지 않는다. 인정하면 거의 모든 체인이 한 뿌리로 올라가 호스트 하나가 사건 하나가 된다.
+ * <p>anchor 를 못 찾은 알림은 혼자 사건이 된다. 호스트가 다르면 절대 묶지 않는다.
  */
 public final class IncidentGrouper {
 
@@ -169,8 +163,7 @@ public final class IncidentGrouper {
 
     /**
      * 사건에 속한 노드들: 각 anchor 에서 위로 훑되 사건의 시작 anchor 까지만 담는다.
-     * 알림 사이를 잇는 중간 프로세스도 사건의 일부라 넣고(그게 빠지면 전개가 끊겨 보인다),
-     * 시작 anchor 보다 위(알림이 없는 조상)는 사건 밖이라 넣지 않는다.
+     * 알림 사이를 잇는 중간 프로세스를 빼면 전개가 끊겨 보이고, 시작 anchor 보다 위는 사건 밖이다.
      */
     private static List<String> chainNodes(List<String> anchors, Map<String, String> parentOf) {
         Set<String> anchorSet = new HashSet<>(anchors);

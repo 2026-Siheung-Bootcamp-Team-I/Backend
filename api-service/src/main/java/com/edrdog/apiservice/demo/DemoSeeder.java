@@ -8,11 +8,9 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 /**
- * 발표용 시드의 유일한 진입점. {@code edrdog.demo.seed=true} 일 때만 빈으로 올라온다.
- *
- * <p>계정과 데이터를 굳이 한 진입점으로 묶는 이유가 있다. 둘을 각각 ApplicationRunner 로 두면
- * 계정 시드가 "이 tenant PK 는 남의 조직이라 건너뛴다" 고 판단해도 데이터 시드는 그걸 모른 채
- * 그 조직에 데모 alert 를 밀어넣는다. tenant 확보에 실패하면 데이터도 넣지 않아야 한다.
+ * 발표용 시드의 유일한 진입점.
+ * 조건부 빈을 풀면 운영에서도 데모 시드가 돌아간다({@code edrdog.demo.seed} 가 그걸 막는 유일한 장치다).
+ * 계정과 데이터를 따로 떼면 tenant 확보 실패를 데이터 시드가 모른 채 남의 조직에 데모 alert 를 밀어넣는다.
  */
 @Component
 @ConditionalOnProperty(name = "edrdog.demo.seed", havingValue = "true")

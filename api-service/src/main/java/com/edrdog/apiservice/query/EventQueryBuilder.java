@@ -18,15 +18,10 @@ public class EventQueryBuilder {
     static final int DEFAULT_LIMIT = 100;
     static final int MAX_LIMIT = 1000;
 
-    /**
-     * offset 상한. ClickHouse 의 OFFSET 은 건너뛸 행을 버리기 전에 실제로 읽으므로 값이 커질수록
-     * 조회가 그대로 길어진다. limit 상한(1000) 기준 10페이지까지는 열어 두고, 그보다 깊이 파야 하는
-     * 조사는 offset 을 키우는 대신 from/to 로 범위를 좁히게 한다.
-     */
+    // offset 상한. ClickHouse 의 OFFSET 은 건너뛸 행을 버리기 전에 실제로 읽어 키울수록 조회가 그대로 길어진다.
     public static final int MAX_OFFSET = 10_000;
 
-    // domain/detail 은 dns/l7 이벤트용. 대시보드가 어떤 도메인을 물어봤는지 보려면 조회 컬럼에 있어야 한다.
-    // sha256 은 파일 해시. 조회 결과에 실려야 어떤 파일이 걸린 건지 화면에서 확인할 수 있다.
+    // 조회 컬럼. domain/detail(dns/l7)·sha256 이 빠지면 무엇에 걸린 건지 화면에서 확인할 수 없다.
     private static final String COLUMNS =
             "host, type, ts, process, parent, cmdline, dest_ip, dest_port, domain, detail, sha256, ingested_at";
 
@@ -36,10 +31,7 @@ public class EventQueryBuilder {
         this.table = table;
     }
 
-    /**
-     * tenant 격리 하에 host/type/sha256/from/to 필터(옵션)로 최신순 events 조회. limit 은 1..MAX 로 클램프.
-     * tenantId 는 필수 — 로그인 유저의 조직 것만 보이도록 항상 WHERE 에 강제된다.
-     */
+    /** tenant 격리 하에 host/type/sha256/from/to 필터(옵션)로 최신순 events 조회. limit 은 1..MAX 로 클램프. */
     public ClickHouseQuery events(String tenantId, String host, String type, String sha256,
                                   Long from, Long to, Integer limit) {
         Map<String, String> params = new LinkedHashMap<>();
@@ -51,18 +43,15 @@ public class EventQueryBuilder {
     }
 
     /**
-     * 화면 페이지 조회. events() 와 같은 WHERE·정렬에 offset 만 얹되, 상한(MAX_LIMIT)보다 한 행을 더 읽는다.
-     * 그 한 행이 다음 페이지가 있다는 뜻이라 호출부는 count() 를 한 번 더 돌지 않고도 그것을 알 수 있다.
-     * 클램프한 뒤에 +1 이라야 상한을 요청한 화면에서도 탐침 행이 사라지지 않는다.
-     *
-     * <p>offset 은 ORDER BY ts DESC 안에서 앞에서부터 건너뛴다. 그래서 to 를 고정하지 않고 페이지를
-     * 넘기면 그사이 들어온 새 이벤트가 맨 위에 쌓여 행이 겹치거나 건너뛰어진다. 호출부는 첫 페이지가
-     * 실제로 적용한 to 를 다음 페이지에 그대로 실어야 한다.
+     * 화면 페이지 조회. events() 와 같은 WHERE·정렬에 offset 만 얹는다.
+     * 호출부는 첫 페이지의 to 를 다음 페이지에 그대로 실어야 한다. 안 그러면 그사이 들어온
+     * 이벤트가 맨 위에 쌓여 offset 이 밀리고 행이 겹치거나 건너뛰어진다.
      */
     public ClickHouseQuery eventsPage(String tenantId, String host, String type, String sha256,
                                       Long from, Long to, Integer limit, Integer offset) {
         Map<String, String> params = new LinkedHashMap<>();
         String where = where(tenantId, host, type, sha256, from, to, params);
+        // 한 행 더 읽는 탐침. 없으면 다음 페이지 유무를 알려고 count() 를 한 번 더 돌아야 한다.
         String sql = "SELECT " + COLUMNS + " FROM " + table
                 + where
                 + " ORDER BY ts DESC LIMIT " + (pageSize(limit) + 1)
@@ -83,10 +72,7 @@ public class EventQueryBuilder {
         return clampLimit(limit);
     }
 
-    /**
-     * tenant 격리 하에 관측된 host 목록과 각 host 의 last_seen(최신 ts)을 뽑는다. tenantId 는 필수.
-     * 호스트 대장(registry) 없이 events 집계로만 관측 호스트를 얻는다(엔드포인트 목록의 데이터원).
-     */
+    /** tenant 격리 하에 관측된 host 목록과 각 host 의 last_seen(최신 ts). 엔드포인트 목록의 데이터원이다. */
     public ClickHouseQuery hostsLastSeen(String tenantId) {
         Map<String, String> params = new LinkedHashMap<>();
         String where = where(tenantId, null, null, null, null, null, params);
@@ -96,38 +82,26 @@ public class EventQueryBuilder {
         return new ClickHouseQuery(sql, params);
     }
 
-    /**
-     * lineage 재구성용: tenant+host 격리 하에 시간 윈도우[from,to] events 를 시간순으로 조회.
-     * 그래프 빌드에 필요한 컬럼만 뽑고, ts 오름차순(부모->자식 체인 순)으로 정렬한다.
-     * 상한(MAX_LIMIT)으로 클램프해 폭주를 막는다. tenantId 는 필수.
-     *
-     * detail 을 여기 열어 두는 이유: pid/ppid 는 에이전트가 이미 보내지만 detail(JSON) 안에
-     * 있어 이 컬럼이 없으면 못 쓴다. 동명 프로세스를 pid 로 구분하는 것은 다음 작업 몫이다.
-     */
+    /** lineage 재구성용: tenant+host 격리 하에 [from,to] events 를 ts 오름차순(부모->자식 체인 순)으로 조회. */
     public ClickHouseQuery lineageEvents(String tenantId, String host, Long from, Long to) {
         Map<String, String> params = new LinkedHashMap<>();
         String where = where(tenantId, host, null, null, from, to, params);
+        // detail 을 빼면 그 안에 든 pid/ppid 를 못 써서 동명 프로세스가 한 노드로 붙는다.
         String sql = "SELECT type, ts, process, parent, dest_ip, dest_port, detail FROM " + table
                 + where
                 + " ORDER BY ts ASC LIMIT " + MAX_LIMIT;
         return new ClickHouseQuery(sql, params);
     }
 
-    /**
-     * 단건(id) 조회용 창의 반폭(ms). ts 한 점으로 못 박지 않는 이유는, 링크가 나르는 ts 가 화면을
-     * 거치며 초 단위로 잘려 오는 등 원본과 몇 밀리초 어긋날 수 있어서다. 점으로 잡으면 그때 조용히
-     * 404 가 된다. 창을 넓혀도 엉뚱한 이벤트가 나오지는 않는다. 창은 후보를 긁는 범위일 뿐이고
-     * 무엇을 돌려줄지는 행의 실제 값으로 다시 접은 id 가 정하기 때문이다. 창은 스캔 비용만 정한다.
-     */
+    // 단건(id) 조회용 창의 반폭(ms). 링크가 나르는 ts 는 원본과 몇 ms 어긋나 점으로 잡으면 조용히 404 가 된다.
     static final long POINT_WINDOW_MS = 1000;
 
     /**
      * tenant+host 격리 하에 ts 주변 좁은 창의 events 를 뽑는다(id 로 단건을 지목하는 경로).
-     * events 에는 id 컬럼이 없어 WHERE 로 못 거르므로, 여기서는 후보만 좁히고 id 대조는 호출부가 한다.
-     * 그래서 id 씨앗 컬럼이 다 실린 전체 COLUMNS 를 뽑고, 창 안이 붐벼도 찾는 행이 잘리지 않게
-     * 상한(MAX_LIMIT)까지 연다. tenantId 와 host 는 필수 — host 가 없으면 tenant 전체를 훑게 된다.
+     * events 에 id 컬럼이 없어 후보만 좁히고 id 대조는 호출부가 한다.
      */
     public ClickHouseQuery eventAt(String tenantId, String host, long ts) {
+        // host 가 없으면 tenant 전체를 훑는다.
         if (!hasText(host)) {
             throw new IllegalArgumentException("host 는 필수입니다(단건 조회 범위)");
         }
@@ -140,7 +114,7 @@ public class EventQueryBuilder {
         return new ClickHouseQuery(sql, params);
     }
 
-    /** tenant 격리 하에 type 별 건수 집계. 시간범위 필터(옵션) 지원. tenantId 는 필수. */
+    /** tenant 격리 하에 type 별 건수 집계. 시간범위 필터(옵션) 지원. */
     public ClickHouseQuery summaryByType(String tenantId, Long from, Long to) {
         Map<String, String> params = new LinkedHashMap<>();
         String where = where(tenantId, null, null, null, from, to, params);
@@ -150,15 +124,13 @@ public class EventQueryBuilder {
         return new ClickHouseQuery(sql, params);
     }
 
-    /**
-     * tenant 격리 하에 시간 윈도우[from,to) 안의 목적지 IP 별 건수를 집계한다(world map 용).
-     * 네트워크 이벤트가 아닌 행은 dest_ip 가 ""(빈 문자열)이므로 제외한다. tenantId 는 필수.
-     */
+    /** tenant 격리 하에 [from,to) 안의 목적지 IP 별 건수 집계(world map 용). */
     public ClickHouseQuery geo(String tenant, long from, long to) {
         Map<String, String> params = new LinkedHashMap<>();
         String where = where(tenant, null, null, null, null, null, params);
         params.put("from", String.valueOf(from));
         params.put("to", String.valueOf(to));
+        // 네트워크 이벤트가 아닌 행은 dest_ip 가 빈 문자열이라 제외한다.
         String sql = "SELECT dest_ip, count() AS cnt FROM " + table
                 + where
                 + " AND ts >= {from:UInt64} AND ts < {to:UInt64} AND dest_ip != ''"
@@ -166,8 +138,10 @@ public class EventQueryBuilder {
         return new ClickHouseQuery(sql, params);
     }
 
+    /** 공통 WHERE 조립. tenant 는 필수라 어느 경로로 들어와도 조직 격리가 SQL 에 박힌다. */
     private static String where(String tenantId, String host, String type, String sha256,
                                 Long from, Long to, Map<String, String> params) {
+        // 이 검사를 빼면 tenant 없는 호출이 조직 전체 이벤트를 그대로 읽는다.
         if (!hasText(tenantId)) {
             throw new IllegalArgumentException("tenant 는 필수입니다(격리)");
         }
@@ -184,8 +158,7 @@ public class EventQueryBuilder {
             params.put("type", type.trim());
         }
         if (hasText(sha256)) {
-            // 적재되는 해시는 collector 가 소문자로 정규화한 값이다. 검색어가 대문자로 들어와도
-            // 같은 파일을 찾도록 여기서도 소문자로 맞춘다.
+            // 적재 측(collector)이 소문자로 정규화한다. 안 맞추면 대문자 검색어가 같은 파일을 못 찾는다.
             conds.add("sha256 = {sha256:String}");
             params.put("sha256", sha256.trim().toLowerCase(Locale.ROOT));
         }
@@ -207,10 +180,7 @@ public class EventQueryBuilder {
         return Math.min(limit, MAX_LIMIT);
     }
 
-    /**
-     * limit 과 달리 범위를 벗어난 offset 은 클램프하지 않고 거절한다. 조용히 잘라 상한 페이지를
-     * 돌려주면 화면은 자기가 요청한 페이지가 비어 있다고 읽는다.
-     */
+    /** limit 과 달리 범위 밖 offset 은 클램프하지 않고 거절한다(조용히 자르면 화면이 빈 페이지로 읽는다). */
     private static String offsetClause(Integer offset) {
         if (offset == null || offset == 0) {
             return "";

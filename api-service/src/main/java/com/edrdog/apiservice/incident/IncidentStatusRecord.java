@@ -9,9 +9,7 @@ import java.time.Instant;
 
 /**
  * 사건 트리아지 status 오버레이(MySQL). alert_status 와 같은 구조다.
- * 사건 본체는 저장하지 않고 조회할 때 알림을 묶어 만들며, 여기에는 가변인 status 만 둔다.
  * 행이 있으면 트리아지된 것(confirmed/false_positive), 없으면 open 으로 본다.
- * id 는 다시 묶어도 같은 값이 나오는 결정적 id(IncidentId)라 계산된 사건에 이 행을 붙일 수 있다.
  */
 @Entity
 @Table(name = "incident_status")

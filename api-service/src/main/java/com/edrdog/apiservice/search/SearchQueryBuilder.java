@@ -13,14 +13,9 @@ import java.util.Map;
  * 상단바 통합 검색의 events/alerts 조회 SQL 을 만드는 순수 로직
  * (EventQueryBuilder·AlertQueryBuilder 와 같은 패턴: tenant 강제 + 파라미터 바인딩 + 상한 클램프).
  *
- * <p><b>LIKE 대신 positionCaseInsensitive 를 쓰는 이유.</b> LIKE 는 needle 의 %/_ 를 패턴으로 읽는다.
- * 상단바에 %를 친 사람은 그 글자를 찾는 것인데 LIKE 로는 그게 "전부" 라는 뜻이 되어, 검색 한 번이
- * 전체를 긁어 상위 N건을 무작위로 돌려준다. 이스케이프로 막을 수도 있지만 position 계열은 needle 을
- * 애초에 글자로만 보므로 이스케이프 자체가 필요 없다. 대소문자 무관도 같은 함수가 해결한다
- * (도메인·해시가 소문자로 적재되어 있어도 대문자로 친 검색어가 그대로 걸린다).
- *
- * <p><b>부분일치는 인덱스를 못 쓴다.</b> 그래서 이 조회의 비용은 스캔 범위로만 묶인다:
- * 호출부가 항상 시간 범위를 좁혀 주고, 뽑는 건수는 상한으로 클램프한다.
+ * <p><b>LIKE 로 바꾸면 needle 의 %/_ 가 패턴이 되어 검색 한 번이 전체를 긁는다.</b> positionCaseInsensitive 는
+ * needle 을 글자로만 보므로 이스케이프 자체가 필요 없고, 대소문자 무관도 같은 함수가 해결한다.
+ * <p>부분일치는 인덱스를 못 쓴다. 비용은 호출부가 좁혀 주는 시간 범위와 건수 상한으로만 묶인다.
  */
 @Component
 public class SearchQueryBuilder {
@@ -32,28 +27,22 @@ public class SearchQueryBuilder {
     public static final int MAX_LIMIT = 20;
 
     /**
-     * 이벤트에서 훑을 컬럼. 조사하는 사람이 상단바에 칠 법한 것만 골랐다:
-     * 기기 이름(host), 프로세스와 그 부모(process/parent), 명령줄(cmdline), 목적지(domain/dest_ip), 파일 해시(sha256).
-     *
-     * <p>제외한 것들. type 은 값이 몇 종류뿐이라 부분일치로 치면 그 종류 전체가 딸려 나온다(그건 필터가 할 일이다).
-     * detail 은 JSON 원문이라 이 표에서 가장 크고, 훑으면 스캔 비용이 가장 많이 붙는 컬럼인데
-     * 그 안의 값은 대부분 이미 다른 컬럼에 펴져 있다.
+     * 이벤트에서 훑을 컬럼. 조사하는 사람이 상단바에 칠 법한 것만 골랐다.
+     * type 을 넣으면 부분일치로 그 종류 전체가 딸려 나오고, detail 은 JSON 원문이라 스캔 비용이 가장 많이 붙는다.
      */
     private static final List<String> EVENT_FIELDS =
             List.of("host", "process", "parent", "cmdline", "domain", "dest_ip", "sha256");
 
     /**
-     * 알림에서 훑을 컬럼. id 를 넣는 이유는 티켓이나 공유 링크에서 알림 id 를 복사해 상단바에 붙이는
-     * 경로가 실제로 있어서다. mitre 는 조사자가 T1059 같은 태그로 찾는다.
+     * 알림에서 훑을 컬럼. id 는 티켓·공유 링크에서 복사해 붙이는 경로가 실제로 있어 넣고, mitre 는 T1059 같은 태그로 찾는다.
      * matched(Array)는 룰이 무엇에 걸렸는지의 내부 표현이라 사람이 칠 말이 아니라서 뺐다.
      */
     private static final List<String> ALERT_FIELDS =
             List.of("id", "host", "rule_id", "mitre", "domain", "dest_ip");
 
     /**
-     * 이벤트 조회 컬럼. 화면에 보일 값(process/cmdline/domain)에 더해, 검색 결과에서 이벤트 단건으로
-     * 바로 넘어가는 데 필요한 씨앗(host/ts/type/process/parent/dest_ip/dest_port/detail 의 pid)이 전부 있어야 한다.
-     * id 는 저장된 값이 아니라 이 컬럼들을 접어 만들기 때문이다(EventId).
+     * 이벤트 조회 컬럼. id 는 저장된 값이 아니라 이 컬럼들을 접어 만들므로(EventId)
+     * 하나라도 빼면 검색 결과에서 이벤트 단건으로 넘어갈 수 없다.
      */
     private static final String EVENT_COLUMNS =
             "host, type, ts, process, parent, cmdline, dest_ip, dest_port, domain, detail, sha256";
@@ -83,7 +72,7 @@ public class SearchQueryBuilder {
     /**
      * tenant 격리 하에 시간 범위[from,to] 안의 alerts 를 질의어 부분일치로 훑는다.
      * ruleIds 는 한글 위협명으로 미리 찾아 둔 룰(SearchService.threatRuleIds)이며, 질의어 조건에 OR 로 얹는다.
-     * ReplacingMergeTree dedup 때문에 FROM ... FINAL 을 쓴다(AlertQueryBuilder 와 같은 이유).
+     * FINAL 을 빼면 ReplacingMergeTree dedup 전 행이 섞여 같은 알림이 여러 줄로 나온다.
      */
     public ClickHouseQuery alerts(String tenantId, String term, List<String> ruleIds,
                                   long from, long to, Integer limit) {

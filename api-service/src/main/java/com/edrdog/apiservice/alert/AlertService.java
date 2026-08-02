@@ -21,14 +21,8 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
- * alert 조회/트리아지 로직. 판정기록(불변)은 archiver 가 ClickHouse(alerts)에 적재하고, 트리아지
- * status(가변)만 이 서비스가 MySQL 오버레이(alert_status)에 둔다.
- * 조회는 ClickHouse 에서 읽어 오버레이 status 를 앱에서 병합한다.
- * 두 저장소라 DB 조인이 안 되므로 필터/병합은 여기서 처리한다(alert 볼륨이 작다는 전제).
- *
- * <p>조회 격리 계약(주의): 저장된 tenant_id 를 로그인 유저의 tenant PK 문자열
- * (String.valueOf(principal.tenantId())) 과 비교한다. 따라서 detector 가 발행하는 alert.tenantId 는
- * 반드시 api-service 의 tenant PK 문자열이어야 한다(아니면 적재는 되지만 조회에서 안 보인다).
+ * alert 조회/트리아지 로직. 판정기록(불변)은 ClickHouse(alerts), 트리아지 status(가변)는 MySQL 오버레이(alert_status)에 있다.
+ * 두 저장소라 DB 조인이 안 되므로 필터/병합을 여기서 처리한다(alert 볼륨이 작다는 전제).
  */
 @Service
 public class AlertService {
@@ -36,7 +30,7 @@ public class AlertService {
     /** lineage 재구성 윈도우: alert.ts 기준 앞뒤 5분. */
     static final long LINEAGE_WINDOW_MS = 5 * 60 * 1000L;
 
-    /** 원본 이벤트를 고르기 위해 훑는 events 상한(EventQueryBuilder 의 상한과 같은 값). */
+    // 기본값(100)으로 낮추면 조회가 ts DESC 라 실기기 유입량에서 alert.ts 근처 행이 먼저 잘려 나간다.
     static final int SOURCE_EVENT_SCAN_LIMIT = 1000;
 
     private final AlertStatusRepository statuses;
@@ -62,13 +56,8 @@ public class AlertService {
     }
 
     /**
-     * tenant 격리 하에 필터로 최신순 한 페이지 조회. status 필터는 오버레이(MySQL) 기준으로 id 목록을 구해
-     * ClickHouse 쿼리의 IN/NOT IN 으로 옮긴다. 반환 행들의 status 는 오버레이에서 병합한다(없으면 open).
-     *
-     * <p>offset 은 ORDER BY ts DESC 안에서 앞에서부터 건너뛰므로 호출부가 to 를 고정해 줘야 페이지가
-     * 겹치거나 빠지지 않는다. 다음 페이지 유무는 한 행을 더 읽어 판단하고, 총 건수는 withTotal 일 때만
-     * 센다: alerts 는 FINAL(중복 제거) 위에서 도는 조회라 count() 를 매번 한 번 더 도는 값이 싸지 않고,
-     * 화면은 대개 "다음 페이지가 있는지" 만 알면 되기 때문이다.
+     * tenant 격리 하에 필터로 최신순 한 페이지 조회. status 필터는 오버레이(MySQL) 기준 id 목록을 구해
+     * ClickHouse 쿼리의 IN/NOT IN 으로 옮기고, 반환 행들의 status 는 오버레이에서 병합한다(없으면 open).
      */
     @Transactional(readOnly = true)
     public AlertPage query(String tenantId, String host, String severity, String status,
@@ -104,7 +93,8 @@ public class AlertService {
         return new AlertPage(items, hasMore, total);
     }
 
-    /** 같은 필터·같은 tenant 로 총 건수를 센다(남의 조직 건수가 총계에 섞이면 그 자체로 정보가 샌다). */
+    /** 같은 필터·같은 tenant 로 총 건수를 센다. */
+    // tenant 를 빼고 세면 남의 조직 건수가 총계에 섞여 그 자체로 정보가 샌다.
     private long countOf(String tenantId, String host, String severity, String domain, String destIp,
                          Long from, Long to, List<String> includeIds, List<String> excludeIds) {
         List<Map<String, Object>> rows = reader.query(alertBuilder.countSearch(
@@ -119,11 +109,7 @@ public class AlertService {
         return AlertResponse.fromRow(row, statusOf(id), sourceEvent(tenantId, row));
     }
 
-    /**
-     * 판정을 유발한 원본 이벤트. 같은 tenant+host 의 alert.ts 근처 events 를 긁어와 판별자로 고른다(못 찾으면 null).
-     * limit 을 기본값(100)이 아니라 상한으로 두는 건 조회가 ts DESC 라, 실기기처럼 초당 십여 건이 들어오면
-     * 정작 alert.ts 근처 행이 잘려 나가기 때문이다. 고르는 규칙은 SourceEventMatcher 에 있다.
-     */
+    /** 판정을 유발한 원본 이벤트. alert.ts 근처 events 를 긁어와 SourceEventMatcher 로 고른다(못 찾으면 null). */
     private SourceEvent sourceEvent(String tenantId, Map<String, Object> alert) {
         long ts = asLong(alert, "ts");
         long from = Math.max(0, ts - SourceEventMatcher.WINDOW_MS);
@@ -133,10 +119,7 @@ public class AlertService {
         return SourceEventMatcher.match(rows, alert);
     }
 
-    /**
-     * 트리아지 갱신. status 검증(confirmed|false_positive) 후 ClickHouse 로 소유/존재 확인,
-     * 오버레이(MySQL)에 status 를 upsert 하고 갱신된 응답을 반환한다.
-     */
+    /** 트리아지 갱신. status 검증 후 소유/존재를 확인하고 오버레이(MySQL)에 upsert 한다. */
     @Transactional
     public AlertResponse triage(String tenantId, String id, String status) {
         if (!AlertStatus.validTransition(status)) {
@@ -148,8 +131,7 @@ public class AlertService {
     }
 
     /**
-     * alert 의 공격 경로 그래프. ClickHouse 판정기록으로 소유(ts/host) 확인 후, 같은 tenant+host 의
-     * alert.ts ±5분 윈도우 events 를 시간순으로 긁어와 이름 기반 process/network 체인으로 재구성한다.
+     * alert 의 공격 경로 그래프. 소유 확인 후 같은 tenant+host 의 alert.ts ±5분 events 를 체인으로 재구성한다.
      * 없거나 남의 tenant 것이면 404.
      */
     @Transactional(readOnly = true)
@@ -163,17 +145,14 @@ public class AlertService {
         return lineage.build(rows);
     }
 
-    /** 상수 정렬을 명확히 하려는 severity 리터럴(detector 발행값과 일치). */
+    // severity 리터럴. detector 발행값과 글자가 어긋나면 분포가 조용히 0 이 된다.
     private static final String SEV_CRITICAL = "CRITICAL";
     private static final String SEV_HIGH = "HIGH";
     private static final String SEV_MEDIUM = "MEDIUM";
 
     static final int TOP_THREATS = 5;
 
-    /**
-     * 대시보드 집계. tenant 격리 + 기간(from/to null 이면 무시) 하에 severity 분포와 카테고리별 상위 위협을
-     * ClickHouse GROUP BY 로 뽑아 조립한다. status 필터가 없어 오버레이 병합은 불필요하다.
-     */
+    /** 대시보드 집계. tenant 격리 + 기간 하에 severity 분포와 카테고리별 상위 위협을 GROUP BY 로 뽑아 조립한다. */
     @Transactional(readOnly = true)
     public SummaryResponse summary(String tenantId, Long from, Long to) {
         long critical = 0;
@@ -206,8 +185,8 @@ public class AlertService {
     }
 
     /**
-     * 시간대별 탐지 추이(대시보드 스택 차트용). tenant 격리 하에 bucket("hour"|"day") 간격으로
-     * severity 별 카운트를 ClickHouse 로 집계한 뒤, 데이터 없는 버킷은 0으로 채워 from~to 전 구간을 반환한다.
+     * 시간대별 탐지 추이(대시보드 스택 차트용). bucket("hour"|"day") 간격으로 severity 별 카운트를 집계한 뒤,
+     * 데이터 없는 버킷은 0으로 채워 from~to 전 구간을 반환한다.
      */
     @Transactional(readOnly = true)
     public List<TimeBucket> timeseries(String tenantId, long from, long to, String bucket) {
@@ -230,7 +209,8 @@ public class AlertService {
         return TimeseriesFill.fill(populated, from, to, step);
     }
 
-    /** ClickHouse 로 tenant 소유의 단건을 읽되 없으면 404 로 숨긴다(없는 것과 구분 불가). */
+    /** tenant 소유의 단건을 읽는다. */
+    // 남의 tenant 것을 403 으로 돌려주면 그 id 가 존재한다는 것 자체가 새므로 404 로 숨긴다.
     private Map<String, Object> ownedRow(String tenantId, String id) {
         List<Map<String, Object>> rows = reader.query(alertBuilder.byId(tenantId, id));
         if (rows.isEmpty()) {

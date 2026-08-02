@@ -29,14 +29,8 @@ import java.util.stream.Collectors;
 
 /**
  * 사건(incident) 조회·트리아지. <b>사건 본체 테이블은 없다.</b> 조회할 때마다 기간 내 알림을 읽어
- * 프로세스 계보로 묶어 만들고(IncidentGrouper), 가변인 트리아지 status 만 MySQL 오버레이에서 병합한다
- * (alert 이 ClickHouse 판정기록 + alert_status 오버레이인 것과 같은 구조).
- *
- * <p>본체를 저장하지 않는 이유: 알림이 늦게 도착하거나 재판정되면 미리 만들어 둔 사건과 어긋나고,
- * 그 정합성을 맞추는 코드가 계속 늘어난다. 대신 id 가 결정적이어야 트리아지가 붙어 있는다(IncidentId).
- *
- * <p>그래서 단건 조회도 "id 로 한 행 읽기" 가 아니라 기간을 다시 묶어 그 안에서 찾는 것이다.
- * 컨트롤러가 기본 기간을 주고, 그 기간 밖의 사건은 404 다.
+ * 프로세스 계보로 묶어 만들고(IncidentGrouper), 가변인 트리아지 status 만 MySQL 오버레이에서 병합한다.
+ * 그래서 단건 조회도 "id 로 한 행 읽기" 가 아니라 기간을 다시 묶어 그 안에서 찾는다.
  */
 @Service
 public class IncidentService {
@@ -53,22 +47,10 @@ public class IncidentService {
     static final int DEFAULT_LIMIT = 100;
     static final int MAX_LIMIT = 1000;
 
-    /**
-     * offset 상한. 사건은 한 번에 최대 {@link #ALERT_SCAN_LIMIT} 건의 알림으로 만들어지므로 사건 수도
-     * 그보다 많을 수 없고, 그 위의 offset 은 어떤 데이터에서도 빈 페이지다.
-     *
-     * <p>넘으면 조용히 잘라내지 않고 400 이다. 잘라내면 호출부는 "요청한 범위가 잘못됐다" 와
-     * "그 페이지에 사건이 없다" 를 구분할 수 없다.
-     */
+    /** offset 상한. 넘으면 조용히 잘라내지 않고 400 이다. 자르면 호출부가 잘못된 범위와 빈 페이지를 구분할 수 없다. */
     public static final int MAX_OFFSET = ALERT_SCAN_LIMIT;
 
-    /**
-     * 기본 조회 구간: 최근 7일. 사건은 알림보다 오래 들여다보는 단위라 24시간은 짧다.
-     *
-     * <p>여기 있는 이유는 사건 id 가 조회 기간에 딸려 나오기 때문이다. 기간이 다르면 묶음의 최초 알림이
-     * 달라지고 그러면 id 자체가 달라진다(IncidentId). 그래서 기본 기간을 쓰는 곳이 여럿이어도
-     * 값은 하나여야 한다. 복사해 두면 한쪽만 바뀌었을 때 서로 다른 id 를 주고, 그건 조용히 틀린다.
-     */
+    /** 기본 조회 구간: 최근 7일. 기간이 다르면 묶음의 최초 알림이 달라져 사건 id 자체가 바뀌므로(IncidentId) 복사해 두면 안 된다. */
     public static final long DEFAULT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000L;
 
     private final ClickHouseReader reader;
@@ -93,21 +75,9 @@ public class IncidentService {
      * 기간 내 사건 목록(최근 활동순)과 필터를 통과한 전체 건수. status 필터는 오버레이 기준이며,
      * 오버레이 행이 없으면 open 이다.
      *
-     * <p><b>host 는 묶은 뒤 사건 단위로 거른다.</b> 알림 조회 단계에서 걸어도 사건은 어차피 호스트별로만
-     * 묶이므로(IncidentGrouper) 보통은 결과가 같지만, 알림 스캔이 ALERT_SCAN_LIMIT 에서 잘릴 때 갈린다.
-     * 그때 host 를 미리 걸면 그 호스트의 더 오래된 알림이 상한 안으로 들어와 묶음의 최초 알림이 바뀌고,
-     * 사건 id 가 통째로 달라진다(IncidentId). 덤으로 eventsByHost 가 그 알림들의 ts 범위로 events 를 읽으므로
-     * 계보 재구성 범위까지 달라져 묶음 자체가 흔들린다. 필터에 따라 id 가 바뀌면 트리아지가 떨어져 나가고
-     * 알림 상세의 incidentId 와도 어긋나므로, 묶기 입력은 항상 같게 두고 결과만 거른다.
-     *
-     * <p><b>offset 도 묶은 뒤에 적용한다.</b> 사건 본체 테이블이 없어 DB 에 offset 을 위임할 수 없다.
-     * 따라서 offset 이 뒤로 갈수록 싸지지 않는다. 매번 기간 전체를 묶는 비용은 그대로다.
-     *
-     * <p><b>withTotal 이 false 면 total 은 null 이고 헤더도 안 나간다.</b> 사건은 이미 기간 전체를 묶은
-     * 뒤에 자르므로 총계가 사실상 공짜인데도 플래그를 존중하는 이유는 비용이 아니라 사용법이다.
-     * 알림·이벤트 목록은 총계를 내려면 같은 WHERE 로 count() 를 한 번 더 돌아야 해서 withTotal=true
-     * 일 때만 준다. 사건만 늘 준다면 화면이 "알림·이벤트는 붙이고 사건은 안 붙여도 된다" 를 기억해야
-     * 하고, 목록 셋이 같은 패턴을 쓰는 자리에서 그 차이가 곧 버그가 된다. 공짜라고 지우지 마라.
+     * <p>host 를 알림 조회 단계에 미리 걸면 묶음의 최초 알림이 바뀌어 사건 id 가 통째로 달라진다. 묶은 뒤에 거른다.
+     * <p>offset 도 묶은 뒤에 적용한다. 사건 본체 테이블이 없어 DB 에 위임할 수 없고, 뒤로 갈수록 싸지지도 않는다.
+     * <p>총계가 사실상 공짜여도 withTotal 을 존중한다. 알림·이벤트 목록과 사용법이 갈리면 그 차이가 곧 버그가 된다.
      */
     @Transactional(readOnly = true)
     public IncidentPage query(String tenantId, String status, String host, long from, long to,
@@ -145,11 +115,7 @@ public class IncidentService {
 
     /**
      * 알림 하나가 속한 사건의 id. 기본 기간 안에서 그 알림을 담은 사건이 없으면 null 이다.
-     *
-     * <p>기간을 알림 ts 중심의 좁은 창으로 잡지 않는다. 사건 id 의 씨앗이 묶음의 최초 알림이라
-     * (IncidentId) 창이 좁으면 더 이른 알림이 묶음에서 빠져 씨앗이 바뀌고, 목록이 주는 id 와 다른
-     * id 가 나온다. 그러면 알림에서 사건으로 넘어가는 링크가 404 도 없이 다른 사건을 가리킨다.
-     * 그래서 기간을 안 준 목록 조회와 같은 창을 쓴다.
+     * 창을 좁히면 씨앗 알림이 바뀌어(IncidentId) 링크가 404 도 없이 다른 사건을 가리키므로 목록과 같은 창을 쓴다.
      */
     @Transactional(readOnly = true)
     public String incidentIdOf(String tenantId, String alertId) {
@@ -205,10 +171,7 @@ public class IncidentService {
         return summary(incident, status);
     }
 
-    /**
-     * 기간 내 알림을 읽어 사건으로 묶는다. 알림 조회에 tenant 가 강제되므로(AlertQueryBuilder)
-     * 남의 조직 알림은 애초에 들어오지 않는다.
-     */
+    /** 기간 내 알림을 읽어 사건으로 묶는다. 알림 조회에 tenant 가 강제되므로 남의 조직 알림은 애초에 들어오지 않는다. */
     private List<Incident> incidents(String tenantId, long from, long to) {
         List<Map<String, Object>> alerts = reader.query(
                 alertBuilder.search(tenantId, null, null, from, to, ALERT_SCAN_LIMIT, null, null));
@@ -217,9 +180,7 @@ public class IncidentService {
 
     /**
      * 알림이 난 호스트마다 그 알림들의 시각 ±5분 events 를 읽는다.
-     *
-     * <p>lineageEvents 가 아니라 events 를 쓰는 이유는 원본 이벤트를 짚는 SourceEventMatcher 가
-     * cmdline(file 룰)까지 보기 때문이다. 알림이 없는 호스트는 아예 읽지 않는다.
+     * lineageEvents 로 바꾸면 원본 이벤트를 짚는 SourceEventMatcher 가 보는 cmdline(file 룰)이 빠진다.
      */
     private Map<String, List<Map<String, Object>>> eventsByHost(String tenantId, List<Map<String, Object>> alerts) {
         Map<String, long[]> spans = new LinkedHashMap<>();   // host -> [min ts, max ts]
@@ -338,6 +299,7 @@ public class IncidentService {
         return statuses.findById(id).map(IncidentStatusRecord::getStatus).orElse(AlertStatus.OPEN);
     }
 
+    /** offset 과 달리 limit 은 상한을 넘어도 400 이 아니라 상한으로 자른다. */
     private static int clampLimit(Integer limit) {
         if (limit == null || limit <= 0) {
             return DEFAULT_LIMIT;

@@ -20,24 +20,17 @@ import java.util.Map;
  *   <li>network 이벤트: {@code dest_ip:port} 노드. 소유 {@code process} 가 있으면 process->net(connected)</li>
  * </ul>
  * 같은 노드 id / 같은 (from,to,rel) 엣지는 첫 등장만 남기고 dedup 하며, 입력 순서를 보존한다.
- *
- * <p>프로세스 노드는 pid 로 가른다(detail JSON 의 pid/ppid). 이름만으로 합치면 동명 프로세스가
- * 한 노드가 되고, powershell.exe 처럼 흔한 이름에서는 서로 무관한 경로가 통째로 붙어 버린다.
- * 자식의 ppid 와 부모의 pid 가 같은 노드 id 를 만들어 체인이 이어진다.
- * pid 를 관측하지 못한 이벤트는 예전처럼 이름만으로 노드를 만든다(이름이 마지막 수단이라
- * 여기서 갈라 버리면 pid 없는 수집기의 그래프가 통째로 끊긴다).
  */
 @Component
 public class LineageGraphBuilder {
 
-    /** detail(JSON) 파싱 전용. 읽기만 해서 공유해도 안전하고, no-arg 생성자를 유지할 수 있다. */
+    // 읽기만 해서 공유해도 안전하다. 인스턴스 필드로 내리면 no-arg 생성자를 못 쓴다.
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    /**
-     * 프로세스 노드 id. pid 를 관측했으면 이름 뒤에 붙여 동명 프로세스를 가른다.
-     * pid 재사용으로 다른 프로세스가 같은 id 를 받을 수 있지만, 조회 창이 분 단위라 실질적인 위험은 아니다.
-     */
+    /** 프로세스 노드 id. */
+    // pid 를 안 붙이면 powershell.exe 같은 흔한 이름에서 서로 무관한 경로가 한 노드로 붙는다.
     public static String processNodeId(String name, Integer pid) {
+        // pid 없는 쪽도 갈라 버리면 pid 를 못 보내는 수집기의 그래프가 통째로 끊긴다.
         return pid == null ? "proc:" + name : "proc:" + name + ":" + pid;
     }
 

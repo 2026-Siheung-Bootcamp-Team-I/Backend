@@ -33,6 +33,7 @@ public final class GeoAggregator {
         Map<String, Long> byCountry = new LinkedHashMap<>();
         for (Map.Entry<String, Long> e : ipCounts.entrySet()) {
             String ip = e.getKey();
+            // dest_ip 가 빈 행(네트워크 이벤트가 아니다)과 사설 IP 가 여기서 걸린다. 빼면 지도에 사설 IP 가 뜬다.
             if (!PrivateIp.isPublic(ip)) {
                 continue;
             }

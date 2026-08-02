@@ -15,8 +15,8 @@ import java.util.stream.Collectors;
 
 /**
  * AdminClient 로 토픽 하나의 컨슈머 lag 을 구한다(끝 오프셋 - 커밋 오프셋).
- * 브로커가 죽어 있거나 그룹/토픽이 없어도 예외를 던지지 않고 KafkaTopicLagResult.error 로 감싼다
- * — 상태 화면 API 는 조회 하나가 실패해도 전체가 500이 되면 안 된다.
+ * 브로커가 죽어 있거나 그룹/토픽이 없어도 예외 대신 KafkaTopicLagResult.error 로 감싼다.
+ * 던지면 조회 하나가 실패할 때 상태 화면 API 전체가 500 이 된다.
  */
 @Component
 public class KafkaLagInspector {

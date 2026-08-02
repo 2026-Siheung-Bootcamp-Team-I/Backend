@@ -12,12 +12,7 @@ import java.util.Map;
 /**
  * egress 토폴로지(엔드포인트→목적지) 집계 SQL 을 만드는 순수 로직
  * (EventQueryBuilder/AlertQueryBuilder 와 동일 패턴: 값은 파라미터 바인딩, tenant 는 항상 필수).
- *
- * <p>목적지는 도메인이 있으면 도메인, 없으면 dest_ip 다. dns 이벤트는 dest_ip 가 비어 있고
- * network 이벤트는 domain 이 비어 있어서, 한 칸으로 합치지 않으면 같은 관계가 두 노드로 갈린다.
- * IP 만 관측된 목적지에 이름을 붙이지는 않는다(관측하지 않은 것을 지어내지 않는다).
- *
- * <p>alerts 조회는 ReplacingMergeTree dedup 때문에 AlertQueryBuilder 와 같이 FROM ... FINAL 을 쓴다.
+ * 목적지를 domain/dest_ip 한 칸으로 합치지 않으면 dns 와 network 이벤트가 같은 관계를 두 노드로 가른다.
  */
 @Component
 public class TopologyQueryBuilder {
@@ -70,16 +65,12 @@ public class TopologyQueryBuilder {
         return new ClickHouseQuery(sql, params);
     }
 
-    /**
-     * 관계별 알림 수. 엣지가 실선(알림 있음)인지 점선(관측만)인지를 가른다.
-     * 검색어를 다시 걸지 않는 이유는 (host, 목적지) 키로 붙이므로 남는 행은 어차피 버려지기 때문이다.
-     * 트리아지 여부도 빼지 않는다. "이 관계에서 알림이 났다" 는 관측 사실이고, 사람이 처리했다고
-     * 없던 일이 되지는 않는다(호스트 위험 점수 쪽은 반대로 열린 것만 센다).
-     */
+    /** 관계별 알림 수. 엣지가 실선(알림 있음)인지 점선(관측만)인지를 가른다. 트리아지된 알림도 빼지 않는다. */
     public ClickHouseQuery relationAlertCounts(String tenantId, long from, long to) {
         Map<String, String> params = new LinkedHashMap<>();
         List<String> conds = base(tenantId, from, to, params);
         conds.add(HAS_DEST);
+        // FINAL 을 빼면 ReplacingMergeTree dedup 이 안 돼 같은 알림이 여러 번 세진다.
         String sql = "SELECT host, " + DEST + " AS dest, count() AS alerts"
                 + " FROM " + alertsTable + " FINAL" + where(conds) + " GROUP BY host, dest";
         return new ClickHouseQuery(sql, params);

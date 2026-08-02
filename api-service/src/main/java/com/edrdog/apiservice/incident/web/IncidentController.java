@@ -22,10 +22,7 @@ import java.util.List;
 
 /**
  * 사건 조회·트리아지 REST. 세션 Bearer 토큰으로 인증하고 그 tenant 로만 격리한다(AlertController 와 동일 패턴).
- * 남의 tenant 사건은 404 로 숨긴다.
- *
- * <p>단건 경로에도 from/to 가 있는 이유: 사건 본체 테이블이 없어 조회할 때마다 기간 내 알림을 다시 묶는다.
- * 목록에서 본 사건을 상세로 열 때는 목록과 같은 기간을 그대로 넘기면 된다.
+ * 남의 tenant 사건은 404 로 숨긴다. 단건 경로에도 from/to 가 있는 것은 조회할 때마다 기간 내 알림을 다시 묶기 때문이다.
  */
 @RestController
 @RequestMapping("/api/incidents")

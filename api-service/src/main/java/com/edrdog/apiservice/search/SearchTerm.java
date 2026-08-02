@@ -12,7 +12,6 @@ public final class SearchTerm {
 
     /**
      * 최소 길이. 한 글자는 사실상 모든 명령줄·경로에 들어 있어 상위 N건이 무작위와 다를 바 없다.
-     * 스캔 비용은 글자 수와 무관하게 같으니, 막는 이유는 비용이 아니라 결과가 조사에 쓸모없어서다.
      * 두 글자는 조사에서 실제로 치는 가장 짧은 말(ls, sh, 88 같은 포트)을 살려 둔다.
      */
     public static final int MIN_LENGTH = 2;
@@ -24,8 +23,7 @@ public final class SearchTerm {
     }
 
     /**
-     * 질의어를 조회에 쓸 형태로 다듬는다. 앞뒤 공백만 떼고 대소문자는 건드리지 않는다
-     * (대소문자 무관 비교는 조회 쪽이 하므로 여기서 접으면 원문만 잃는다).
+     * 질의어를 조회에 쓸 형태로 다듬는다. 대소문자 무관 비교는 조회 쪽이 하므로 여기서 접으면 원문만 잃는다.
      * 길이가 범위를 벗어나면 조용히 자르지 않고 거절한다.
      */
     public static String normalize(String q) {
@@ -40,11 +38,8 @@ public final class SearchTerm {
     }
 
     /**
-     * 값이 질의어를 부분일치로 품는지. 대소문자를 가리지 않는다.
-     *
-     * <p>SQL 쪽 positionCaseInsensitive 와 같은 규칙이라야 한다. 호스트 목록은 SQL 이 아니라
-     * 여기서 걸러지므로, 규칙이 갈리면 같은 검색어가 화면 섹션마다 다르게 걸린다.
-     * 패턴 매칭이 아니므로 %/_ 는 찾을 글자 그대로다.
+     * 값이 질의어를 부분일치로 품는지. 대소문자를 가리지 않고, 패턴 매칭이 아니므로 %/_ 는 찾을 글자 그대로다.
+     * SQL 쪽 positionCaseInsensitive 와 규칙이 갈리면 같은 검색어가 화면 섹션마다 다르게 걸린다.
      */
     public static boolean matches(String value, String term) {
         return value != null && value.toLowerCase(Locale.ROOT).contains(term.toLowerCase(Locale.ROOT));

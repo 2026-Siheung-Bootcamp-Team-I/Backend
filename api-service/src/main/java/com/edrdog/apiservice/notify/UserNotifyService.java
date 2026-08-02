@@ -61,6 +61,7 @@ public class UserNotifyService {
         try {
             status = slackWebhookClient.send(url, TEST_MESSAGE);
         } catch (RestClientException e) {
+            // 안 잡으면 Slack 연결 실패가 502 대신 500 으로 나간다.
             throw AuthException.upstreamError("Slack 연결에 실패했습니다: " + e.getMessage());
         }
         if (status < 200 || status >= 300) {
@@ -107,7 +108,7 @@ public class UserNotifyService {
 
     /**
      * 탐지 알림 라우팅 대상 해결: host 소유자의 개인 webhook.
-     * 소유자 없거나 소유자가 webhook 미설정이면 empty(호출측이 관리자 채널로 fallback 하도록).
+     * 소유자가 없거나 webhook 미설정이면 empty 다. 호출측이 관리자 채널로 fallback 한다.
      */
     @Transactional(readOnly = true)
     public Optional<AlertTarget> resolveTarget(Long tenantId, String host) {

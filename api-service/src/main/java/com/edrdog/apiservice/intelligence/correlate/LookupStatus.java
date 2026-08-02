@@ -1,11 +1,6 @@
 package com.edrdog.apiservice.intelligence.correlate;
 
-/**
- * 실시간 DNS 조회 한 건의 결과 상태.
- *
- * <p>실패를 200 응답 안에 담기 위해 있다. 관측 데이터는 멀쩡한데 외부 DNS 서버 하나가
- * 안 떠서 화면 전체가 안 뜨는 일이 없어야 한다.
- */
+/** 실시간 DNS 조회 한 건의 결과 상태. 실패를 예외 대신 200 응답 안에 담기 위해 있다. */
 public enum LookupStatus {
     /** 답이 왔다. */
     OK,

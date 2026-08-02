@@ -8,10 +8,11 @@ import java.util.List;
 /**
  * 의존 저장소(Kafka/ClickHouse/MySQL) 도달 여부를 판단하는 순수 로직.
  *
- * <p>MySQL 은 actuator 의 DataSourceHealthIndicator("db")가 이미 확인해 둔 걸 그대로 옮긴다.
- * Kafka/ClickHouse 는 이 프로젝트에 등록된 actuator 헬스 인디케이터가 없어서(직접 확인함),
- * 상태 화면이 어차피 수행하는 lag/적재지연 조회의 성공·실패를 그대로 재사용한다 — 도달 여부만
- * 확인하려고 별도 핑을 새로 날리지 않는다.
+ * <p>Kafka/ClickHouse 는 별도 핑 대신 상태 화면이 어차피 수행하는 lag/적재지연 조회의 성공·실패를 재사용하고,
+ * MySQL 은 actuator 의 DataSourceHealthIndicator("db") 결과를 그대로 옮긴다.
+ *
+ * <p>조회가 하나라도 성공하면 up 이다. 토픽·테이블 하나가 실패했다고 저장소 전체를 down 으로 내리면
+ * 실제로는 붙어 있는 의존성이 죽은 것으로 보인다.
  */
 final class DependencyStatuses {
 

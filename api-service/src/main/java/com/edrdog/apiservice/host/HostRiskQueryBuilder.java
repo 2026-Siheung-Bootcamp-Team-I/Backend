@@ -11,11 +11,9 @@ import java.util.Map;
 
 /**
  * host 별 열린 alert 의 severity 분포 SQL(위험 점수 재료). 엔드포인트 목록과 토폴로지가 함께 쓴다.
- * 원래 TopologyQueryBuilder 에 있었으나, 목록이 쓰려면 host 가 intelligence 를 import 해야 해서 이리로 옮겼다.
  *
- * <p>호스트마다 세지 않고 GROUP BY host 한 번으로 전부 가져온다(AlertQueryBuilder.openHostCounts 와 같은 방식).
- * excludeIds 는 오버레이(MySQL)에 트리아지된 alert id 로, HostService 의 "열린(open)" 정의를 그대로 따른다.
- * alerts 조회는 ReplacingMergeTree dedup 때문에 FROM ... FINAL 을 쓴다.
+ * <p>excludeIds 는 오버레이(MySQL)에 트리아지된 alert id 로, 이걸 빼야 HostService 의 "열린(open)" 정의와 같아진다.
+ * <p>alerts 조회에서 FINAL 을 빼면 ReplacingMergeTree dedup 전 행이 섞여 같은 알림이 여러 번 세어진다.
  */
 @Component
 public class HostRiskQueryBuilder {
@@ -36,6 +34,7 @@ public class HostRiskQueryBuilder {
         }
         Map<String, String> params = new LinkedHashMap<>();
         List<String> conds = new ArrayList<>();
+        // tenant 격리는 항상 첫 조건으로 강제한다.
         conds.add("tenant_id = {tenant:String}");
         params.put("tenant", tenantId.trim());
         if (from != null) {

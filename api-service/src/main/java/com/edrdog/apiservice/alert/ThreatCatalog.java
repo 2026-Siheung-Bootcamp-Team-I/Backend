@@ -5,15 +5,14 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * ruleId → 한글 위협명/카테고리/MITRE/발화조건 설명 매핑(순수). detector 가 발행하는 ruleId 를 화면 표시용으로 옮긴다.
- * 설명은 detector-service 의 Rules.java 판정 로직을 그대로 옮긴 것이라, 룰이 바뀌면 여기도 같이 바꿔야 한다.
- * 미등록 ruleId 는 이름은 원문, 카테고리는 "기타", mitre/description 은 null 로 안전하게 fallback 한다(null 포함).
+ * ruleId → 한글 위협명/카테고리/MITRE/발화조건 설명 매핑(순수). 미등록 ruleId 는 원문/"기타"/null 로 fallback 한다.
  */
+// 설명은 detector-service 의 Rules.java 판정 로직을 옮긴 것이라, 룰이 바뀌면 여기도 같이 바꿔야 화면이 거짓말을 하지 않는다.
 public final class ThreatCatalog {
 
     static final String UNKNOWN_CATEGORY = "기타";
 
-    /** 순서가 카탈로그 응답 순서로 그대로 노출되므로 LinkedHashMap 으로 등록 순서를 보존한다. */
+    // HashMap 으로 바꾸면 카탈로그 응답 순서가 흐트러진다(등록 순서가 그대로 노출된다).
     private static final Map<String, Threat> THREATS = catalog();
 
     private static Map<String, Threat> catalog() {
@@ -65,7 +64,7 @@ public final class ThreatCatalog {
         return threat == null ? null : threat.description();
     }
 
-    /** 등록된 전체 룰 카탈로그(등록 순서 보존). 조회용 REST 엔드포인트가 그대로 노출한다. */
+    /** 등록된 전체 룰 카탈로그(등록 순서 보존). */
     public static List<Entry> all() {
         return THREATS.entrySet().stream()
                 .map(e -> new Entry(e.getKey(), e.getValue().name(), e.getValue().category(),
@@ -73,7 +72,7 @@ public final class ThreatCatalog {
                 .toList();
     }
 
-    /** null ruleId 는 Map 조회에서 NPE 가 나므로 미리 걸러 fallback 시킨다. */
+    // null ruleId 는 Map 조회에서 NPE 가 나므로 미리 걸러 fallback 시킨다.
     private static Threat lookup(String ruleId) {
         return ruleId == null ? null : THREATS.get(ruleId);
     }

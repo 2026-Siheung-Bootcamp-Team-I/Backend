@@ -10,10 +10,13 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 
 /**
- * 설치 스크립트 원본을 읽어 들고 있는다.
+ * 설치 스크립트 원본(macos.sh / windows.ps1)을 읽어 들고 있는다.
  *
- * <p>부팅할 때 한 번 읽는다. 요청마다 읽으면 파일이 사라져도 한참 뒤에야 알게 되는데,
- * 그때는 이미 누가 설치에 실패한 뒤다. 없으면 뜨지 않는 편이 낫다.
+ * <p>부팅할 때 한 번 읽는다. 요청마다 읽으면 파일이 사라져도 누가 설치에 실패한 뒤에야 안다.
+ *
+ * <p>여기 담긴 템플릿은 InstallScript 의 치환을 거쳐 셸에서 실행된다. 자리표시자 이름이
+ * 치환 규칙과 어긋나면 컴파일도 테스트도 지나가고 엔드포인트에서야 설치가 깨진다
+ * (InstallScriptTest 가 치환 규칙을, InstallTemplatesTest 가 원본과의 정합을 따로 보는 이유).
  */
 @Component
 public class InstallScripts {

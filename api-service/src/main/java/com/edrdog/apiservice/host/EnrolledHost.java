@@ -1,9 +1,5 @@
 package com.edrdog.apiservice.host;
 
-/**
- * collector 에 등록된 노드의 host/마지막 접속 시각/OS(HostAggregator 입력용 순수 값 객체).
- * collector 응답 형태를 그대로 아래로 넘기지 않고 CollectorClient 에서 변환해 넘긴다
- * (HostAlertCount 가 AlertStatusRecord 를 그대로 안 쓰는 것과 같은 패턴).
- */
+/** collector 에 등록된 노드의 host/마지막 접속 시각/OS(HostAggregator 입력용 순수 값 객체). */
 public record EnrolledHost(String host, long agentSeen, String platform) {
 }

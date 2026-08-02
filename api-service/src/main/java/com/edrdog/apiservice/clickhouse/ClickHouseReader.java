@@ -10,10 +10,8 @@ import org.springframework.web.client.RestClient;
 import java.util.List;
 import java.util.Map;
 
-/**
- * ClickHouse HTTP(8123) 읽기 전용 조회. SQL 은 POST 본문에, 필터값은 URL 의 param_* 로 실어
- * 파라미터 바인딩({name:Type})으로 안전하게 넣는다. 응답은 FORMAT JSON 으로 받아 data 만 파싱한다.
- */
+/** ClickHouse HTTP(8123) 읽기 전용 조회. 응답은 FORMAT JSON 으로 받아 data 만 파싱한다. */
+// 필터값은 SQL 본문이 아니라 URL 의 param_* 로 나간다. 본문에 이어붙이면 SQL 인젝션이 열린다.
 @Component
 public class ClickHouseReader {
 

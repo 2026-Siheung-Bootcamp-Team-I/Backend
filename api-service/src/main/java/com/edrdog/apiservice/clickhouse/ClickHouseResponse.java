@@ -8,8 +8,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * ClickHouse FORMAT JSON 응답 파싱(순수). 응답은 {"meta":[...],"data":[...],"rows":N} 형태이며
- * 여기서는 data 배열만 행(Map) 리스트로 뽑는다.
+ * ClickHouse FORMAT JSON 응답 파싱(순수). {"meta":[...],"data":[...],"rows":N} 에서 data 만 행(Map) 리스트로 뽑는다.
  */
 public final class ClickHouseResponse {
 

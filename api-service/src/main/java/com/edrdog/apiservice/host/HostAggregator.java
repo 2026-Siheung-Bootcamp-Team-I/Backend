@@ -14,11 +14,9 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * events(호스트+last_seen), alerts(host 별 열린 alert 집계), collector(등록 노드)를 병합하는 순수 로직.
- * 출처가 셋(ClickHouse/MySQL/collector API)이라 SQL 조인이 안 되므로 여기서 host 기준으로 합친다.
- * 호스트 집합은 events ∪ 등록 노드다. 에이전트가 enroll 에 성공해도 이벤트가 0건이면 화면에서
- * 기기 상태를 전혀 볼 수 없었던 문제 때문에, 이벤트 없이 등록만 된 기기도 목록에 넣는다.
- * alert 만 있고 events/등록 둘 다 없는 host 는 여전히 나오지 않는다.
+ * events(호스트+last_seen), alerts(host 별 열린 alert 집계), collector(등록 노드)를 host 기준으로 병합하는 순수 로직.
+ * 출처가 셋(ClickHouse/MySQL/collector API)이라 SQL 조인이 안 된다.
+ * 호스트 집합은 events ∪ 등록 노드다. 등록 노드를 빼면 이벤트가 0건인 기기가 화면에서 통째로 사라진다.
  */
 public final class HostAggregator {
 
@@ -27,12 +25,10 @@ public final class HostAggregator {
 
     /**
      * events 행(host, last_seen)에 host 별 alert 집계, severity 분포(위험 점수), 등록 노드 정보를 붙여 목록을 만든다.
-     * status 와 riskScore 는 한 값(severity 분포로 낸 점수)에서 같이 나온다. 따로 계산하면 한 행 안에서
-     * "위험도 100 인데 정상" 처럼 서로 반대되는 말을 할 수 있다.
-     * events 쿼리가 last_seen DESC 로 정렬돼 오므로 그 순서를 그대로 유지하고,
-     * events 는 없고 등록만 된 host 는 agentSeen DESC 로 정렬해 뒤에 붙인다.
-     * host 이름은 엔드포인트가 OS 원본 그대로 보내 대소문자가 어긋나는 사례가 있어
-     * 매칭은 소문자로 하되, 화면 표시명은 events 쪽 원본을 우선한다.
+     * events 쿼리의 last_seen DESC 순서를 그대로 두고, 등록만 된 host 는 agentSeen DESC 로 뒤에 붙인다.
+     *
+     * <p>status 와 riskScore 를 따로 계산하면 한 행이 "위험도 100 인데 정상" 처럼 반대되는 말을 하므로 한 값에서 같이 낸다.
+     * <p>host 이름은 OS 원본 그대로 와 대소문자가 어긋나므로 매칭은 소문자로 하고, 표시명만 events 쪽 원본을 쓴다.
      */
     public static List<HostResponse> hosts(List<Map<String, Object>> eventRows, List<HostAlertCount> alertCounts,
                                             List<HostRisk> risks, List<EnrolledHost> enrolledHosts) {
@@ -78,8 +74,7 @@ public final class HostAggregator {
 
     /**
      * 목록의 각 host status 를 세어 도넛용 집계를 만든다.
-     * 등록만 되고 이벤트가 한 번도 없는 기기(lastSeen=0 && enrolled)는 알림이 없어 status 가 healthy 로
-     * 나오지만 그건 "정상"이 아니라 "아직 관측된 적 없음"이라 healthy 에서 빼서 noEvents 로 센다.
+     * 등록만 되고 이벤트가 없는 기기는 알림이 없어 healthy 로 나오지만 "정상"이 아니라 "아직 관측 없음"이라 noEvents 로 뺀다.
      */
     public static HostSummary summary(List<HostResponse> hosts) {
         long healthy = 0;

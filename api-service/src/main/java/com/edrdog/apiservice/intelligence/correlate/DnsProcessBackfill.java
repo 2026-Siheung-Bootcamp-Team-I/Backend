@@ -8,35 +8,16 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * 프로세스가 빈 DNS 이벤트에 "진짜 질의한 프로세스"를 되짚어 붙인다.
- *
- * <p>왜 필요한가: macOS 는 DNS 질의가 전부 mDNSResponder 를 거쳐 나가서 소켓 주인을 찾으면
- * 언제나 mDNSResponder 가 나온다. 에이전트는 틀린 값을 채우느니 비워 두는 쪽을 골랐고
- * (l7.go 의 dnsEvent 주석), Windows(ETW)는 프로세스가 정상적으로 채워진다. 그래서 같은 화면이
- * OS 에 따라 다르게 보인다. 서버에서 양쪽을 같게 만든다.
- *
- * <p>어떻게: 그 DNS 응답이 준 IP 로 직후에 실제로 붙은 network/l7 이벤트를 같은 호스트에서
- * 찾는다. 그 이벤트의 프로세스가 질의한 장본인이다.
- *
- * <p>결과는 관측이 아니라 추론이다. CorrelatedEvent 의 별도 칸에 담아 응답에서 구분되게 한다.
- * 못 찾으면 비워 둔다. 에이전트가 지킨 원칙을 서버가 무너뜨리지 않는다.
+ * 프로세스가 빈 DNS 이벤트(macOS 는 질의가 mDNSResponder 를 거쳐 나가 에이전트가 비워 보낸다)에,
+ * 그 응답 IP 로 직후에 같은 호스트에서 붙은 network/l7 이벤트의 프로세스를 되짚어 붙인다(순수).
+ * 결과는 관측이 아니라 추론이라 CorrelatedEvent 의 별도 칸에 담고, 못 찾으면 비워 둔다.
  */
 public final class DnsProcessBackfill {
 
-    /**
-     * DNS 응답 뒤 이 시간 안의 접속만 그 질의 때문이라고 본다.
-     *
-     * <p>더 늘리면 캐시된 IP 로 한참 뒤에 붙은 접속까지 질의자로 둔갑한다. TTL 이 짧은 도메인이
-     * 흔해 30초면 앱이 응답을 받고 붙기까지는 충분히 덮는다.
-     */
+    /** DNS 응답 뒤 이 시간 안의 접속만 그 질의 때문이라고 본다. 늘리면 캐시된 IP 로 한참 뒤에 붙은 접속까지 질의자로 둔갑한다. */
     static final long WINDOW_MS = 30_000;
 
-    /**
-     * 접속이 질의보다 살짝 앞서 찍혀도 허용하는 폭.
-     *
-     * <p>같은 에이전트가 찍은 두 이벤트라 시계는 같지만, 센서가 다르면 밀리초 단위로 순서가
-     * 뒤집혀 올라올 수 있다. 그걸 못 잇는 편이 더 손해다.
-     */
+    /** 접속이 질의보다 살짝 앞서 찍혀도 허용하는 폭. 센서가 다르면 밀리초 단위로 순서가 뒤집혀 올라온다. */
     static final long TOLERANCE_MS = 1_000;
 
     private static final String TYPE_DNS = "dns";
@@ -45,7 +26,7 @@ public final class DnsProcessBackfill {
     private DnsProcessBackfill() {
     }
 
-    /** 이벤트 목록을 그대로 유지한 채, 보정할 수 있는 DNS 이벤트에만 추론 프로세스를 덧붙인다. */
+    /** 적재된 이벤트는 그대로 두고 조회 때만 덧붙인다. 이벤트 안에 채우면 관측값과 추측이 같은 자리에 앉는다. */
     public static List<CorrelatedEvent> apply(List<EventResponse> events, List<EventResponse> candidates) {
         return events.stream().map(e -> correlate(e, candidates)).toList();
     }

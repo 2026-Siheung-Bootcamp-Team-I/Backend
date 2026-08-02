@@ -13,11 +13,8 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * GeoLite2-Country mmdb 로 IP -> ISO2 국가 코드를 해석한다.
- * 로드 우선순위: (1) db-path(env GEOIP_DB_PATH) 파일 -> (2) 클래스패스 번들(빌드 시 다운로드된 mmdb).
- * 둘 다 없으면 "비활성"으로 두고(경고 1회) 기동은 막지 않는다.
- * 조회는 ConcurrentHashMap 에 캐시해 같은 IP 의 반복 mmdb 조회를 피한다.
- * mmdb 접근을 이 클래스 뒤에 가둬, 집계 로직(GeoAggregator)은 스텁 resolver 로 테스트한다.
+ * GeoLite2-Country mmdb 로 IP -> ISO2 국가 코드를 해석한다. mmdb 접근은 이 클래스 뒤에 가둔다.
+ * 로드 우선순위는 db-path 파일 -> 클래스패스 번들이고, 둘 다 없으면 기동을 막는 대신 "비활성"으로 둔다.
  */
 @Component
 public class GeoIpResolver {

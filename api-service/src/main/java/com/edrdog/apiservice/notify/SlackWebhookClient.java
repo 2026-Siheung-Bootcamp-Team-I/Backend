@@ -10,14 +10,13 @@ import org.springframework.web.client.RestClient;
 import java.util.Map;
 
 /**
- * 개인 Slack Incoming Webhook 으로 직접 POST 한다. alert-service 의 SlackNotifier 와 달리
- * 여기서는 실패를 삼키지 않고 Slack 이 준 HTTP 상태코드를 그대로 호출측에 돌려준다
- * (테스트 알림 API 가 "실제로 도달했는지"를 판단해야 하기 때문).
- * 요청 스레드가 오래 붙잡히지 않도록 연결/읽기 타임아웃을 짧게 건다.
+ * 개인 Slack Incoming Webhook 으로 직접 POST 한다.
+ * 실패를 삼키지 않고 Slack 이 준 HTTP 상태코드를 그대로 돌려준다(테스트 알림 API 가 실제 도달 여부를 판단해야 한다).
  */
 @Component
 public class SlackWebhookClient {
 
+    // 요청 스레드가 오래 붙잡히지 않도록 연결/읽기를 짧게 자른다.
     private static final int TIMEOUT_MS = 3000;
 
     private final RestClient client;
@@ -31,8 +30,7 @@ public class SlackWebhookClient {
 
     /**
      * webhookUrl 로 {"text": text} 를 POST 하고 Slack 이 응답한 HTTP 상태코드를 돌려준다.
-     * 4xx/5xx 여도 예외를 던지지 않고 상태코드만 돌려준다(호출측이 성공/실패를 판단).
-     * 연결 실패/타임아웃은 RestClientException 이 그대로 전파된다.
+     * 4xx/5xx 는 예외 대신 상태코드로 나가고(호출측이 판단), 연결 실패/타임아웃만 RestClientException 으로 전파된다.
      */
     public int send(String webhookUrl, String text) {
         ResponseEntity<Void> response = client.post()

@@ -15,16 +15,7 @@ import java.util.List;
 
 /**
  * 브라우저에서 다른 출처의 프론트가 API 를 호출할 수 있게 CORS 를 연다.
- *
- * <p>필터로 두고 {@link Ordered#HIGHEST_PRECEDENCE} 를 주는 이유: preflight(OPTIONS)에는
- * Authorization/X-API-Key 헤더가 붙지 않아 {@link ApiKeyFilter} 보다 뒤에 오면 401 로 막힌다.
- * CorsFilter 가 먼저 돌면 preflight 를 여기서 끝내고 인증 필터까지 가지 않는다.
- *
- * <p>허용 출처는 설정값({@code edrdog.cors.allowed-origins}, 쉼표 구분)으로만 받는다.
- * 인증은 Bearer 토큰(헤더)이라 쿠키가 필요 없어 allowCredentials 는 켜지 않는다.
- *
- * <p>페이지네이션 정보는 응답 본문이 아니라 헤더로 나가는데({@link PageHeaders}), 브라우저는
- * exposedHeaders 에 올린 헤더만 읽을 수 있다. 안 올리면 서버는 정상인데 화면에서만 값이 안 보인다.
+ * 허용 출처는 설정값({@code edrdog.cors.allowed-origins}, 쉼표 구분)으로만 받는다.
  */
 @Configuration
 public class CorsConfig {
@@ -45,12 +36,14 @@ public class CorsConfig {
     }
 
     @Bean
+    // ApiKeyFilter 보다 뒤로 밀리면 헤더가 안 붙는 preflight 가 401 로 막힌다.
     @Order(Ordered.HIGHEST_PRECEDENCE)
     public CorsFilter corsFilter() {
         CorsConfiguration config = new CorsConfiguration();
         config.setAllowedOrigins(allowedOrigins);
         config.setAllowedMethods(ALLOWED_METHODS);
         config.setAllowedHeaders(ALLOWED_HEADERS);
+        // 안 올리면 서버는 정상인데 화면에서만 페이지네이션 값이 안 보인다.
         config.setExposedHeaders(PageHeaders.ALL);
         config.setMaxAge(MAX_AGE_SECONDS);
 

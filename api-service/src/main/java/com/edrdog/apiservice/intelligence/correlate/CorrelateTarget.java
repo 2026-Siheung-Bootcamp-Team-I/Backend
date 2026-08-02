@@ -7,12 +7,8 @@ import java.util.Locale;
 
 /**
  * 사용자가 준 조회 대상 문자열을 검증해 도메인/IP 로 가른 것.
- *
- * <p>실시간 DNS 조회는 사용자 문자열을 그대로 외부 질의에 싣게 되므로 여기서 형식을 먼저
- * 확인한다. 도메인도 IP 도 아니면 조회하지 않고 400 으로 돌려보낸다.
- *
- * <p>정규화는 에이전트의 normalizeDNSName(소문자, 후행 점 제거)과 같게 맞춘다. 다르면 관측된
- * domain 컬럼과 안 맞아 "관측된 적 없음"으로 보인다.
+ * 형식 검증을 빼면 사용자 문자열이 그대로 외부 DNS 질의에 실린다.
+ * 정규화는 에이전트의 normalizeDNSName 과 같게 맞춘다. 다르면 관측된 domain 과 안 맞아 "관측된 적 없음"으로 보인다.
  */
 public record CorrelateTarget(TargetKind kind, String value) {
 

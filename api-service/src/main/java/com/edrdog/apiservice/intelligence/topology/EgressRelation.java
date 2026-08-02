@@ -18,9 +18,8 @@ public record EgressRelation(String host, String dest, String destKind, long eve
     }
 
     /**
-     * l4(tcp/udp)와 l7(tls/http) 라벨을 한 목록으로 합친다. JSONExtractString 은 키가 없으면 ""
-     * 를 주는데, 그건 "관측하지 못했다" 는 뜻이라 라벨로 싣지 않는다. 정렬은 groupUniqArray 의
-     * 순서가 실행마다 달라 응답이 흔들리는 것을 막으려는 것이다.
+     * l4(tcp/udp)와 l7(tls/http) 라벨을 한 목록으로 합친다. JSONExtractString 이 주는 ""는 "관측 못 했다"라 싣지 않는다.
+     * 정렬하지 않으면 groupUniqArray 순서가 실행마다 달라 응답이 흔들린다.
      */
     private static List<String> protocols(Object l4, Object l7) {
         TreeSet<String> merged = new TreeSet<>();

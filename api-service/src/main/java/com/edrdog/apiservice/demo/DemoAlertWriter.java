@@ -17,12 +17,11 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
- * 데모 시드 alerts 를 ClickHouse 에 직접 적재한다(DemoEventWriter 와 같은 패턴).
- * 평소 적재는 archiver 담당이고 여기는 발표용 과거 데이터 전용이라, 시드 플래그가 켜진 경우에만 빈으로 올라온다.
- * 테이블 스키마도 archiver 가 보장하므로 여기서는 INSERT 만 한다.
+ * 데모 시드 alerts 를 archiver 를 거치지 않고 ClickHouse 에 직접 적재한다(테이블 스키마는 archiver 가 보장하는 걸 쓴다).
+ * 조건부 빈을 풀면 운영 판정기록에 데모 alert 가 섞인다({@code edrdog.demo.seed} 가 그걸 막는 유일한 장치다).
  *
- * <p>id 는 적재 경로와 같은 {@link AlertId} 로 계산한다. 결정적이라 재기동으로 다시 넣어도
- * ReplacingMergeTree 가 병합 시 한 행으로 접는다(트리아지한 status 오버레이도 그대로 붙는다).
+ * <p>id 는 적재 경로와 같은 {@link AlertId} 로 계산한다. 임의 id 로 바꾸면 재기동마다 같은 alert 가
+ * 새 행으로 쌓인다(결정적이라야 ReplacingMergeTree 가 한 행으로 접는다).
  */
 @Component
 @ConditionalOnProperty(name = "edrdog.demo.seed", havingValue = "true")
