@@ -10,7 +10,7 @@ import com.edrdog.apiservice.alert.TriageOverlay;
 import com.edrdog.apiservice.alert.web.AlertResponse;
 import com.edrdog.apiservice.alert.web.LineageResponse;
 import com.edrdog.apiservice.alert.web.SourceEvent;
-import com.edrdog.apiservice.auth.exception.AuthException;
+import com.edrdog.apiservice.auth.AuthException;
 import com.edrdog.apiservice.clickhouse.ClickHouseReader;
 import com.edrdog.apiservice.incident.web.IncidentResponse;
 import com.edrdog.apiservice.incident.web.IncidentTimelineResponse;

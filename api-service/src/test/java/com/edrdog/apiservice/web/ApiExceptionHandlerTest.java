@@ -1,7 +1,6 @@
 package com.edrdog.apiservice.web;
 
-import com.edrdog.apiservice.auth.exception.AuthException;
-import com.edrdog.apiservice.auth.exception.AuthExceptionHandler;
+import com.edrdog.apiservice.auth.AuthException;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.test.web.servlet.MockMvc;

@@ -1,8 +1,8 @@
 package com.edrdog.apiservice.search.web;
 
-import com.edrdog.apiservice.auth.exception.AuthException;
-import com.edrdog.apiservice.auth.service.AuthService;
-import com.edrdog.apiservice.auth.service.Principal;
+import com.edrdog.apiservice.auth.AuthException;
+import com.edrdog.apiservice.auth.AuthService;
+import com.edrdog.apiservice.auth.Principal;
 import com.edrdog.apiservice.search.SearchQueryBuilder;
 import com.edrdog.apiservice.search.SearchService;
 import com.edrdog.apiservice.search.SearchTerm;

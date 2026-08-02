@@ -1,6 +1,6 @@
 package com.edrdog.apiservice.intelligence.correlate;
 
-import com.edrdog.apiservice.web.EventResponse;
+import com.edrdog.apiservice.event.EventResponse;
 
 import java.util.Comparator;
 import java.util.List;

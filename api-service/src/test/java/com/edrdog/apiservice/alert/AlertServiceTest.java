@@ -1,7 +1,7 @@
 package com.edrdog.apiservice.alert;
 
 import com.edrdog.apiservice.alert.web.AlertResponse;
-import com.edrdog.apiservice.auth.exception.AuthException;
+import com.edrdog.apiservice.auth.AuthException;
 import com.edrdog.apiservice.clickhouse.ClickHouseReader;
 import com.edrdog.apiservice.query.ClickHouseQuery;
 import com.edrdog.apiservice.query.EventQueryBuilder;

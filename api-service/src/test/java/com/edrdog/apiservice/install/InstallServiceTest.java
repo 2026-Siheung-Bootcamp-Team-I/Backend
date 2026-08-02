@@ -1,6 +1,6 @@
 package com.edrdog.apiservice.install;
 
-import com.edrdog.apiservice.auth.exception.AuthException;
+import com.edrdog.apiservice.auth.AuthException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

@@ -3,7 +3,7 @@ package com.edrdog.apiservice.alert;
 import com.edrdog.apiservice.alert.web.LineageResponse;
 import com.edrdog.apiservice.alert.web.LineageResponse.Edge;
 import com.edrdog.apiservice.alert.web.LineageResponse.Node;
-import com.edrdog.apiservice.web.EventDetail;
+import com.edrdog.apiservice.event.EventDetail;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
 
