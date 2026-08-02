@@ -181,7 +181,18 @@ jobs:
           for f in $(git -C ~/Backend ls-tree --name-only FETCH_HEAD k8s/ | grep '\.yaml$'); do
           case "$(basename "$f" .yaml)" in *-service|kind-cluster|infisical) continue ;; esac
           echo "apply $f" >&2
-          APPLIED=$(git -C ~/Backend show "FETCH_HEAD:$f" | sudo kubectl apply -f - -o name)
+          MANIFEST=$(git -C ~/Backend show "FETCH_HEAD:$f")
+          # Job 은 spec.template 이 immutable 이라 내용이 바뀌면 apply 가 "field is immutable" 로 죽는다.
+          # 그러면 set -e 때문에 뒤따르는 mysql apply 와 서비스 롤링까지 통째로 안 돈다(실제로 토픽 생성
+          # Job 에서 events-raw 줄을 지웠을 때 배포가 여기서 멈췄다). 여기 있는 Job 은 부트스트랩용이라
+          # 다시 돌려도 안전하므로 지우고 새로 만든다. --dry-run=client 로는 안 잡힌다(서버의 기존
+          # 오브젝트와 대조하지 않는다). 파일 목록을 따로 적지 않는 이유는 위 apply 규칙과 같다.
+          EXISTING_JOBS=$(echo "$MANIFEST" | sudo kubectl get -f - -o name 2>/dev/null | grep '^job\.batch/' || true)
+          if [ -n "$EXISTING_JOBS" ]; then
+          echo "$EXISTING_JOBS 을(를) 지우고 다시 만든다 (Job 은 수정 불가)" >&2
+          echo "$EXISTING_JOBS" | xargs sudo kubectl -n "$NS" delete --ignore-not-found
+          fi
+          APPLIED=$(echo "$MANIFEST" | sudo kubectl apply -f - -o name)
           echo "$APPLIED" >&2
           INFRA_DEPLOYS="$INFRA_DEPLOYS $(echo "$APPLIED" | grep '^deployment' || true)"
           done
