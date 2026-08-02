@@ -1,6 +1,10 @@
 spring:
   application:
     name: detector
+  config:
+    import:
+      - classpath:observability.yml
+      - classpath:observability-metrics.yml   # 메트릭 익스포터 켜짐 (build.gradle 에 micrometer-registry-otlp 있음)
   kafka:
     bootstrap-servers: localhost:9092
     streams:
@@ -30,32 +34,3 @@ edrdog:
   kafka:
     events-topic: events      # 검증을 거친 엔드포인트 이벤트 (판정 입력)
     alerts-topic: alerts      # SUSPECT 결과
-
-management:
-  endpoints:
-    web:
-      exposure:
-        include: health, info
-  # 관측 — otel-lgtm(k8s/otel-lgtm.yaml) 으로 OTLP 전송. 스택 없이 개발할 땐 OTEL_ENABLED=false.
-  tracing:
-    enabled: ${OTEL_ENABLED:true}
-    sampling:
-      probability: ${OTEL_TRACE_SAMPLING:1.0}      # 데모 규모라 전량 샘플링
-  otlp:
-    tracing:
-      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/traces
-    metrics:
-      export:
-        enabled: ${OTEL_ENABLED:true}
-        url: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/metrics
-        step: 10s                                  # 기본 1m 은 데모에서 그래프가 늦게 뜬다
-        base-time-unit: seconds                    # Prometheus 관례(초 단위) — 대시보드 쿼리가 이 이름에 맞춰져 있다
-  metrics:
-    distribution:
-      # 버킷을 발행해야 Grafana 에서 p50/p95/p99 를 계산할 수 있다. 끄면 +Inf 버킷만 나가 분위수가 NaN 이 된다.
-      percentiles-histogram:
-        http.server.requests: true
-      minimum-expected-value:
-        http.server.requests: 5ms                  # 버킷 개수를 이 범위로 제한 (카디널리티 방어)
-      maximum-expected-value:
-        http.server.requests: 10s

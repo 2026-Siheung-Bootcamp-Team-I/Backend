@@ -2,13 +2,12 @@ package com.edrdog.apiservice.demo;
 
 import com.edrdog.apiservice.alert.AlertId;
 import com.edrdog.apiservice.alert.dto.Alert;
+import com.edrdog.apiservice.clickhouse.ClickHouseHttp;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestClient;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -27,32 +26,24 @@ import java.util.stream.Collectors;
 @ConditionalOnProperty(name = "edrdog.demo.seed", havingValue = "true")
 public class DemoAlertWriter {
 
-    private final RestClient client;
+    private final ClickHouseHttp http;
     private final ObjectMapper mapper;
     private final String table;
 
     public DemoAlertWriter(
-            @Value("${edrdog.clickhouse.url}") String url,
-            @Value("${edrdog.clickhouse.database}") String database,
-            @Value("${edrdog.clickhouse.user}") String user,
-            @Value("${edrdog.clickhouse.password}") String password,
+            ClickHouseHttp http,
             @Value("${edrdog.clickhouse.alerts-table}") String table,
             ObjectMapper mapper) {
+        this.http = http;
         this.table = table;
         this.mapper = mapper;
-        this.client = RestClient.builder()
-                .baseUrl(url)
-                .defaultHeader("X-ClickHouse-User", user)
-                .defaultHeader("X-ClickHouse-Key", password)
-                .defaultHeader("X-ClickHouse-Database", database)
-                .build();
     }
 
     public void insert(List<Alert> alerts) {
         if (alerts.isEmpty()) {
             return;
         }
-        execute("INSERT INTO " + table + " FORMAT JSONEachRow\n"
+        http.execute("INSERT INTO " + table + " FORMAT JSONEachRow\n"
                 + alerts.stream().map(this::toJson).collect(Collectors.joining("\n")));
     }
 
@@ -75,15 +66,6 @@ public class DemoAlertWriter {
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("데모 alert 직렬화 실패: " + row, e);
         }
-    }
-
-    private void execute(String sql) {
-        client.post()
-                .uri("/")
-                .contentType(MediaType.TEXT_PLAIN)
-                .body(sql)
-                .retrieve()
-                .toBodilessEntity();
     }
 
     private static String nz(String s) {

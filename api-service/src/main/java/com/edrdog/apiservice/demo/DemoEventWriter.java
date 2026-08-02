@@ -1,12 +1,11 @@
 package com.edrdog.apiservice.demo;
 
+import com.edrdog.apiservice.clickhouse.ClickHouseHttp;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestClient;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -22,31 +21,23 @@ public class DemoEventWriter {
     /** 한 요청에 싣는 행 수 상한. 안 쪼개면 수백 건이 한 요청 본문에 통째로 들어간다. */
     private static final int BATCH = 200;
 
-    private final RestClient client;
+    private final ClickHouseHttp http;
     private final ObjectMapper mapper;
     private final String table;
 
     public DemoEventWriter(
-            @Value("${edrdog.clickhouse.url}") String url,
-            @Value("${edrdog.clickhouse.database}") String database,
-            @Value("${edrdog.clickhouse.user}") String user,
-            @Value("${edrdog.clickhouse.password}") String password,
+            ClickHouseHttp http,
             @Value("${edrdog.clickhouse.table}") String table,
             ObjectMapper mapper) {
+        this.http = http;
         this.table = table;
         this.mapper = mapper;
-        this.client = RestClient.builder()
-                .baseUrl(url)
-                .defaultHeader("X-ClickHouse-User", user)
-                .defaultHeader("X-ClickHouse-Key", password)
-                .defaultHeader("X-ClickHouse-Database", database)
-                .build();
     }
 
     public void insert(List<DemoEvent> events) {
         for (int i = 0; i < events.size(); i += BATCH) {
             List<DemoEvent> batch = events.subList(i, Math.min(i + BATCH, events.size()));
-            execute("INSERT INTO " + table + " FORMAT JSONEachRow\n" + toJsonLines(batch));
+            http.execute("INSERT INTO " + table + " FORMAT JSONEachRow\n" + toJsonLines(batch));
         }
     }
 
@@ -60,14 +51,5 @@ public class DemoEventWriter {
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("데모 이벤트 직렬화 실패: " + event, e);
         }
-    }
-
-    private void execute(String sql) {
-        client.post()
-                .uri("/")
-                .contentType(MediaType.TEXT_PLAIN)
-                .body(sql)
-                .retrieve()
-                .toBodilessEntity();
     }
 }

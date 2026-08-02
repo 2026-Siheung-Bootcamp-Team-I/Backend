@@ -15,6 +15,7 @@ import com.edrdog.apiservice.clickhouse.ClickHouseReader;
 import com.edrdog.apiservice.incident.web.IncidentResponse;
 import com.edrdog.apiservice.incident.web.IncidentTimelineResponse;
 import com.edrdog.apiservice.query.EventQueryBuilder;
+import com.edrdog.apiservice.query.QueryGuards;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -301,10 +302,7 @@ public class IncidentService {
 
     /** offset 과 달리 limit 은 상한을 넘어도 400 이 아니라 상한으로 자른다. */
     private static int clampLimit(Integer limit) {
-        if (limit == null || limit <= 0) {
-            return DEFAULT_LIMIT;
-        }
-        return Math.min(limit, MAX_LIMIT);
+        return QueryGuards.clampLimit(limit, DEFAULT_LIMIT, MAX_LIMIT);
     }
 
     private static String str(Map<String, Object> row, String key) {

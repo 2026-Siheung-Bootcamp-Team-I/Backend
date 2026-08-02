@@ -1,13 +1,13 @@
 package com.edrdog.apiservice.search;
 
 import com.edrdog.apiservice.query.ClickHouseQuery;
+import com.edrdog.apiservice.query.QueryGuards;
+import com.edrdog.apiservice.query.TenantScope;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
  * 상단바 통합 검색의 events/alerts 조회 SQL 을 만드는 순수 로직
@@ -61,12 +61,9 @@ public class SearchQueryBuilder {
 
     /** tenant 격리 하에 시간 범위[from,to] 안의 events 를 질의어 부분일치로 훑는다. tenantId·term 은 필수. */
     public ClickHouseQuery events(String tenantId, String term, long from, long to, Integer limit) {
-        Map<String, String> params = new LinkedHashMap<>();
-        String where = where(tenantId, term, from, to, EVENT_FIELDS, List.of(), params);
-        String sql = "SELECT " + EVENT_COLUMNS + " FROM " + eventsTable
-                + where
-                + " ORDER BY ts DESC LIMIT " + (pageSize(limit) + 1);
-        return new ClickHouseQuery(sql, params);
+        return scope(tenantId, term, from, to, EVENT_FIELDS, List.of())
+                .toQuery("SELECT " + EVENT_COLUMNS + " FROM " + eventsTable,
+                        " ORDER BY ts DESC LIMIT " + (pageSize(limit) + 1));
     }
 
     /**
@@ -76,46 +73,31 @@ public class SearchQueryBuilder {
      */
     public ClickHouseQuery alerts(String tenantId, String term, List<String> ruleIds,
                                   long from, long to, Integer limit) {
-        Map<String, String> params = new LinkedHashMap<>();
-        String where = where(tenantId, term, from, to, ALERT_FIELDS, ruleIds, params);
-        String sql = "SELECT " + ALERT_COLUMNS + " FROM " + alertsTable + " FINAL"
-                + where
-                + " ORDER BY ts DESC LIMIT " + (pageSize(limit) + 1);
-        return new ClickHouseQuery(sql, params);
+        return scope(tenantId, term, from, to, ALERT_FIELDS, ruleIds)
+                .toQuery("SELECT " + ALERT_COLUMNS + " FROM " + alertsTable + " FINAL",
+                        " ORDER BY ts DESC LIMIT " + (pageSize(limit) + 1));
     }
 
     /** 클램프가 적용된 실제 섹션 크기. 호출부가 탐침 행을 잘라내려면 이 값을 알아야 한다. */
     public static int pageSize(Integer limit) {
-        if (limit == null || limit <= 0) {
-            return DEFAULT_LIMIT;
-        }
-        return Math.min(limit, MAX_LIMIT);
+        return QueryGuards.clampLimit(limit, DEFAULT_LIMIT, MAX_LIMIT);
     }
 
-    private static String where(String tenantId, String term, long from, long to,
-                                List<String> fields, List<String> ruleIds, Map<String, String> params) {
-        if (!hasText(tenantId)) {
-            throw new IllegalArgumentException("tenant 는 필수입니다(격리)");
-        }
-        if (!hasText(term)) {
+    private static TenantScope scope(String tenantId, String term, long from, long to,
+                                     List<String> fields, List<String> ruleIds) {
+        TenantScope scope = TenantScope.of(tenantId);
+        if (!QueryGuards.hasText(term)) {
             throw new IllegalArgumentException("검색어는 필수입니다");
         }
-        List<String> conds = new ArrayList<>();
-        // tenant 격리는 항상 첫 조건으로 강제한다.
-        conds.add("tenant_id = {tenant:String}");
-        params.put("tenant", tenantId.trim());
-        conds.add("ts >= {from:UInt64}");
-        params.put("from", String.valueOf(from));
-        conds.add("ts <= {to:UInt64}");
-        params.put("to", String.valueOf(to));
-        conds.add("(" + String.join(" OR ", matchConds(term, fields, ruleIds, params)) + ")");
-        return " WHERE " + String.join(" AND ", conds);
+        scope.add("ts >= {from:UInt64}", "from", String.valueOf(from))
+                .add("ts <= {to:UInt64}", "to", String.valueOf(to));
+        return scope.add("(" + String.join(" OR ", matchConds(term, fields, ruleIds, scope)) + ")");
     }
 
     /** 훑을 컬럼 하나당 조건 하나. 질의어와 ruleId 는 전부 바인딩이라 SQL 에 문자열이 들어가지 않는다. */
     private static List<String> matchConds(String term, List<String> fields, List<String> ruleIds,
-                                           Map<String, String> params) {
-        params.put("q", term);
+                                           TenantScope scope) {
+        scope.bind("q", term);
         List<String> conds = new ArrayList<>();
         for (String field : fields) {
             conds.add("positionCaseInsensitive(" + field + ", {q:String}) > 0");
@@ -123,12 +105,8 @@ public class SearchQueryBuilder {
         for (int i = 0; i < ruleIds.size(); i++) {
             String name = "rid" + i;
             conds.add("rule_id = {" + name + ":String}");
-            params.put(name, ruleIds.get(i));
+            scope.bind(name, ruleIds.get(i));
         }
         return conds;
-    }
-
-    private static boolean hasText(String s) {
-        return s != null && !s.trim().isEmpty();
     }
 }
