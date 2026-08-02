@@ -4,7 +4,7 @@ spring:
   kafka:
     bootstrap-servers: localhost:9092
     consumer:
-      group-id: archiver
+      group-id: archiver                # events 전용. alerts 는 AlertKafkaConfig 가 별도 그룹(archiver-alerts)으로 뜬다
       auto-offset-reset: earliest       # 적재는 유실 없이 처음부터 (detector 와 독립 그룹)
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
@@ -22,12 +22,14 @@ server:
 edrdog:
   kafka:
     events-topic: events              # 원시 이벤트 (소비 입력)
+    alerts-topic: alerts              # 판정기록 (소비 입력, 전용 컨슈머 그룹은 AlertKafkaConfig 참고)
   clickhouse:
     url: http://localhost:8123        # k8s NodePort HTTP
     database: edrdog
     user: edrdog
     password: ${CLICKHOUSE_PASSWORD:edrdog}   # 시크릿은 Infisical 주입, 기본값은 로컬 kind ClickHouse 와 일치
-    table: edrdog.events              # 적재 대상 테이블
+    table: edrdog.events              # events 적재 대상 테이블
+    alerts-table: edrdog.alerts       # alerts 적재 대상 테이블
 
 management:
   endpoints:

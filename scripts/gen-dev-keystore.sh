@@ -7,7 +7,7 @@
 #   AGENT_TLS_KEYSTORE_PASSWORD=... ./scripts/gen-dev-keystore.sh ./dev-tls localhost
 #
 # 산출물:
-#   <out>/agent-keystore.p12  → api-service AGENT_TLS_KEYSTORE 로 지정
+#   <out>/agent-keystore.p12  → collector-service AGENT_TLS_KEYSTORE 로 지정
 #   <out>/agent-server.pem    → 에이전트 설정의 ca_cert_path 로 지정(인증서 고정)
 set -euo pipefail
 
@@ -39,18 +39,18 @@ echo "생성 완료:"
 echo "  keystore : $OUT/agent-keystore.p12  (비번: $PASS, alias: $ALIAS)"
 echo "  server cert(PEM) : $OUT/agent-server.pem"
 echo
-echo "api-service 기동 예:"
+echo "collector-service 기동 예:"
 echo "  AGENT_TLS_ENABLED=true \\"
 echo "  AGENT_TLS_KEYSTORE=$OUT/agent-keystore.p12 \\"
 echo "  AGENT_TLS_KEYSTORE_PASSWORD=$PASS \\"
-echo "  ./gradlew :api-service:bootRun"
+echo "  ./gradlew :collector-service:bootRun"
 echo
-echo "k8s(api-service) 에 태우려면 Secret 하나 만들면 끝(만들기 전엔 커넥터 OFF):"
+echo "k8s(collector-service) 에 태우려면 Secret 하나 만들면 끝(만들기 전엔 커넥터 OFF):"
 echo "  kubectl -n edrdog create secret generic agent-tls \\"
 echo "    --from-file=keystore.p12=$OUT/agent-keystore.p12 \\"
 echo "    --from-literal=AGENT_TLS_ENABLED=true \\"
 echo "    --from-literal=AGENT_TLS_KEYSTORE_PASSWORD=$PASS"
-echo "  kubectl -n edrdog rollout restart deploy/api-service"
+echo "  kubectl -n edrdog rollout restart deploy/collector-service"
 echo
 echo "에이전트 설정(config.json) 에는 이렇게 넣는다:"
 echo "  \"base_url\": \"https://$HOST:30443\","

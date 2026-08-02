@@ -1,8 +1,11 @@
-// Collector — 에이전트 원시 이벤트(events-raw) 를 소비해 detector 스키마(Event)로 검증 후 events 로 재발행
+// Collector — 에이전트 HTTP 수집 입구. 인증·검증 후 detector 스키마(Event)로 events 에 발행
 dependencies {
     // 루트 build.gradle 이 actuator 를 넣지만 web 이 없으면 HTTP 서버 자체가 안 떠서
     // /actuator/health 가 서빙되지 않는다(k8s probe 가 계속 실패해 컨테이너가 재시작된다).
     implementation 'org.springframework.boot:spring-boot-starter-web'
     implementation 'org.springframework.kafka:spring-kafka'
-    implementation 'com.fasterxml.jackson.core:jackson-databind'        // 에이전트 원시 이벤트 JSON 파싱 + Event JSON 직렬화
+    implementation 'com.fasterxml.jackson.core:jackson-databind'        // 에이전트 이벤트 JSON 파싱 + Event JSON 직렬화
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'    // 등록 노드(node_key 해시 → tenant/host) 저장
+    runtimeOnly 'com.mysql:mysql-connector-j'                           // 등록 노드 저장용 MySQL 드라이버
+    testImplementation 'com.h2database:h2'                              // 수집 흐름 통합 테스트용 임베디드 DB
 }

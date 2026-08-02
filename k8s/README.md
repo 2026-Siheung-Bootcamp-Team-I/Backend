@@ -26,7 +26,7 @@ kubectl -n edrdog get pods                            # Running 확인
 | Grafana | `http://localhost:3000` | `admin` / `GRAFANA_ADMIN_PASSWORD`. 첫 화면이 EDRdog Overview |
 | OTLP HTTP | `http://localhost:4318` | 서비스가 메트릭·트레이스를 보내는 곳 |
 | OTLP gRPC | `localhost:4317` | 〃 |
-| 에이전트 수집 HTTPS | `localhost:8443` (NodePort 30443) | 엔드포인트 에이전트가 붙는 곳. 아래 시크릿을 만들어야 열린다 |
+| 에이전트 수집 HTTPS | `localhost:8443` (NodePort 30443) | 엔드포인트 에이전트가 붙는 곳(collector-service). 아래 시크릿을 만들어야 열린다 |
 
 클러스터 내부(파드 간) Kafka 주소: `kafka.edrdog.svc.cluster.local:9094`
 클러스터 내부 OTLP 주소: `http://otel-lgtm:4318` (각 서비스 Deployment 의 `OTEL_EXPORTER_OTLP_ENDPOINT`)
@@ -55,11 +55,11 @@ curl "http://localhost:3000/api/datasources/proxy/uid/loki/loki/api/v1/label/ser
 kind delete cluster --name edrdog    # 클러스터째 삭제 (PVC 도 노드 안에 있어 함께 소멸)
 ```
 
-## 에이전트 수집 포트 (api-service 8443 / NodePort 30443)
+## 에이전트 수집 포트 (collector-service 8443 / NodePort 30443)
 
-에이전트는 서버 인증서를 고정해서 붙으므로 수집 경로에 HTTPS 가 필수다. 그래서 api-service 는 프론트용
-8084 와 별도로 에이전트 전용 HTTPS 커넥터를 8443 에 연다. **이 커넥터는 `agent-tls` Secret 이 있을 때만 켜진다**
-(Secret 이 없으면 값이 안 들어와 `AGENT_TLS_ENABLED` 가 기본 false 로 남고, api-service 는 그대로 정상 기동한다).
+에이전트는 서버 인증서를 고정해서 붙으므로 수집 경로에 HTTPS 가 필수다. 그래서 collector-service 는
+내부 조회용 8082 와 별도로 에이전트 전용 HTTPS 커넥터를 8443 에 연다. **이 커넥터는 `agent-tls` Secret 이 있을 때만 켜진다**
+(Secret 이 없으면 값이 안 들어와 `AGENT_TLS_ENABLED` 가 기본 false 로 남고, collector-service 는 그대로 정상 기동한다).
 
 ```bash
 # 1) 서버 인증서 + 키스토어 생성. 인자는 엔드포인트가 실제로 붙을 주소(도메인 또는 공인 IP).
@@ -73,7 +73,7 @@ kubectl -n edrdog create secret generic agent-tls \
   --from-literal=AGENT_TLS_ENABLED=true \
   --from-literal=AGENT_TLS_KEYSTORE_PASSWORD=changeit
 
-kubectl -n edrdog rollout restart deploy/api-service
+kubectl -n edrdog rollout restart deploy/collector-service
 
 # 3) 확인 (self-signed 라 -k)
 curl -sk https://localhost:8443/api/agent/enroll -H 'Content-Type: application/json' \
@@ -160,7 +160,7 @@ EXISTS` + `ALTER` 로만 진화시키므로 컬럼이 늘어나는 방향은 안
 
 - kind 로컬에서는 `kind-cluster.yaml` 의 `30443 -> hostPort 8443` 매핑을 쓴다.
   **`extraPortMappings` 는 클러스터 생성 시에만 반영**되므로 기존 클러스터라면 다시 만들거나
-  `kubectl -n edrdog port-forward svc/api-service-agent 8443:8443` 로 우회한다.
+  `kubectl -n edrdog port-forward svc/collector-service-agent 8443:8443` 로 우회한다.
 
 ## GeoLite2 (위협 지도)
 
@@ -317,7 +317,7 @@ Machine Identity 자격증명 Secret 생성 1회, `kubectl apply -f k8s/infisica
   - **로그**: 앱은 그냥 stdout 에 찍고, Alloy 가 `*-service` 파드 로그를 읽어 Loki 로 보낸다 (앱 코드 변경 없음)
   - **인프라 메트릭**: Alloy 가 kubelet 의 cAdvisor·resource 엔드포인트를 긁어 컨테이너·노드 CPU/메모리를
     Prometheus 로 remote write 한다. 별도 exporter 를 띄우지 않는다.
-- Kafka 발행·소비 구간에도 스팬이 생겨(`spring.kafka.*.observation-enabled`), api → collector → detector → archiver 흐름이
+- Kafka 발행·소비 구간에도 스팬이 생겨(`spring.kafka.*.observation-enabled`), collector → detector → archiver 흐름이
   트레이스 하나로 이어진다.
 - 로그에는 Spring 기본 패턴의 `[traceId-spanId]` 를 Alloy 가 뽑아 structured metadata 로 붙인다.
   Grafana 에서 로그 한 줄을 펼치면 trace_id 링크로 Tempo 트레이스까지 바로 넘어간다.

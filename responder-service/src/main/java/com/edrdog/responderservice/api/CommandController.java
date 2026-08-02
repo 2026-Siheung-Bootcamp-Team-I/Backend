@@ -14,10 +14,10 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 
 /**
- * 에이전트 명령 채널. 에이전트는 api-service 만 알고, api-service 가 이 경로로 프록시한다.
+ * 에이전트 명령 채널. 에이전트는 collector-service 만 알고, collector 가 이 경로로 프록시한다.
  *
- * <p>responder 는 클러스터 안에서만 열리고 앱 인증이 없다. 바깥 노출은 api-service 가 node_key 를
- * 검증한 뒤 프록시하는 경로뿐이다(kill 과 같은 구조).
+ * <p>responder 는 클러스터 안에서만 열리고 앱 인증이 없다. 바깥 노출은 collector 가 node_key 를
+ * 검증한 뒤 프록시하는 경로뿐이다(kill 은 api-service 가 세션 인증 뒤 프록시한다).
  */
 @RestController
 @RequestMapping("/api/responder/commands")
