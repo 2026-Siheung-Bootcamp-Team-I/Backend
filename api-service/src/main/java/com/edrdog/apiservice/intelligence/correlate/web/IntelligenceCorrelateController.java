@@ -1,7 +1,7 @@
 package com.edrdog.apiservice.intelligence.correlate.web;
 
-import com.edrdog.apiservice.auth.service.AuthService;
-import com.edrdog.apiservice.auth.service.Principal;
+import com.edrdog.apiservice.auth.AuthService;
+import com.edrdog.apiservice.auth.Principal;
 import com.edrdog.apiservice.intelligence.correlate.CorrelateResponse;
 import com.edrdog.apiservice.intelligence.correlate.CorrelateService;
 import com.edrdog.apiservice.intelligence.correlate.CorrelateTarget;

@@ -1,6 +1,6 @@
 package com.edrdog.apiservice.intelligence.correlate;
 
-import com.edrdog.apiservice.web.EventResponse;
+import com.edrdog.apiservice.event.EventResponse;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.util.LinkedHashMap;

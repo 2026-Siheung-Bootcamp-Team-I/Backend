@@ -1,6 +1,6 @@
 package com.edrdog.apiservice.alert.web;
 
-import com.edrdog.apiservice.web.EventId;
+import com.edrdog.apiservice.event.EventId;
 
 import java.util.Map;
 

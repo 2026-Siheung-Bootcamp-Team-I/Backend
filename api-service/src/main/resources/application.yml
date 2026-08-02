@@ -72,6 +72,11 @@ edrdog:
   demo:
     # 발표용 시드. 켜면 부팅 시 데모 계정(test/1234, tenantId=1)과 최근 7일치 과거 데이터를 만든다.
     # 운영에 test/1234 가 새면 안 되므로 기본은 off. 발표 환경에서만 DEMO_SEED=true 로 켠다.
+    #
+    # off 로 막히는 건 시드 쪽(DemoSeeder/DemoDataSeeder/DemoAccountSeeder/DemoEventWriter/DemoAlertWriter)뿐이다.
+    # 시연 API 쪽(DemoController/DemoFlowService/EventsProducer/AlertArrivals/DemoTenant)은 off 여도 빈이 뜬다.
+    # 막는 장치가 다르다: 데모 계정이 없으면 DemoTenant 가 empty 를 줘서 /api/demo/* 가 403 이 된다(DemoApiWithoutSeedTest).
+    # 이 둘을 같다고 보고 조건부 빈을 걷어내면 시드 없이도 쓰기 경로가 열린다.
     seed: ${DEMO_SEED:false}
     # /api/demo/collect 가 판정을 기다리는 상한. Kafka 왕복(발행→스트림즈→alerts)과 ClickHouse 적재를
     # 각각 기다린다. 발표 환경이 느려 TIMEOUT 이 뜨면 늘린다.

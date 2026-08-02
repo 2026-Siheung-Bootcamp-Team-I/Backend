@@ -2,7 +2,7 @@ package com.edrdog.apiservice.intelligence.correlate;
 
 import com.edrdog.apiservice.clickhouse.ClickHouseReader;
 import com.edrdog.apiservice.query.ClickHouseQuery;
-import com.edrdog.apiservice.web.EventResponse;
+import com.edrdog.apiservice.event.EventResponse;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 

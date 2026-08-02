@@ -13,7 +13,7 @@ import java.time.Instant;
 // id 는 판정기록(ClickHouse)과 같은 결정적 값(AlertId)이라야 두 저장소를 앱에서 병합할 수 있다.
 @Entity
 @Table(name = "alert_status")
-public class AlertStatusRecord {
+public class AlertStatusRecord implements TriageOverlay {
 
     @Id
     private String id;

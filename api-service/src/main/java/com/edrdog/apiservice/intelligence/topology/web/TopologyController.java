@@ -1,7 +1,7 @@
 package com.edrdog.apiservice.intelligence.topology.web;
 
-import com.edrdog.apiservice.auth.service.AuthService;
-import com.edrdog.apiservice.auth.service.Principal;
+import com.edrdog.apiservice.auth.AuthService;
+import com.edrdog.apiservice.auth.Principal;
 import com.edrdog.apiservice.intelligence.topology.TopologyService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;

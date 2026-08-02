@@ -1,10 +1,8 @@
 package com.edrdog.apiservice.notify;
 
-import com.edrdog.apiservice.auth.domain.AppUser;
-import com.edrdog.apiservice.auth.exception.AuthException;
-import com.edrdog.apiservice.auth.repository.UserRepository;
-import com.edrdog.apiservice.notify.domain.HostOwner;
-import com.edrdog.apiservice.notify.repository.HostOwnerRepository;
+import com.edrdog.apiservice.auth.AppUser;
+import com.edrdog.apiservice.auth.AuthException;
+import com.edrdog.apiservice.auth.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

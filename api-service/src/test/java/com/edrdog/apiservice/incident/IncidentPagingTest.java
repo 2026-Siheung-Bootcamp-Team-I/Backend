@@ -1,6 +1,6 @@
 package com.edrdog.apiservice.incident;
 
-import com.edrdog.apiservice.auth.exception.AuthException;
+import com.edrdog.apiservice.auth.AuthException;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;

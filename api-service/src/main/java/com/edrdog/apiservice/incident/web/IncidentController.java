@@ -1,8 +1,8 @@
 package com.edrdog.apiservice.incident.web;
 
-import com.edrdog.apiservice.auth.exception.AuthException;
-import com.edrdog.apiservice.auth.service.AuthService;
-import com.edrdog.apiservice.auth.service.Principal;
+import com.edrdog.apiservice.auth.AuthException;
+import com.edrdog.apiservice.auth.AuthService;
+import com.edrdog.apiservice.auth.Principal;
 import com.edrdog.apiservice.incident.IncidentPage;
 import com.edrdog.apiservice.incident.IncidentService;
 import com.edrdog.apiservice.web.PageHeaders;

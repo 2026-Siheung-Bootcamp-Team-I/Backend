@@ -1,6 +1,6 @@
 package com.edrdog.apiservice.intelligence.correlate;
 
-import com.edrdog.apiservice.web.EventResponse;
+import com.edrdog.apiservice.event.EventResponse;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

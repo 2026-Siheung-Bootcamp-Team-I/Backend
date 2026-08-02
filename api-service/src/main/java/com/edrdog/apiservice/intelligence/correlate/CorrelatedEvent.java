@@ -1,6 +1,6 @@
 package com.edrdog.apiservice.intelligence.correlate;
 
-import com.edrdog.apiservice.web.EventResponse;
+import com.edrdog.apiservice.event.EventResponse;
 
 /**
  * 관측 이벤트 한 건과, 거기에 서버가 덧붙인 추론. inferredProcess 는 못 찾으면 null 이다.

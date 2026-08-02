@@ -1,9 +1,9 @@
 package com.edrdog.apiservice.demo;
 
-import com.edrdog.apiservice.auth.domain.AppUser;
-import com.edrdog.apiservice.auth.domain.Tenant;
-import com.edrdog.apiservice.auth.repository.TenantRepository;
-import com.edrdog.apiservice.auth.repository.UserRepository;
+import com.edrdog.apiservice.auth.AppUser;
+import com.edrdog.apiservice.auth.Tenant;
+import com.edrdog.apiservice.auth.TenantRepository;
+import com.edrdog.apiservice.auth.UserRepository;
 import jakarta.persistence.EntityManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
