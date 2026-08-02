@@ -1,4 +1,5 @@
 # EDRdog Backend
+<img width="2284" height="697" alt="image" src="https://github.com/user-attachments/assets/a6b85c29-1be8-4613-a197-023123914299" />
 
 > 엔드포인트에서 수집한 행위 로그로 공격 시퀀스를 탐지하고, 그 기기의 프로세스를 실제로 종료하는 EDR 백엔드
 
@@ -28,7 +29,8 @@ EDR     이 파일이 방금 외부에서 받아온 것이고, 받자마자 실�
 
 ## 아키텍처
 
-![아키텍처](docs/architecture.png)
+<img width="2284" height="697" alt="image" src="https://github.com/user-attachments/assets/881b4394-5d6d-462f-b917-145bbf8a38dd" />
+
 
 라이선스는 [`agent/`](agent/) 만 GPL-3.0 이고 나머지는 MIT 다. 에이전트가 쓰는 ETW 라이브러리가
 GPL-3.0 이라 그렇다. 자세한 것은 [`agent/README.md`](agent/README.md#라이선스) 에 있다.
