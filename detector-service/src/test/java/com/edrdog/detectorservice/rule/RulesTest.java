@@ -180,6 +180,26 @@ class RulesTest {
     }
 
     @Test
+    @DisplayName("R2 음성: 실기기 10분 캡처에서 관측된, 임시 경로를 인자로만 쓰는 실행들")
+    void r2_observedTempPathArguments_noAlert() {
+        // eslogger 로 이 맥에서 직접 받은 명령줄이다. 지어낸 경로로만 덮으면 같은 종류가 다시 샌다.
+        List<Event> buffer = List.of(network("203.0.113.9", 443, 1000));
+        List<String> observed = List.of(
+                "/usr/bin/open -n /Applications/Orca.app/Contents/Resources/Orca Computer Use.app --args "
+                        + "--permission-status-file /var/folders/y0/7xl0d3v94fs5fv14tcch9gsh0000gn/T/"
+                        + "orca-computer-use-permissions-d2wpB0/status.json",
+                "/Applications/Orca.app/Contents/Resources/Orca Computer Use.app/Contents/MacOS/orca-computer-use-macos "
+                        + "--permission-status-file /var/folders/y0/7xl0d3v94fs5fv14tcch9gsh0000gn/T/status",
+                "/usr/bin/find /private/var/tmp/sooplive -maxdepth 1 -name *.part -mmin -5");
+
+        for (String cmdline : observed) {
+            assertThat(Rules.evaluate(buffer, processFrom("x", cmdline, 2000)))
+                    .as(cmdline)
+                    .isEmpty();
+        }
+    }
+
+    @Test
     @DisplayName("R2 음성: network 이벤트의 포트가 다운로드 포트가 아니면 미판정")
     void r2_nonDownloadPort_noAlert() {
         List<Event> buffer = List.of(network("203.0.113.9", 22, 1000));
@@ -234,6 +254,57 @@ class RulesTest {
                 "/bin/zsh -c source /Users/me/.claude/shell-snapshots/snap.sh && pwd -P >| /tmp/claude-cwd", 3000);
 
         assertThat(Rules.evaluate(List.of(), current)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("R3 양성: 명령 구분자 뒤의 임시 경로 실행도 잡는다 (구분자에서 멈추면 회피된다)")
+    void r3_afterCommandSeparator_alerts() {
+        List<String> evasions = List.of(
+                "/bin/zsh -c true && /tmp/evil.sh",
+                "/bin/sh -c echo hi || /private/tmp/evil.sh",
+                "/bin/bash -c ls ; /Users/me/Downloads/evil.sh");
+
+        for (String cmdline : evasions) {
+            assertThat(Rules.evaluate(List.of(), script("sh", cmdline, 3000)))
+                    .as(cmdline)
+                    .isPresent()
+                    .get()
+                    .extracting(Alert::ruleId)
+                    .isEqualTo("SCRIPT_FROM_TEMP_PATH");
+        }
+    }
+
+    @Test
+    @DisplayName("R3 음성: 리다이렉션 대상은 건너뛰되 그 뒤 명령은 계속 본다")
+    void r3_redirectTargetSkipped_restStillScanned() {
+        // 출력 대상은 실행 대상이 아니라 건너뛴다. 건너뛰는 것과 검사를 멈추는 것은 다르다.
+        assertThat(Rules.evaluate(List.of(), script("zsh", "/bin/zsh -c pwd -P >| /tmp/cwd && echo done", 3000)))
+                .isEmpty();
+        assertThat(Rules.evaluate(List.of(), script("zsh", "/bin/zsh -c pwd -P >| /tmp/cwd && /tmp/evil.sh", 3000)))
+                .isPresent();
+    }
+
+    @Test
+    @DisplayName("R3 음성: 실기기 40분 수집에서 관측된 셸 래퍼는 그대로 미판정")
+    void r3_observedShellWrappers_noAlert() {
+        // 로컬 파이프라인에 에이전트를 붙여 받은 원문이다. 임시 경로가 리다이렉션 대상이거나
+        // eval 인용부호 안에 통째로 들어 있어 실행 대상이 아니다.
+        List<String> observed = List.of(
+                "/bin/zsh -c source /Users/dhkim/.claude/shell-snapshots/snapshot-zsh-1785696131308-9w5scr.sh "
+                        + "2>/dev/null || true && setopt NO_EXTENDED_GLOB NO_BARE_GLOB_QUAL 2>/dev/null || true && "
+                        + "{ \\builtin unalias -- 'unsetenv'; \\builtin unset -f -- 'unsetenv'; } >/dev/null 2>&1 || true && "
+                        + "eval 'grep -rn \"RequestMapping\" detector-service/src/main/java | head -5' "
+                        + "< /dev/null && pwd -P >| /tmp/claude-8768-cwd",
+                "/bin/zsh -c source /Users/dhkim/.claude/shell-snapshots/snapshot-zsh-1785696131308-9w5scr.sh "
+                        + "2>/dev/null || true && eval 'S=/private/tmp/claude-501/-Users-dhkim-orca-workspaces-Backend-issue-178/"
+                        + "f8381d23-5acc-4245-b989-2eb599d2bd07/scratchpad; grep -iE \"enroll\" $S/collector.log | tail -6' "
+                        + "< /dev/null && pwd -P >| /tmp/claude-383d-cwd");
+
+        for (String cmdline : observed) {
+            assertThat(Rules.evaluate(List.of(), script("zsh", cmdline, 3000)))
+                    .as(cmdline)
+                    .isEmpty();
+        }
     }
 
     @Test
@@ -474,8 +545,9 @@ class RulesTest {
     @Test
     @DisplayName("R2: 네트워크 이벤트가 늦게 도착해도 이벤트 시각 순서가 맞으면 판정한다")
     void r2_lateArrivingNetwork_stillAlerts() {
-        // Zeek 는 연결이 끝난 뒤에 기록하고 전송기가 묶어 보내므로 네트워크 이벤트는 항상 늦게 도착한다.
-        // 도착 순서만 보면 이 조합을 영영 놓친다(실측: 실기기에서 R2 가 한 번도 발화하지 않았다).
+        // 네트워크 이벤트는 연결이 끝난 뒤에 기록되고 전송기가 묶어 보내므로 항상 늦게 도착한다.
+        // 도착 순서만 보면 이 조합을 영영 놓친다. 이벤트 시각으로 판정하도록 바꾼 뒤 실기기에서
+        // 처음 발화했다(다운로드 경로 실행 + 5분 안의 443 접속이 묶였다).
         List<Event> buffer = List.of(processFrom("evil", "/Users/me/Downloads/evil", 2000));
         Event lateNetwork = network("203.0.113.9", 443, 1000);   // 이벤트 시각은 실행보다 앞선다
 

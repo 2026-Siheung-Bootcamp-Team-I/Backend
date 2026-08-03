@@ -203,8 +203,11 @@ public final class Rules {
         return Event.TYPE_FILE.equals(e.type());
     }
 
-    /** 셸 연산자 — 여기부터는 실행 대상이 아니라 출력/후속 명령이라 판정에서 제외한다. */
-    private static final Set<String> SHELL_OPERATORS = Set.of(">", ">>", ">|", "<", "|", "||", "&&", ";", "&");
+    /** 리다이렉션 — 바로 뒤 토큰은 실행 대상이 아니라 입출력 파일이다. */
+    private static final Set<String> REDIRECTIONS = Set.of(">", ">>", ">|", "<");
+
+    /** 명령 구분자 — 뒤는 새 명령이라 거기서부터 다시 본다. 여기서 멈추면 `true && /tmp/evil.sh` 로 회피된다. */
+    private static final Set<String> SEPARATORS = Set.of("|", "||", "&&", ";", "&");
 
     /** 실행된 파일 자체(argv[0])만 본다. 인자까지 보면 임시 경로를 인자로 받는 정상 프로세스가 오탐된다. */
     private static boolean executableFromTempPath(String cmdline) {
@@ -222,9 +225,15 @@ public final class Rules {
         if (c == null) {
             return false;
         }
-        for (String token : tokenize(c)) {
-            if (SHELL_OPERATORS.contains(token)) {
-                return false;   // 여기서 안 끊으면 리다이렉션 대상(>| /tmp/x)이 임시 경로라고 알림이 나간다
+        List<String> tokens = tokenize(c);
+        for (int i = 0; i < tokens.size(); i++) {
+            String token = tokens.get(i);
+            if (REDIRECTIONS.contains(token)) {
+                i++;            // 안 건너뛰면 리다이렉션 대상(>| /tmp/x)이 임시 경로라고 알림이 나간다
+                continue;
+            }
+            if (SEPARATORS.contains(token)) {
+                continue;
             }
             if (isTempOrDownloadPath(token)) {
                 return true;
