@@ -626,6 +626,17 @@ class RulesTest {
     }
 
     @Test
+    @DisplayName("R2 음성: 네트워크가 먼저 도착해도 그것이 실행보다 나중에 일어났으면 판정하지 않는다")
+    void r2_networkArrivesFirstButHappenedLater_noAlert() {
+        // 도착 순서(D→E)와 발생 순서(E→D)가 어긋나는 경우다. 도착 순서로 판정하면 여기서 오탐이 난다.
+        // 반대 도착 순서는 r2_executeBeforeDownload_noAlert 가 덮는다. 둘 다 있어야 시각 판정이 지켜진다.
+        List<Event> buffer = List.of(network("203.0.113.9", 443, 2000));
+        Event earlierExec = processFrom("evil", "/Users/me/Downloads/evil", 1000);
+
+        assertThat(Rules.evaluate(buffer, earlierExec)).isEmpty();
+    }
+
+    @Test
     @DisplayName("CRITICAL 권고는 kill 이다 (격리는 구현이 없어 권고하지 않는다)")
     void criticalRecommendsKill() {
         // 권고와 실제 조치가 다르면 사용자가 격리된 줄 알고 넘어간다.
