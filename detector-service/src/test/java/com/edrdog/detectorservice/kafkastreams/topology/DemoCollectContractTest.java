@@ -3,6 +3,7 @@ package com.edrdog.detectorservice.kafkastreams.topology;
 import com.edrdog.detectorservice.dto.Alert;
 import com.edrdog.detectorservice.dto.Event;
 import com.edrdog.detectorservice.kafkastreams.serde.JsonSerde;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.streams.TestInputTopic;
 import org.apache.kafka.streams.TestOutputTopic;
@@ -13,6 +14,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Properties;
 
@@ -50,7 +52,8 @@ class DemoCollectContractTest {
     @BeforeEach
     void setUp() {
         StreamsBuilder builder = new StreamsBuilder();
-        DetectionTopology.build(builder, EVENTS, ALERTS, DetectionTopology.WINDOW_MS);
+        DetectionTopology.build(builder, EVENTS, ALERTS, DetectionTopology.WINDOW_MS,
+                DetectionTopology.GRACE_MS, new SimpleMeterRegistry());
 
         Properties props = new Properties();
         props.put("application.id", "detector-demo-contract");
@@ -84,6 +87,7 @@ class DemoCollectContractTest {
                 "\\\"C:\\\\Users\\\\kim\\\\Documents\\\\견적서_2026.docm\\\"", null, 0));
         send(json("DESKTOP-DEMO", "process", 101_000, "powershell.exe", "winword.exe",
                 "powershell -nop -w hidden -enc SQBFAFgAIAAoAE4AZQB3AC0ATwBiAGoA...", null, 0));
+        settle();
 
         Alert alert = onlyAlert();
         assertThat(alert.ruleId()).isEqualTo("SUSPICIOUS_PROCESS_CHAIN");
@@ -100,6 +104,7 @@ class DemoCollectContractTest {
         send(json("DESKTOP-DEMO", "network", 100_000, "chrome.exe", null, null, "185.220.101.5", 443));
         send(json("DESKTOP-DEMO", "process", 101_000, "update32.exe", "explorer.exe",
                 "C:\\\\Users\\\\choi\\\\Downloads\\\\update32.exe", null, 0));
+        settle();
 
         Alert alert = onlyAlert();
         assertThat(alert.ruleId()).isEqualTo("DOWNLOAD_AND_EXECUTE");
@@ -144,6 +149,7 @@ class DemoCollectContractTest {
         send(json("DESKTOP-DEMO", "network", 100_000, "chrome.exe", null, null, "185.220.101.5", 443));
         send(json("DESKTOP-DEMO", "process", 101_000, "update32.exe", "explorer.exe",
                 "C:\\\\Users\\\\choi\\\\Downloads\\\\update32.exe", null, 0));
+        settle();
         assertThat(alerts.getQueueSize()).isEqualTo(1);
         alerts.readValue();
 
@@ -154,6 +160,11 @@ class DemoCollectContractTest {
 
     private void send(String eventJson) {
         events.pipeInput("DESKTOP-DEMO", eventJson);
+    }
+
+    /** grace 만큼 실제 시간을 흘려 대기 중인 시퀀스 트리거를 판정하게 한다. */
+    private void settle() {
+        driver.advanceWallClockTime(Duration.ofMillis(DetectionTopology.GRACE_MS * 2));
     }
 
     private Alert onlyAlert() {

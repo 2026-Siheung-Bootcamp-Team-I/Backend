@@ -356,6 +356,33 @@ class RawEventMapperTest {
     }
 
     @Test
+    void ts_가_서버_시각보다_많이_앞서면_서버_시각으로_당긴다() {
+        // 단말 시계가 앞서면 detector 의 워터마크가 그만큼 튀어 다른 이벤트의 상관 버퍼가 통째로 날아간다.
+        long now = 1785341400000L;
+        String raw = """
+                { "host": "lab-mac", "type": "process", "ts": %d }
+                """.formatted(now + 3_600_000L);
+
+        Event e = RawEventMapper.map(raw, mapper, now).orElseThrow();
+
+        assertEquals(now, e.ts());
+    }
+
+    @Test
+    void ts_가_허용치_안에서_앞서면_그대로_둔다() {
+        // 초 단위 시계 오차까지 당기면 정상 이벤트의 발생 시각을 서버가 왜곡한다.
+        long now = 1785341400000L;
+        long slightlyAhead = now + 10_000L;
+        String raw = """
+                { "host": "lab-mac", "type": "process", "ts": %d }
+                """.formatted(slightlyAhead);
+
+        Event e = RawEventMapper.map(raw, mapper, now).orElseThrow();
+
+        assertEquals(slightlyAhead, e.ts());
+    }
+
+    @Test
     void network_인데_destIp_가_없으면_스킵한다() {
         String raw = """
                 { "host": "lab-mac", "type": "network", "ts": 1785341400000, "process": "curl" }
