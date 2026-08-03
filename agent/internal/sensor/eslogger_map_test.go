@@ -81,6 +81,9 @@ func TestMapLineExecInterpreterMakesScriptEvent(t *testing.T) {
 		{"/usr/bin/osascript", "osascript"},
 		{"/usr/bin/perl", "perl"},
 		{"/usr/bin/ruby", "ruby"},
+		// node 가 빠져 있으면 node /tmp/evil.js 를 아무 룰도 못 본다.
+		// process 로 오면 R2 는 argv[0] 가 node 라서, R3 는 script 가 아니라서 지나친다.
+		{"/opt/homebrew/bin/node", "node"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

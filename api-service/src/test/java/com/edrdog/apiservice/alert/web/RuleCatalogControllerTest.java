@@ -48,7 +48,7 @@ class RuleCatalogControllerTest {
 
         mvc.perform(get("/api/alerts/rules").header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(4))
+                .andExpect(jsonPath("$.length()").value(5))
                 .andExpect(jsonPath("$[0].ruleId").value("SUSPICIOUS_PROCESS_CHAIN"))
                 .andExpect(jsonPath("$[0].threatName").value("의심스러운 프로세스 실행 체인"))
                 .andExpect(jsonPath("$[0].category").value("권한상승"))
@@ -76,7 +76,7 @@ class RuleCatalogControllerTest {
                 .andReturn();
 
         var root = om.readTree(res.getResponse().getContentAsString());
-        assertEquals(4, root.size());
+        assertEquals(5, root.size());
         var r2 = root.get(1);
         assertEquals("DOWNLOAD_AND_EXECUTE", r2.get("ruleId").asText());
         assertEquals("T1105+T1204", r2.get("mitre").asText());

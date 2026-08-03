@@ -12,6 +12,7 @@ var interpreters = map[string]bool{
 	"wscript.exe":    true,
 	"cscript.exe":    true,
 	"mshta.exe":      true,
+	"node.exe":       true,
 }
 
 // isInterpreter 는 이미지가 스크립트 인터프리터인지 본다.

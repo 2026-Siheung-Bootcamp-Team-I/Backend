@@ -80,6 +80,7 @@ var eslInterpreters = map[string]bool{
 	"osascript": true,
 	"perl":      true,
 	"ruby":      true,
+	"node":      true,
 }
 
 // eslSecretNames 는 이 조각이 들어간 플래그의 값을 가린다.
