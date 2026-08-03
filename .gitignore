@@ -60,3 +60,6 @@ notes/
 *.tmp
 *.bak
 *.pid
+
+# k6 실행 산출물 (스크립트만 버전 관리한다)
+scripts/loadtest/result-*.json
