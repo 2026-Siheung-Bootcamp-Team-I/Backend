@@ -3,6 +3,12 @@ package com.edrdog.alertservice;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicIntegerArray;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 /** 키별 쿨다운 억제 검증 (순수 로직). */
@@ -69,5 +75,34 @@ class CooldownTest {
         cooldown.forget("t1|host-1|RULE");
 
         assertThat(cooldown.allow("t1|host-2|RULE", 2_000)).isFalse();
+    }
+
+    @Test
+    @DisplayName("같은 키로 동시에 호출해도 정확히 하나만 통과한다")
+    void concurrentSameKey_onlyOnePasses() throws Exception {
+        int threads = 8;
+        int rounds = 500;
+        Cooldown cooldown = new Cooldown(60_000);
+        AtomicIntegerArray passed = new AtomicIntegerArray(rounds);
+        // 라운드마다 배리어로 출발선을 맞춰야 판정과 갱신 사이의 경합이 실제로 생긴다.
+        CyclicBarrier barrier = new CyclicBarrier(threads);
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        for (int t = 0; t < threads; t++) {
+            pool.submit(() -> {
+                for (int round = 0; round < rounds; round++) {
+                    barrier.await();
+                    if (cooldown.allow("t1|host-" + round + "|RULE", 1_000)) {
+                        passed.incrementAndGet(round);
+                    }
+                }
+                return null;
+            });
+        }
+        pool.shutdown();
+        assertThat(pool.awaitTermination(30, TimeUnit.SECONDS)).isTrue();
+
+        for (int round = 0; round < rounds; round++) {
+            assertThat(passed.get(round)).as("round %d", round).isEqualTo(1);
+        }
     }
 }

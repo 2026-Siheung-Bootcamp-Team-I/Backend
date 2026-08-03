@@ -19,6 +19,7 @@ spring:
     listener:
       type: batch                       # poll 단위로 묶어 ClickHouse INSERT 1회 → 파트가 이벤트 건수만큼 안 생긴다
       observation-enabled: true         # 컨슈머 스팬 생성 → 발행 측 traceId 를 이어받아 한 트레이스로 연결
+      concurrency: 3                    # 파티션 수(3)와 맞춘다. 1이면 스레드 하나가 파티션 3개를 순서대로 훑는다
 
 server:
   port: 8083

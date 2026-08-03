@@ -12,6 +12,7 @@ spring:
       properties:
         default.key.serde: org.apache.kafka.common.serialization.Serdes$StringSerde
         default.value.serde: org.apache.kafka.common.serialization.Serdes$StringSerde
+        num.stream.threads: 3           # events 파티션 3개를 3개 태스크로 나눠 처리 (기본 1이면 순차)
     # 데모 발행 경로: events 로 JSON 문자열 전송
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
@@ -26,6 +27,7 @@ spring:
       observation-enabled: true
     listener:
       observation-enabled: true
+      concurrency: 3                    # 파티션 수(3)와 맞춘다. 1이면 스레드 하나가 파티션 3개를 순서대로 훑는다
 
 server:
   port: 8081
@@ -34,3 +36,9 @@ edrdog:
   kafka:
     events-topic: events      # 검증을 거친 엔드포인트 이벤트 (판정 입력)
     alerts-topic: alerts      # SUSPECT 결과
+  cep:
+    # 워터마크 허용 지연. 늦게 도착하는 이벤트를 이만큼 기다린 뒤 시퀀스 룰을 판정한다.
+    # 워터마크가 host 별이라 단말 내부 어긋남(밀리초 수준)만 덮으면 된다. 근거는 DetectionTopology.GRACE_MS 참고.
+    # 이 값만큼 탐지가, 따라서 responder 의 kill 이 늦는다.
+    # cep.event.lateness p99 와 cep.late.events 비율을 보고 확정한다.
+    grace-ms: 1500

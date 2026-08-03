@@ -55,10 +55,10 @@ class ThreatCatalogTest {
     }
 
     @Test
-    void all_은_네_개_룰을_ruleId_포함해_돌려준다() {
+    void all_은_등록된_룰을_ruleId_포함해_돌려준다() {
         var entries = ThreatCatalog.all();
 
-        assertEquals(4, entries.size());
+        assertEquals(5, entries.size());
         assertTrue(entries.stream().allMatch(e ->
                 e.ruleId() != null && e.threatName() != null && e.mitre() != null && e.description() != null));
     }

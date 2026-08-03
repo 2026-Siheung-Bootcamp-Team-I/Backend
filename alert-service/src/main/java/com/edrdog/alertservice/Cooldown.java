@@ -10,7 +10,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class Cooldown {
 
     private final long windowMs;
-    // 컨슈머 concurrency 를 올려도 안전해야 하므로 ConcurrentHashMap 이다.
+    // 컨슈머 concurrency 가 3이라 여러 스레드가 동시에 allow 를 부른다.
     private final Map<String, Long> lastSent = new ConcurrentHashMap<>();
 
     public Cooldown(long windowMs) {
@@ -19,12 +19,16 @@ public class Cooldown {
 
     /** 키가 윈도우 밖이면 통과시키고 시각을 갱신, 윈도우 안이면 억제. */
     public boolean allow(String key, long nowMs) {
-        Long last = lastSent.get(key);
-        if (last != null && nowMs - last < windowMs) {
-            return false;
-        }
-        lastSent.put(key, nowMs);
-        return true;
+        boolean[] allowed = new boolean[1];
+        // 판정과 갱신은 compute 로 한 번에 한다. get 후 put 으로 쪼개면 두 스레드가 같이 통과해 Slack 이 두 번 나간다.
+        lastSent.compute(key, (k, last) -> {
+            if (last != null && nowMs - last < windowMs) {
+                return last;
+            }
+            allowed[0] = true;
+            return nowMs;
+        });
+        return allowed[0];
     }
 
     /** 기록을 지워 다음 요청이 다시 통과하게 한다. 실패한 발송이 쿨다운 창을 태우는 것을 막는다. */
