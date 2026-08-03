@@ -18,6 +18,13 @@ public final class RawEventMapper {
     /** ts 가 이 값보다 작으면 초 단위를 밀리초로 착각해 보낸 값이다. 밀리초로 보면 1973년 근방이라 정상 이벤트가 이보다 작을 수 없다. */
     private static final long MIN_PLAUSIBLE_MILLIS = 100_000_000_000L;
 
+    /**
+     * 서버 시각보다 이만큼 넘게 앞선 ts 는 단말 시계가 틀어진 것으로 보고 서버 시각으로 당긴다.
+     * 그냥 두면 detector 의 워터마크가 그 값까지 튀어 다른 이벤트의 상관 버퍼가 통째로 날아간다.
+     * 버리지 않고 당기는 이유는 시계가 틀어진 단말의 이벤트도 판정에는 써야 하기 때문이다.
+     */
+    private static final long MAX_CLOCK_SKEW_MILLIS = 60_000L;
+
     /** SHA-256 은 32바이트라 16진수 표기로 정확히 64자리다. 길이가 다르면 다른 알고리즘이거나 잘린 값이다. */
     private static final Pattern SHA256_PATTERN = Pattern.compile("[0-9a-fA-F]{64}");
 
@@ -25,6 +32,11 @@ public final class RawEventMapper {
     }
 
     public static Optional<Event> map(String rawJson, ObjectMapper mapper) {
+        return map(rawJson, mapper, System.currentTimeMillis());
+    }
+
+    /** 시각 보정 기준을 주입받는 형태 (테스트용). */
+    public static Optional<Event> map(String rawJson, ObjectMapper mapper, long nowMillis) {
         JsonNode root;
         try {
             root = mapper.readTree(rawJson);
@@ -51,6 +63,10 @@ public final class RawEventMapper {
         }
         if (ts < MIN_PLAUSIBLE_MILLIS) {
             return Optional.empty();   // 초 단위로 잘못 보낸 값
+        }
+        // 앞선 시계 보정
+        if (ts > nowMillis + MAX_CLOCK_SKEW_MILLIS) {
+            ts = nowMillis;
         }
 
         String destIp = text(root, "destIp");

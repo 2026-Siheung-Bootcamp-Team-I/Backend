@@ -600,29 +600,58 @@ class RulesTest {
     }
 
     @Test
-    @DisplayName("R2: 네트워크 이벤트가 늦게 도착해도 이벤트 시각 순서가 맞으면 판정한다")
-    void r2_lateArrivingNetwork_stillAlerts() {
+    @DisplayName("R2 음성: network 이벤트는 트리거가 아니다 (판정은 실행 쪽에서만 완성된다)")
+    void r2_networkIsNotTrigger_noAlert() {
         // 네트워크 이벤트는 연결이 끝난 뒤에 기록되고 전송기가 묶어 보내므로 항상 늦게 도착한다.
-        // 도착 순서만 보면 이 조합을 영영 놓친다. 이벤트 시각으로 판정하도록 바꾼 뒤 실기기에서
-        // 처음 발화했다(다운로드 경로 실행 + 5분 안의 443 접속이 묶였다).
+        // 그 조합이 잡히는지는 이제 워터마크가 보장한다. 늦게 온 네트워크는 버퍼에 쌓이기만 하고
+        // 판정은 실행 쪽 트리거에서만 완성된다. 양쪽에서 다 판정하면 같은 공격에 알림이 두 번 나간다.
+        // 실기기 발화 확인(다운로드 경로 실행 + 5분 안의 443 접속)은 토폴로지 테스트가 이어받았다:
+        // DetectionTopologyTest.downloadExecute_networkArrivesLate_emitsAlert
         List<Event> buffer = List.of(processFrom("evil", "/Users/me/Downloads/evil", 2000));
-        Event lateNetwork = network("203.0.113.9", 443, 1000);   // 이벤트 시각은 실행보다 앞선다
 
-        Optional<Alert> alert = Rules.evaluate(buffer, lateNetwork);
-
-        assertThat(alert).isPresent();
-        assertThat(alert.get().ruleId()).isEqualTo("DOWNLOAD_AND_EXECUTE");
-        assertThat(alert.get().severity()).isEqualTo(Alert.SEV_CRITICAL);
+        assertThat(Rules.evaluate(buffer, network("203.0.113.9", 443, 1000))).isEmpty();
     }
 
     @Test
-    @DisplayName("R2 음성: 실행이 네트워크보다 먼저 일어났으면(시각 기준) 판정하지 않는다")
-    void r2_executeBeforeDownload_noAlert() {
-        // 순서를 보장하지 않으면 '받기 전에 실행한 것'까지 다운로드-실행으로 오인한다.
-        List<Event> buffer = List.of(processFrom("evil", "/Users/me/Downloads/evil", 1000));
-        Event laterNetwork = network("203.0.113.9", 443, 2000);
+    @DisplayName("R2: 짝이 여럿이면 시각상 가장 가까운 다운로드를 근거로 쓴다")
+    void r2_picksNearestPrecedingDownload() {
+        // 아무 짝이나 쓰면 분석 화면에 엉뚱한 목적지가 뜬다. 판정 여부는 같아도 근거가 틀린다.
+        List<Event> buffer = List.of(
+                network("198.51.100.1", 443, 1000),
+                network("203.0.113.9", 443, 1900));
+        Event current = processFrom("evil", "/Users/me/Downloads/evil", 2000);
 
-        assertThat(Rules.evaluate(buffer, laterNetwork)).isEmpty();
+        Alert alert = Rules.evaluate(buffer, current).orElseThrow();
+
+        assertThat(alert.destIp()).isEqualTo("203.0.113.9");
+        assertThat(alert.matched()).first().asString().contains("203.0.113.9");
+    }
+
+    @Test
+    @DisplayName("R1: 짝이 여럿이면 시각상 가장 가까운 office 실행을 근거로 쓴다")
+    void r1_picksNearestPrecedingOfficeExec() {
+        List<Event> buffer = List.of(
+                process("winword.exe", "explorer.exe", 1000),
+                process("winword.exe", "finder", 1900));
+        Event current = process("powershell.exe", "winword.exe", 2000);
+
+        Alert alert = Rules.evaluate(buffer, current).orElseThrow();
+
+        assertThat(alert.matched()).first().asString().contains("parent finder");
+    }
+
+    @Test
+    @DisplayName("시퀀스 트리거 판정: 시퀀스 룰을 완성시킬 수 있는 이벤트만 대기 큐에 넣는다")
+    void isSequenceTrigger_onlySequenceCompletingEvents() {
+        // 대기 큐에 노이즈까지 담으면 grace period 동안 상태가 부풀고 판정이 느려진다.
+        assertThat(Rules.isSequenceTrigger(process("powershell.exe", "winword.exe", 1000))).isTrue();
+        assertThat(Rules.isSequenceTrigger(processFrom("evil", "/tmp/evil", 1000))).isTrue();
+
+        assertThat(Rules.isSequenceTrigger(network("203.0.113.9", 443, 1000))).isFalse();
+        assertThat(Rules.isSequenceTrigger(process("powershell.exe", "explorer.exe", 1000))).isFalse();
+        assertThat(Rules.isSequenceTrigger(process("onedrive.exe", "winword.exe", 1000))).isFalse();
+        assertThat(Rules.isSequenceTrigger(script("zsh", "/bin/zsh /tmp/evil.sh", 1000))).isFalse();
+        assertThat(Rules.isSequenceTrigger(null)).isFalse();
     }
 
     @Test

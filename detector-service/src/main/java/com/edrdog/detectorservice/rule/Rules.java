@@ -9,10 +9,16 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Predicate;
 
 /**
- * 시퀀스 상관분석 룰 판정 (순수 로직). 버퍼(prior)는 프로세서가 윈도우로 정리한 뒤 넘겨준다.
- * 각 룰은 버퍼의 선행 이벤트 + 현재 이벤트를 상관하여 판정한다.
+ * 시퀀스 상관분석 룰 판정 (순수 로직).
+ *
+ * <p>prior 계약: 프로세서가 <b>ts 오름차순으로 정렬</b>하고 <b>전부 current 보다 이르며</b> 윈도우 안인 것만
+ * 넘겨준다. 이 계약 덕분에 도착 방향별 분기가 필요 없고, 짝은 뒤에서부터 훑어 가장 가까운 것을 고른다.
+ * 계약이 깨지면 짝 선택이 틀어지므로 프로세서 쪽을 먼저 의심할 것.
+ *
+ * <p>다만 R2 의 ts 가드는 계약과 중복이어도 남긴다. 계약에만 기대면 룰 단독으로는 다시 뚫린다(#199).
  */
 public final class Rules {
 
@@ -71,6 +77,18 @@ public final class Rules {
     }
 
     /**
+     * 시퀀스 룰(R1, R2)을 완성시킬 수 있는 트리거인지 (순수 판정).
+     * 프로세서는 이 이벤트만 워터마크까지 대기시킨다. 나머지는 즉시 판정해 탐지 지연을 물지 않는다.
+     */
+    public static boolean isSequenceTrigger(Event e) {
+        if (e == null || !isProcess(e) || isBaseline(lower(e.process()))) {
+            return false;
+        }
+        return executableFromTempPath(e.cmdline())                              // R2 트리거
+                || (in(SHELLS, lower(e.process())) && in(OFFICE_APPS, lower(e.parent())));   // R1 트리거
+    }
+
+    /**
      * 선행 이벤트로 버퍼에 남길 가치가 있는지 (순수 판정).
      * 전부 담으면 버퍼 상한이 금방 차서 5분 윈도우가 십여 초로 줄고 상관 룰이 발화하지 못한다.
      */
@@ -99,34 +117,15 @@ public final class Rules {
             return Optional.empty();
         }
         // 시퀀스: 그 office앱(부모)의 exec 이벤트가 버퍼에 선행해야 함
-        Optional<Event> officeExec = prior.stream()
-                .filter(Rules::isProcess)
-                .filter(e -> parent.equals(lower(e.process())))
-                .filter(e -> lineageMatches(e, current))
-                .findFirst();
-        if (officeExec.isEmpty()) {
-            return Optional.empty();
-        }
-        return Optional.of(alertOf("SUSPICIOUS_PROCESS_CHAIN", "T1059", Alert.SEV_HIGH,
-                current, List.of(officeExec.get())));
+        return nearestBefore(prior, e -> isProcess(e)
+                && parent.equals(lower(e.process()))
+                && lineageMatches(e, current))
+                .map(officeExec -> alertOf("SUSPICIOUS_PROCESS_CHAIN", "T1059", Alert.SEV_HIGH,
+                        current, List.of(officeExec)));
     }
 
-    /**
-     * R2 T1105+T1204: network 다운로드 → 이후 process 실행.
-     * 판정은 이벤트 시각 순서로 한다. 도착 순서로 보면 이 조합을 거의 놓친다.
-     */
+    /** R2 T1105+T1204: network 다운로드 → 이후 process 실행. 판정은 실행 쪽에서만 완성된다. */
     private static Optional<Alert> downloadAndExecute(List<Event> prior, Event current) {
-        // 네트워크가 늦게 도착한 경우: 버퍼에서 그 뒤에 실행된 프로세스를 찾는다.
-        if (isNetwork(current) && DOWNLOAD_PORTS.contains(current.destPort())) {
-            return prior.stream()
-                    .filter(Rules::isProcess)
-                    .filter(e -> !isBaseline(lower(e.process())))
-                    .filter(e -> executableFromTempPath(e.cmdline()))
-                    .filter(e -> e.ts() >= current.ts())   // 시각상 다운로드가 먼저여야 한다
-                    .findFirst()
-                    .map(exec -> alertOf("DOWNLOAD_AND_EXECUTE", "T1105+T1204", Alert.SEV_CRITICAL,
-                            exec, List.of(current)));
-        }
         if (!isProcess(current) || isBaseline(lower(current.process()))) {
             return Optional.empty();
         }
@@ -134,16 +133,24 @@ public final class Rules {
         if (!executableFromTempPath(current.cmdline())) {
             return Optional.empty();
         }
-        Optional<Event> download = prior.stream()
-                .filter(Rules::isNetwork)
-                .filter(e -> DOWNLOAD_PORTS.contains(e.destPort()))
-                .filter(e -> e.ts() <= current.ts())   // 시각상 다운로드가 먼저여야 한다
-                .findFirst();
-        if (download.isEmpty()) {
-            return Optional.empty();
+        // ts 비교는 prior 계약과 중복이지만 남긴다. 이 가드를 지우면 42건이 전부 통과하면서
+        // '받기 전에 실행한 것'이 CRITICAL 로 새어나갔다(#199). 룰 단독으로도 성립해야 한다.
+        return nearestBefore(prior, e -> isNetwork(e)
+                && DOWNLOAD_PORTS.contains(e.destPort())
+                && e.ts() <= current.ts())
+                .map(download -> alertOf("DOWNLOAD_AND_EXECUTE", "T1105+T1204", Alert.SEV_CRITICAL,
+                        current, List.of(download)));
+    }
+
+    /** 정렬된 prior 를 뒤에서부터 훑어 조건에 맞는 가장 가까운 선행 이벤트를 찾는다. */
+    private static Optional<Event> nearestBefore(List<Event> prior, Predicate<Event> match) {
+        for (int i = prior.size() - 1; i >= 0; i--) {
+            Event e = prior.get(i);
+            if (match.test(e)) {
+                return Optional.of(e);
+            }
         }
-        return Optional.of(alertOf("DOWNLOAD_AND_EXECUTE", "T1105+T1204", Alert.SEV_CRITICAL,
-                current, List.of(download.get())));
+        return Optional.empty();
     }
 
     /** R3 T1059: 임시/다운로드 경로에서 실행된 스크립트 (저심각 point 룰). */
