@@ -20,7 +20,8 @@ public final class ThreatCatalog {
         m.put("SUSPICIOUS_PROCESS_CHAIN", new Threat(
                 "의심스러운 프로세스 실행 체인", "권한상승", "T1059",
                 "워드·엑셀·파워포인트·아웃룩 등 오피스 앱이 자식 프로세스로 powershell/cmd/wscript/cscript/mshta 를 "
-                        + "실행할 때 발화합니다(매크로 기반 침투 의심)."));
+                        + "실행할 때 발화합니다(매크로 기반 침투 의심). pid/ppid 를 관측한 경우에는 프로세스 이름이 아니라 "
+                        + "실제 부모-자식 계보가 이어질 때만 발화합니다."));
         m.put("DOWNLOAD_AND_EXECUTE", new Threat(
                 "다운로드 후 실행", "악성코드", "T1105+T1204",
                 "80/443/8080 포트로의 다운로드와, 실행된 파일 자체(인자가 아니라 실행 파일 경로)가 임시 또는 "

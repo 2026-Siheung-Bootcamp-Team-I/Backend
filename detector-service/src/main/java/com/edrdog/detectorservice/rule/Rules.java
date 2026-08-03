@@ -2,6 +2,8 @@ package com.edrdog.detectorservice.rule;
 
 import com.edrdog.detectorservice.dto.Alert;
 import com.edrdog.detectorservice.dto.Event;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -76,7 +78,7 @@ public final class Rules {
         return false;
     }
 
-    /** R1 T1059: 버퍼의 office앱 exec → 그 office앱을 부모로 shell 실행. */
+    /** R1 T1059: 버퍼의 office앱 exec → 그 office앱을 부모로 shell 실행. 계보는 pid/ppid 로 확인한다. */
     private static Optional<Alert> suspiciousProcessChain(List<Event> prior, Event current) {
         if (!isProcess(current)) {
             return Optional.empty();
@@ -90,6 +92,7 @@ public final class Rules {
         Optional<Event> officeExec = prior.stream()
                 .filter(Rules::isProcess)
                 .filter(e -> parent.equals(lower(e.process())))
+                .filter(e -> lineageMatches(e, current))
                 .findFirst();
         if (officeExec.isEmpty()) {
             return Optional.empty();
@@ -311,6 +314,36 @@ public final class Rules {
 
     private static boolean isBaseline(String process) {
         return in(BASELINE_SAFE, process);
+    }
+
+    /** 두 이벤트가 실제 부모-자식인지. 이름만 보면 같은 앱이 여러 개 떠 있을 때 엉뚱한 회차를 부모로 짚는다. */
+    // 한쪽이라도 pid/ppid 를 못 봤으면 이름 상관을 그대로 믿는다. 관측 못 한 값으로 판정을 깎으면
+    // pid 를 안 보내는 수집기에서 이 룰이 통째로 죽는다.
+    private static boolean lineageMatches(Event parentExec, Event child) {
+        Integer pid = detailInt(parentExec, "pid");
+        Integer ppid = detailInt(child, "ppid");
+        return pid == null || ppid == null || pid.equals(ppid);
+    }
+
+    // 읽기만 해서 공유해도 안전하다.
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    /** detail JSON 의 필드. 없거나 못 읽으면 null 이다(0/빈 값으로 채우면 실제 관측값과 구분이 사라진다). */
+    private static JsonNode detailField(Event e, String field) {
+        String detail = e.detail();
+        if (detail == null || detail.isBlank()) {
+            return null;
+        }
+        try {
+            return MAPPER.readTree(detail).get(field);
+        } catch (Exception ignored) {
+            return null;   // 깨진 detail 한 칸 때문에 판정 전체를 잃지 않는다
+        }
+    }
+
+    private static Integer detailInt(Event e, String field) {
+        JsonNode value = detailField(e, field);
+        return value == null || !value.isNumber() ? null : value.intValue();
     }
 
     private static String lower(String s) {

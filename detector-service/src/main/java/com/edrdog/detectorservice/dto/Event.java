@@ -15,7 +15,8 @@ package com.edrdog.detectorservice.dto;
  * @param destPort  목적지 포트 — network 이벤트. l7 이벤트는 핸드셰이크 상대 포트.
  * @param domain    DNS 질의 이름(dns) 또는 TLS SNI(l7)
  * @param detail    타입별 부가정보를 담은 JSON 문자열. dns 는 질의 타입/응답 IP 목록, l7 은 인증서
- *                  발급자·주체·지문과 TLS 버전 같은 값. 판정에는 쓰지 않는다.
+ *                  발급자·주체·지문과 TLS 버전 같은 값. 판정에 쓰는 것은 프로세스 계보를 잇는
+ *                  pid/ppid 뿐이고, 나머지는 조사 화면용이다.
  * @param sha256    파일 해시. process/script 는 실행된 파일의 해시, file 은 그 파일의 해시.
  *                  소문자 64자리 16진수, 없으면 빈 값.
  * @param tenantId  조직(tenant) 식별자 — 멀티테넌시 격리 태그. 판정에는 쓰지 않고 태그로만 흐른다.

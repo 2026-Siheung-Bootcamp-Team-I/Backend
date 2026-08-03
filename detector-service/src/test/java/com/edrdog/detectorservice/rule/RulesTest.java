@@ -20,6 +20,12 @@ class RulesTest {
         return new Event(HOST, Event.TYPE_PROCESS, ts, proc, parent, proc + " args", null, 0, null, null, null, TENANT);
     }
 
+    /** pid/ppid 를 관측한 process 이벤트. 에이전트는 이 값을 detail JSON 으로 보낸다. */
+    private Event process(String proc, String parent, long ts, int pid, int ppid) {
+        return new Event(HOST, Event.TYPE_PROCESS, ts, proc, parent, proc + " args", null, 0, null,
+                "{\"pid\":" + pid + ",\"ppid\":" + ppid + "}", null, TENANT);
+    }
+
     /** cmdline 을 직접 주는 process 이벤트. R2 는 실행 경로(cmdline)를 본다. */
     private Event processFrom(String proc, String cmdline, long ts) {
         return new Event(HOST, Event.TYPE_PROCESS, ts, proc, "bash", cmdline, null, 0, null, null, null, TENANT);
@@ -73,6 +79,45 @@ class RulesTest {
         Event current = process("powershell.exe", "winword.exe", 2000);
 
         assertThat(Rules.evaluate(buffer, current)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("R1: pid/ppid 를 관측했으면 계보가 실제로 이어지는 office exec 를 근거로 고른다")
+    void r1_picksOfficeExecByPidLineage() {
+        // 같은 office 앱이 여러 번 떠 있으면 이름만으로는 어느 쪽이 부모인지 알 수 없다.
+        List<Event> buffer = List.of(
+                process("winword.exe", "explorer.exe", 900, 100, 1),
+                process("winword.exe", "finder.exe", 1000, 200, 1));
+        Event current = process("powershell.exe", "winword.exe", 2000, 300, 200);
+
+        Optional<Alert> alert = Rules.evaluate(buffer, current);
+
+        assertThat(alert).isPresent();
+        assertThat(alert.get().matched()).first()
+                .isEqualTo("process winword.exe (parent finder.exe)");
+    }
+
+    @Test
+    @DisplayName("R1 음성: 부모 이름은 같지만 pid/ppid 계보가 안 이어지면 미판정")
+    void r1_pidLineageMismatch_noAlert() {
+        List<Event> buffer = List.of(process("winword.exe", "explorer.exe", 1000, 100, 1));
+        Event current = process("powershell.exe", "winword.exe", 2000, 300, 999);
+
+        assertThat(Rules.evaluate(buffer, current)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("R1 양성: 한쪽이라도 pid/ppid 를 못 봤으면 이름 상관으로 남긴다")
+    void r1_missingPid_fallsBackToNameMatch() {
+        // 관측하지 못한 값으로 탐지를 깎으면 pid 를 못 보내는 수집기에서 R1 이 통째로 죽는다.
+        List<Event> buffer = List.of(process("winword.exe", "explorer.exe", 1000));
+        Event current = process("powershell.exe", "winword.exe", 2000, 300, 200);
+
+        assertThat(Rules.evaluate(buffer, current))
+                .isPresent()
+                .get()
+                .extracting(Alert::ruleId)
+                .isEqualTo("SUSPICIOUS_PROCESS_CHAIN");
     }
 
     @Test
