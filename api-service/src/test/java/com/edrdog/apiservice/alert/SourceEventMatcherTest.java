@@ -172,6 +172,33 @@ class SourceEventMatcherTest {
     }
 
     @Test
+    void l7_요약이면_같은_도메인의_핸드셰이크를_고른다() {
+        Map<String, Object> handshake = event(1000, "l7", "curl", "");
+        handshake.put("domain", "evil.example.com");
+        Map<String, Object> other = event(1000, "l7", "curl", "");
+        other.put("domain", "api.github.com");
+        Map<String, Object> a = alert(1000, "WEAK_TLS_HANDSHAKE",
+                List.of("l7 evil.example.com (TLS 1.0)"));
+
+        SourceEvent e = SourceEventMatcher.match(List.of(other, handshake), a);
+
+        assertEquals("evil.example.com", e.domain());
+        assertEquals(SourceEvent.BY_SUMMARY, e.matchedBy());
+    }
+
+    @Test
+    void 요약이_없어도_WEAK_TLS_HANDSHAKE_는_l7_로_좁힌다() {
+        Map<String, Object> handshake = event(1000, "l7", "curl", "");
+        Map<String, Object> proc = event(1000, "process", "curl", "");
+        Map<String, Object> a = alert(1000, "WEAK_TLS_HANDSHAKE", List.of());
+
+        SourceEvent e = SourceEventMatcher.match(List.of(proc, handshake), a);
+
+        assertEquals("l7", e.type());
+        assertEquals(SourceEvent.BY_RULE_TYPE, e.matchedBy());
+    }
+
+    @Test
     void 이벤트가_없으면_null() {
         assertNull(SourceEventMatcher.match(List.of(), alert(1000, "SUSPICIOUS_PROCESS_CHAIN", List.of())));
     }

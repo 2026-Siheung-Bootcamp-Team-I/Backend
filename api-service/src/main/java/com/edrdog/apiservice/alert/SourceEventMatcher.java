@@ -21,7 +21,8 @@ public final class SourceEventMatcher {
             "SUSPICIOUS_PROCESS_CHAIN", "process",
             "DOWNLOAD_AND_EXECUTE", "process",
             "SCRIPT_FROM_TEMP_PATH", "script",
-            "FILE_IN_AUTORUN_PATH", "file");
+            "FILE_IN_AUTORUN_PATH", "file",
+            "WEAK_TLS_HANDSHAKE", "l7");
 
     private SourceEventMatcher() {
     }
@@ -83,6 +84,10 @@ public final class SourceEventMatcher {
         if (summary.startsWith("file ")) {
             String path = summary.substring("file ".length());
             return row -> isType(row, "file") && path.equals(str(row.get("cmdline")));
+        }
+        if (summary.startsWith("l7 ")) {
+            String domain = between(summary, "l7 ", " (");
+            return domain == null ? null : row -> isType(row, "l7") && domain.equals(str(row.get("domain")));
         }
         if (summary.startsWith("script ")) {
             String process = between(summary, "script ", " (");

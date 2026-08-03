@@ -40,6 +40,10 @@ public final class Rules {
     /** 레지스트리 자동실행 키 — 파일 경로가 아니라 키 경로로 들어온다. 소문자 기준. */
     private static final String REGISTRY_RUN_KEY = "\\software\\microsoft\\windows\\currentversion\\run";
 
+    /** 낡은 TLS 버전 — 지금 쓰는 클라이언트는 여기까지 내려가지 않는다(R5). 소문자 기준. */
+    private static final Set<String> WEAK_TLS_VERSIONS = Set.of(
+            "ssl 3.0", "tls 1.0", "tls 1.1");
+
     /** 현재 이벤트가 선행 버퍼와 상관되어 룰을 완성하면 Alert 반환. 여러 룰 매칭 시 가장 심각한 것 채택. */
     public static Optional<Alert> evaluate(List<Event> prior, Event current) {
         if (current == null || current.host() == null) {
@@ -59,7 +63,11 @@ public final class Rules {
         if (r3.isPresent()) {
             return r3;
         }
-        return fileInAutorunPath(current);
+        Optional<Alert> r4 = fileInAutorunPath(current);
+        if (r4.isPresent()) {
+            return r4;
+        }
+        return weakTlsHandshake(current);
     }
 
     /**
@@ -156,6 +164,20 @@ public final class Rules {
                 current, List.of()));
     }
 
+    /** R5 T1573: 낡은 TLS 로 맺은 핸드셰이크 (저심각 point 룰). */
+    // 관측 못 한 버전은 발화 대상이 아니다. 없는 값을 낡은 것으로 치면 센서가 값을 못 싣는 구간이 통째로 알림이 된다.
+    private static Optional<Alert> weakTlsHandshake(Event current) {
+        if (!isL7(current)) {
+            return Optional.empty();
+        }
+        JsonNode version = detailField(current, "tlsVersion");
+        if (version == null || !in(WEAK_TLS_VERSIONS, lower(version.asText()))) {
+            return Optional.empty();
+        }
+        return Optional.of(alertOf("WEAK_TLS_HANDSHAKE", "T1573", Alert.SEV_MEDIUM,
+                current, List.of()));
+    }
+
     /** 판정 결과 조립. matched 의 마지막은 항상 트리거다. 순서를 바꾸면 api-service 가 원본 이벤트를 되찾지 못한다. */
     private static Alert alertOf(String ruleId, String mitre, String severity, Event trigger, List<Event> prior) {
         List<Event> evidence = new ArrayList<>(prior);
@@ -201,6 +223,10 @@ public final class Rules {
 
     private static boolean isFile(Event e) {
         return Event.TYPE_FILE.equals(e.type());
+    }
+
+    private static boolean isL7(Event e) {
+        return Event.TYPE_L7.equals(e.type());
     }
 
     /** 리다이렉션 — 바로 뒤 토큰은 실행 대상이 아니라 입출력 파일이다. */
@@ -393,6 +419,11 @@ public final class Rules {
         }
         if (isFile(e)) {
             return "file " + e.cmdline();
+        }
+        if (isL7(e)) {
+            // 여기 없으면 l7 이 아래 process 형식으로 굳어 api-service 가 원본 이벤트를 못 찾는다.
+            JsonNode version = detailField(e, "tlsVersion");
+            return "l7 " + e.domain() + " (" + (version == null ? "" : version.asText()) + ")";
         }
         return "process " + e.process() + " (parent " + e.parent() + ")";
     }

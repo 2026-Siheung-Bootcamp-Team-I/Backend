@@ -36,6 +36,11 @@ public final class ThreatCatalog {
                 "시작 프로그램(Startup), macOS LaunchAgents·LaunchDaemons, 레지스트리 Run 키 등 자동실행 경로에 파일이 생성·기록·이동될 때 "
                         + "발화합니다(재부팅 후에도 살아남는 지속성 확보 시도 의심). 같은 경로라도 삭제는 자동실행을 "
                         + "없애는 쪽이라 발화하지 않습니다."));
+        m.put("WEAK_TLS_HANDSHAKE", new Threat(
+                "낡은 TLS 로 맺은 연결", "명령제어", "T1573",
+                "TLS 핸드셰이크가 SSL 3.0, TLS 1.0, TLS 1.1 중 하나로 맺어질 때 발화합니다. 요즘 클라이언트는 "
+                        + "여기까지 내려가지 않아, 서버 설정이 낡았거나 정상 경로를 쓰지 않는 통신일 수 있습니다. "
+                        + "버전을 관측하지 못한 핸드셰이크는 발화하지 않습니다."));
         return m;
     }
 

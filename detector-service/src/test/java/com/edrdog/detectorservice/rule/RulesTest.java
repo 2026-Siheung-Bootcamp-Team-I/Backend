@@ -43,6 +43,14 @@ class RulesTest {
         return new Event(HOST, Event.TYPE_FILE, ts, name, null, fullPath, null, 0, null, null, null, TENANT);
     }
 
+    /** TLS 핸드셰이크(l7) 이벤트. 버전은 detail 에 온다(관측 형식: "TLS 1.3"). */
+    private Event l7(String domain, String tlsVersion, long ts) {
+        String detail = tlsVersion == null ? "{\"l7Protocol\":\"TLS\"}"
+                : "{\"l7Protocol\":\"TLS\",\"tlsVersion\":\"" + tlsVersion + "\"}";
+        return new Event(HOST, Event.TYPE_L7, ts, "curl", null, null, "203.0.113.9", 443, domain,
+                detail, null, TENANT);
+    }
+
     /** action 을 관측한 file 이벤트. 에이전트는 CREATE/WRITE/RENAME/DELETE 를 detail 에 싣는다. */
     private Event file(String name, String fullPath, long ts, String action) {
         return new Event(HOST, Event.TYPE_FILE, ts, name, null, fullPath, null, 0, null,
@@ -523,6 +531,55 @@ class RulesTest {
                 "/Applications/Vendor.app/Contents/Library/LaunchAgents/com.vendor.agent.plist", 4000);
 
         assertThat(Rules.evaluate(List.of(), current)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("R5: 낡은 TLS 로 맺은 핸드셰이크 → WEAK_TLS_HANDSHAKE(T1573, MEDIUM, notify)")
+    void r5_weakTlsHandshake_alerts() {
+        Optional<Alert> alert = Rules.evaluate(List.of(), l7("evil.example.com", "TLS 1.0", 5000));
+
+        assertThat(alert).isPresent();
+        Alert a = alert.get();
+        assertThat(a.ruleId()).isEqualTo("WEAK_TLS_HANDSHAKE");
+        assertThat(a.mitre()).isEqualTo("T1573");
+        assertThat(a.severity()).isEqualTo(Alert.SEV_MEDIUM);
+        assertThat(a.action()).isEqualTo(Alert.ACTION_NOTIFY);
+        assertThat(a.ts()).isEqualTo(5000);
+        assertThat(a.tenantId()).isEqualTo(TENANT);
+        // 요약은 api-service 가 원본 이벤트를 되찾는 판별자다(SourceEventMatcher).
+        assertThat(a.matched()).containsExactly("l7 evil.example.com (TLS 1.0)");
+        assertThat(a.domain()).isEqualTo("evil.example.com");
+        assertThat(a.destIp()).isEqualTo("203.0.113.9");
+    }
+
+    @Test
+    @DisplayName("R5 양성: SSL 3.0 과 TLS 1.1 도 낡은 버전이다")
+    void r5_otherWeakVersions_alert() {
+        for (String version : List.of("SSL 3.0", "TLS 1.1")) {
+            assertThat(Rules.evaluate(List.of(), l7("evil.example.com", version, 5000)))
+                    .as(version)
+                    .isPresent()
+                    .get()
+                    .extracting(Alert::ruleId)
+                    .isEqualTo("WEAK_TLS_HANDSHAKE");
+        }
+    }
+
+    @Test
+    @DisplayName("R5 음성: 지금 쓰는 버전은 미판정 (실기기 관측 624건이 전부 TLS 1.3 이었다)")
+    void r5_currentTlsVersions_noAlert() {
+        for (String version : List.of("TLS 1.2", "TLS 1.3")) {
+            assertThat(Rules.evaluate(List.of(), l7("api.github.com", version, 5000)))
+                    .as(version)
+                    .isEmpty();
+        }
+    }
+
+    @Test
+    @DisplayName("R5 음성: tlsVersion 을 못 봤으면 발화하지 않는다")
+    void r5_missingTlsVersion_noAlert() {
+        // 관측 못 한 값을 낡은 버전으로 칠 수는 없다. 그러면 센서가 값을 못 싣는 구간이 통째로 알림이 된다.
+        assertThat(Rules.evaluate(List.of(), l7("api.github.com", null, 5000))).isEmpty();
     }
 
     @Test
