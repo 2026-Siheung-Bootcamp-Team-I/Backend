@@ -43,6 +43,12 @@ class RulesTest {
         return new Event(HOST, Event.TYPE_FILE, ts, name, null, fullPath, null, 0, null, null, null, TENANT);
     }
 
+    /** action 을 관측한 file 이벤트. 에이전트는 CREATE/WRITE/RENAME/DELETE 를 detail 에 싣는다. */
+    private Event file(String name, String fullPath, long ts, String action) {
+        return new Event(HOST, Event.TYPE_FILE, ts, name, null, fullPath, null, 0, null,
+                "{\"action\":\"" + action + "\"}", null, TENANT);
+    }
+
     @Test
     @DisplayName("R1: office앱 exec 후 그 자식으로 shell 실행 → SUSPICIOUS_PROCESS_CHAIN(T1059, HIGH, kill)")
     void r1_officeThenShell_alerts() {
@@ -346,6 +352,95 @@ class RulesTest {
                     .extracting(Alert::ruleId)
                     .isEqualTo("FILE_IN_AUTORUN_PATH");
         }
+    }
+
+    @Test
+    @DisplayName("R4 음성: 경로에 startup 폴더가 들어 있을 뿐인 일반 파일은 미판정 (#174 와 같은 조각 검사 결함)")
+    void r4_startupFragmentInOrdinaryPath_noAlert() {
+        // 실제 시작프로그램은 시작 메뉴 아래에만 있다. 조각으로 찾으면 이름이 startup 인 폴더가 전부 걸린다.
+        List<String> ordinary = List.of(
+                "C:\\dev\\myapp\\startup\\config.json",
+                "C:\\Users\\me\\projects\\server\\startup\\init.bat",
+                "C:\\backup\\CurrentVersion\\Runtime\\cache.dat");
+
+        for (String path : ordinary) {
+            assertThat(Rules.evaluate(List.of(), file("x", path, 4000)))
+                    .as(path)
+                    .isEmpty();
+        }
+    }
+
+    @Test
+    @DisplayName("R4 양성: 실제 자동실행 위치(사용자·전체 시작프로그램, 레지스트리 Run 키)는 계속 잡는다")
+    void r4_realWindowsAutorunLocations_alert() {
+        List<String> autorun = List.of(
+                "C:\\Users\\victim\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\evil.lnk",
+                "C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\StartUp\\evil.lnk",
+                "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\\evil");
+
+        for (String path : autorun) {
+            assertThat(Rules.evaluate(List.of(), file("evil", path, 4000)))
+                    .as(path)
+                    .isPresent()
+                    .get()
+                    .extracting(Alert::ruleId)
+                    .isEqualTo("FILE_IN_AUTORUN_PATH");
+        }
+    }
+
+    @Test
+    @DisplayName("R4 양성: LaunchDaemons 는 에이전트가 감시하는 경로라 판정에도 있어야 한다")
+    void r4_launchDaemons_alert() {
+        // 서버가 macOS 에이전트에 내려주는 감시 경로는 세 곳이다(SensorConfig.DARWIN_WATCH_PATHS).
+        // 판정에서 빠져 있으면 에이전트가 올린 이벤트를 그대로 버린다. root 로 도는 지속성 위치다.
+        Event current = file("com.evil.daemon.plist",
+                "/Library/LaunchDaemons/com.evil.daemon.plist", 4000, "CREATE");
+
+        assertThat(Rules.evaluate(List.of(), current))
+                .isPresent()
+                .get()
+                .extracting(Alert::ruleId)
+                .isEqualTo("FILE_IN_AUTORUN_PATH");
+    }
+
+    @Test
+    @DisplayName("R4 음성: 자동실행 경로에서 파일이 지워진 것은 지속성 확보가 아니다")
+    void r4_deleteFromAutorunPath_noAlert() {
+        // 삭제는 오히려 자동실행을 없애는 쪽이다. 앱 제거 때마다 지속성 알림이 나가면 그게 오탐이다.
+        Event current = file("com.vendor.agent.plist",
+                "/Users/victim/Library/LaunchAgents/com.vendor.agent.plist", 4000, "DELETE");
+
+        assertThat(Rules.evaluate(List.of(), current)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("R4 양성: 생성·기록·이동은 자동실행이 실제로 등록되는 쪽이라 잡는다")
+    void r4_createWriteRenameToAutorunPath_alert() {
+        for (String action : List.of("CREATE", "WRITE", "RENAME")) {
+            Event current = file("com.evil.agent.plist",
+                    "/Users/victim/Library/LaunchAgents/com.evil.agent.plist", 4000, action);
+
+            assertThat(Rules.evaluate(List.of(), current))
+                    .as(action)
+                    .isPresent()
+                    .get()
+                    .extracting(Alert::ruleId)
+                    .isEqualTo("FILE_IN_AUTORUN_PATH");
+        }
+    }
+
+    @Test
+    @DisplayName("R4 양성: action 을 못 본 file 이벤트는 그대로 판정한다")
+    void r4_missingAction_stillAlerts() {
+        // 관측 못 한 값으로 탐지를 깎으면 action 을 안 싣는 수집 경로에서 R4 가 통째로 죽는다.
+        Event current = file("com.evil.agent.plist",
+                "/Users/victim/Library/LaunchAgents/com.evil.agent.plist", 4000);
+
+        assertThat(Rules.evaluate(List.of(), current))
+                .isPresent()
+                .get()
+                .extracting(Alert::ruleId)
+                .isEqualTo("FILE_IN_AUTORUN_PATH");
     }
 
     @Test

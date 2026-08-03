@@ -33,8 +33,9 @@ public final class ThreatCatalog {
                         + "선행 이벤트와 상관하지 않는 단일 이벤트 기반의 저심각 룰입니다."));
         m.put("FILE_IN_AUTORUN_PATH", new Threat(
                 "자동실행 경로 파일 생성", "지속성", "T1547",
-                "시작 프로그램(Startup), macOS LaunchAgents, 레지스트리 Run 키 등 자동실행 경로에 파일이 생성될 때 "
-                        + "발화합니다(재부팅 후에도 살아남는 지속성 확보 시도 의심)."));
+                "시작 프로그램(Startup), macOS LaunchAgents·LaunchDaemons, 레지스트리 Run 키 등 자동실행 경로에 파일이 생성·기록·이동될 때 "
+                        + "발화합니다(재부팅 후에도 살아남는 지속성 확보 시도 의심). 같은 경로라도 삭제는 자동실행을 "
+                        + "없애는 쪽이라 발화하지 않습니다."));
         return m;
     }
 

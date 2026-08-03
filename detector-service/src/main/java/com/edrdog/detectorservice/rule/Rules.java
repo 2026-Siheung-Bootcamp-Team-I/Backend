@@ -34,9 +34,11 @@ public final class Rules {
     private static final Set<String> BASELINE_SAFE = Set.of(
             "onedrive.exe", "teams.exe", "gupdate.exe", "msedgeupdate.exe", "update.exe");
 
-    /** 자동실행/시작 경로 표식 (Windows) — 여기에 파일이 생기면 지속성 확보 의심(R4). 소문자 기준. */
-    private static final Set<String> FILE_AUTORUN_MARKERS = Set.of(
-            "\\startup\\", "\\currentversion\\run");
+    /** Windows 시작프로그램 경로의 꼬리 — 시작 메뉴 아래에 있을 때만 실제로 자동실행된다. 소문자 기준. */
+    private static final String STARTUP_TAIL = "microsoft\\windows\\start menu\\programs\\startup\\";
+
+    /** 레지스트리 자동실행 키 — 파일 경로가 아니라 키 경로로 들어온다. 소문자 기준. */
+    private static final String REGISTRY_RUN_KEY = "\\software\\microsoft\\windows\\currentversion\\run";
 
     /** 현재 이벤트가 선행 버퍼와 상관되어 룰을 완성하면 Alert 반환. 여러 룰 매칭 시 가장 심각한 것 채택. */
     public static Optional<Alert> evaluate(List<Event> prior, Event current) {
@@ -147,7 +149,7 @@ public final class Rules {
 
     /** R4 T1547: 자동실행/시작 경로에 생성된 파일 (지속성 확보, 저심각 point 룰). */
     private static Optional<Alert> fileInAutorunPath(Event current) {
-        if (!isFile(current) || !isAutorunPath(current.cmdline())) {
+        if (!isFile(current) || !isAutorunPath(current.cmdline()) || isRemoval(current)) {
             return Optional.empty();
         }
         return Optional.of(alertOf("FILE_IN_AUTORUN_PATH", "T1547", Alert.SEV_MEDIUM,
@@ -277,17 +279,26 @@ public final class Rules {
                 || underUserHome(w, "\\users\\", "downloads\\"));
     }
 
-    /** 자동실행/지속성 경로인지 (소문자 기준). LaunchAgents 는 아래 세 곳에 놓일 때만 실제로 등록된다. */
+    /** 자동실행/지속성 경로인지 (소문자 기준). LaunchAgents 도 시작프로그램도 실제로 등록되는 위치에서만 참이다. */
+    // 조각 검색으로 바꾸면 이름이 startup 인 개발용 폴더가 전부 걸린다(#174 와 같은 결함).
     private static boolean isAutorunPath(String path) {
         String p = lower(path);
         if (p == null) {
             return false;
         }
         p = p.trim().replace("\"", "");   // 경로가 인용부호로 감싸여 오는 경우가 있다
-        return FILE_AUTORUN_MARKERS.stream().anyMatch(p::contains)
-                || p.startsWith("/library/launchagents/")
+        // LaunchDaemons 는 root 로 도는 지속성 위치다. 에이전트가 감시하는 세 경로가 모두 여기 있어야 한다.
+        if (p.startsWith("/library/launchagents/")
+                || p.startsWith("/library/launchdaemons/")
                 || p.startsWith("/system/library/launchagents/")
-                || underUserHome(p, "/users/", "library/launchagents/");
+                || underUserHome(p, "/users/", "library/launchagents/")
+                || p.contains(REGISTRY_RUN_KEY)) {
+            return true;
+        }
+        String w = stripDriveLetter(p);
+        return w != null
+                && (underUserHome(w, "\\users\\", "appdata\\roaming\\" + STARTUP_TAIL)
+                || w.startsWith("\\programdata\\" + STARTUP_TAIL));
     }
 
     /** 홈 바로 아래가 tail 인지 (예: {@code /users/me/downloads/...}). 사용자명 한 칸을 안 강제하면 홈 밑이 아닌 동명 폴더까지 걸린다. */
@@ -323,6 +334,13 @@ public final class Rules {
         Integer pid = detailInt(parentExec, "pid");
         Integer ppid = detailInt(child, "ppid");
         return pid == null || ppid == null || pid.equals(ppid);
+    }
+
+    /** 파일이 자동실행에서 빠지는 쪽인지. 삭제까지 지속성으로 보면 앱 제거마다 알림이 나간다. */
+    // action 을 못 봤으면 판정을 유지한다. 관측 못 한 값으로 탐지를 깎으면 action 을 안 싣는 수집 경로에서 R4 가 죽는다.
+    private static boolean isRemoval(Event e) {
+        JsonNode action = detailField(e, "action");
+        return action != null && "delete".equalsIgnoreCase(action.asText());
     }
 
     // 읽기만 해서 공유해도 안전하다.
