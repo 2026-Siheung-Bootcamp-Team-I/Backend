@@ -20,7 +20,8 @@ public final class ThreatCatalog {
         m.put("SUSPICIOUS_PROCESS_CHAIN", new Threat(
                 "의심스러운 프로세스 실행 체인", "권한상승", "T1059",
                 "워드·엑셀·파워포인트·아웃룩 등 오피스 앱이 자식 프로세스로 powershell/cmd/wscript/cscript/mshta 를 "
-                        + "실행할 때 발화합니다(매크로 기반 침투 의심)."));
+                        + "실행할 때 발화합니다(매크로 기반 침투 의심). pid/ppid 를 관측한 경우에는 프로세스 이름이 아니라 "
+                        + "실제 부모-자식 계보가 이어질 때만 발화합니다."));
         m.put("DOWNLOAD_AND_EXECUTE", new Threat(
                 "다운로드 후 실행", "악성코드", "T1105+T1204",
                 "80/443/8080 포트로의 다운로드와, 실행된 파일 자체(인자가 아니라 실행 파일 경로)가 임시 또는 "
@@ -32,8 +33,14 @@ public final class ThreatCatalog {
                         + "선행 이벤트와 상관하지 않는 단일 이벤트 기반의 저심각 룰입니다."));
         m.put("FILE_IN_AUTORUN_PATH", new Threat(
                 "자동실행 경로 파일 생성", "지속성", "T1547",
-                "시작 프로그램(Startup), macOS LaunchAgents, 레지스트리 Run 키 등 자동실행 경로에 파일이 생성될 때 "
-                        + "발화합니다(재부팅 후에도 살아남는 지속성 확보 시도 의심)."));
+                "시작 프로그램(Startup), macOS LaunchAgents·LaunchDaemons, 레지스트리 Run 키 등 자동실행 경로에 파일이 생성·기록·이동될 때 "
+                        + "발화합니다(재부팅 후에도 살아남는 지속성 확보 시도 의심). 같은 경로라도 삭제는 자동실행을 "
+                        + "없애는 쪽이라 발화하지 않습니다."));
+        m.put("WEAK_TLS_HANDSHAKE", new Threat(
+                "낡은 TLS 로 맺은 연결", "명령제어", "T1573",
+                "TLS 핸드셰이크가 SSL 3.0, TLS 1.0, TLS 1.1 중 하나로 맺어질 때 발화합니다. 요즘 클라이언트는 "
+                        + "여기까지 내려가지 않아, 서버 설정이 낡았거나 정상 경로를 쓰지 않는 통신일 수 있습니다. "
+                        + "버전을 관측하지 못한 핸드셰이크는 발화하지 않습니다."));
         return m;
     }
 
