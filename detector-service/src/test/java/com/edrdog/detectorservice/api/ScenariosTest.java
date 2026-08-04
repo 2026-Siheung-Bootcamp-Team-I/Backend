@@ -1,7 +1,9 @@
 package com.edrdog.detectorservice.api;
 
 import com.edrdog.detectorservice.dto.Alert;
-import com.edrdog.detectorservice.dto.Event;
+import com.edrdog.detectorservice.support.TestEvents;
+import com.edrdog.schema.Event;
+import com.edrdog.schema.EventTypes;
 import com.edrdog.detectorservice.rule.Rules;
 import org.junit.jupiter.api.Test;
 
@@ -83,15 +85,15 @@ class ScenariosTest {
         List<Event> events = Scenarios.build(Scenarios.PROCESS_CHAIN, HOST, 1_000_000L, TENANT);
 
         assertThat(events).hasSize(2);
-        assertThat(events).allMatch(e -> HOST.equals(e.host()));
-        assertThat(events.get(1).ts() - events.get(0).ts()).isEqualTo(1000L);
+        assertThat(events).allMatch(e -> HOST.equals(e.getHost()));
+        assertThat(events.get(1).getTs() - events.get(0).getTs()).isEqualTo(1000L);
     }
 
     @Test
     void 시나리오_이벤트는_모두_주어진_tenant_로_태깅된다() {
         List<Event> events = Scenarios.build(Scenarios.DOWNLOAD_EXEC, HOST, 1_000_000L, TENANT);
 
-        assertThat(events).allMatch(e -> TENANT.equals(e.tenantId()));
+        assertThat(events).allMatch(e -> TENANT.equals(e.getTenantId()));
     }
 
     @Test

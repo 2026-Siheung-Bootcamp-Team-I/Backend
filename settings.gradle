@@ -1,5 +1,6 @@
 rootProject.name = 'edrdog-backend'
 
+include 'event-schema'          // events 토픽 스키마(.proto) 단일 정의 — 서비스가 아니라 라이브러리
 include 'detector-service'
 include 'responder-service'
 include 'archiver-service'

@@ -1,13 +1,13 @@
 package com.edrdog.detectorservice.kafkastreams.topology;
 
-import com.edrdog.detectorservice.dto.Event;
+import com.edrdog.schema.Event;
 
 import java.util.ArrayList;
 import java.util.List;
 
 /**
  * host 별 이벤트 상태 (state store 값). 두 리스트 모두 이벤트 시각(ts) 오름차순으로 유지한다.
- * Jackson 직렬화를 위해 public 필드 + 기본 생성자 사용.
+ * 프로세서가 리스트를 제자리에서 깎으므로 가변 객체로 둔다. 직렬화는 EventBufferSerde 가 맡는다.
  */
 public class EventBuffer {
 

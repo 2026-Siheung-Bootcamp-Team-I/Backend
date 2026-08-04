@@ -1,5 +1,7 @@
 package com.edrdog.apiservice.demo;
 
+import com.edrdog.schema.Event;
+import com.edrdog.schema.EventTypes;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashSet;
@@ -46,9 +48,9 @@ class DemoScenarioTest {
     @Test
     void 모든_이벤트가_지정_host_와_tenant_로_태깅된다() {
         for (String name : DemoScenario.names()) {
-            List<CollectedEvent> events = DemoScenario.build(name, "PC-01", BASE, TENANT);
-            assertTrue(events.stream().allMatch(e -> "PC-01".equals(e.host())), name);
-            assertTrue(events.stream().allMatch(e -> TENANT.equals(e.tenantId())), name);
+            List<Event> events = DemoScenario.build(name, "PC-01", BASE, TENANT);
+            assertTrue(events.stream().allMatch(e -> "PC-01".equals(e.getHost())), name);
+            assertTrue(events.stream().allMatch(e -> TENANT.equals(e.getTenantId())), name);
         }
     }
 
@@ -56,9 +58,9 @@ class DemoScenarioTest {
     void 발행_순서가_시간_순서와_같다() {
         // detector 는 host 파티션 안 순서대로 상관하므로 선행 이벤트가 먼저 나가야 룰이 성립한다.
         for (String name : DemoScenario.names()) {
-            List<CollectedEvent> events = DemoScenario.build(name, "PC-01", BASE, TENANT);
+            List<Event> events = DemoScenario.build(name, "PC-01", BASE, TENANT);
             for (int i = 1; i < events.size(); i++) {
-                assertTrue(events.get(i - 1).ts() <= events.get(i).ts(), name + " #" + i);
+                assertTrue(events.get(i - 1).getTs() <= events.get(i).getTs(), name + " #" + i);
             }
         }
     }
@@ -66,9 +68,9 @@ class DemoScenarioTest {
     @Test
     void 배경_로그는_공격보다_앞서고_공격은_baseTs_부터_시작한다() {
         for (String name : DemoScenario.names()) {
-            List<CollectedEvent> events = DemoScenario.build(name, "PC-01", BASE, TENANT);
-            assertTrue(events.stream().anyMatch(e -> e.ts() < BASE), name + " 배경 로그 없음");
-            assertTrue(events.stream().anyMatch(e -> e.ts() >= BASE), name + " 공격 이벤트 없음");
+            List<Event> events = DemoScenario.build(name, "PC-01", BASE, TENANT);
+            assertTrue(events.stream().anyMatch(e -> e.getTs() < BASE), name + " 배경 로그 없음");
+            assertTrue(events.stream().anyMatch(e -> e.getTs() >= BASE), name + " 공격 이벤트 없음");
         }
     }
 
@@ -76,10 +78,10 @@ class DemoScenarioTest {
     void 배경_로그에는_network_이벤트가_없다() {
         // R2 는 선행 network + 이후 process 만으로 CRITICAL 을 내므로, 배경 소음에 network 를 섞으면 뒤 프로세스가 오탐된다.
         for (String name : DemoScenario.names()) {
-            List<CollectedEvent> background = DemoScenario.build(name, "PC-01", BASE, TENANT).stream()
-                    .filter(e -> e.ts() < BASE)
+            List<Event> background = DemoScenario.build(name, "PC-01", BASE, TENANT).stream()
+                    .filter(e -> e.getTs() < BASE)
                     .toList();
-            assertTrue(background.stream().noneMatch(e -> CollectedEvent.TYPE_NETWORK.equals(e.type())), name);
+            assertTrue(background.stream().noneMatch(e -> EventTypes.NETWORK.equals(e.getType())), name);
         }
     }
 
@@ -88,11 +90,11 @@ class DemoScenarioTest {
         // 배경 프로세스는 detector Rules.BASELINE_SAFE 목록에 있는 이름만 써야, 재실행으로 남은 network 이벤트가 R2 오탐(CRITICAL)을 내지 않는다.
         Set<String> baselineSafe = Set.of("onedrive.exe", "teams.exe", "gupdate.exe", "msedgeupdate.exe", "update.exe");
         for (String name : DemoScenario.names()) {
-            List<CollectedEvent> background = DemoScenario.build(name, "PC-01", BASE, TENANT).stream()
-                    .filter(e -> e.ts() < BASE)
+            List<Event> background = DemoScenario.build(name, "PC-01", BASE, TENANT).stream()
+                    .filter(e -> e.getTs() < BASE)
                     .toList();
             assertFalse(background.isEmpty(), name);
-            assertTrue(background.stream().allMatch(e -> baselineSafe.contains(e.process().toLowerCase())),
+            assertTrue(background.stream().allMatch(e -> baselineSafe.contains(e.getProcess().toLowerCase())),
                     name + " 배경 프로세스가 baseline 억제 대상이 아니다");
         }
     }
@@ -101,7 +103,7 @@ class DemoScenarioTest {
     void network_이벤트는_download_exec_에만_있다() {
         for (String name : DemoScenario.names()) {
             boolean hasNetwork = DemoScenario.build(name, "PC-01", BASE, TENANT).stream()
-                    .anyMatch(e -> CollectedEvent.TYPE_NETWORK.equals(e.type()));
+                    .anyMatch(e -> EventTypes.NETWORK.equals(e.getType()));
             assertEquals(DemoScenario.DOWNLOAD_EXEC.equals(name), hasNetwork, name);
         }
     }
@@ -109,13 +111,13 @@ class DemoScenarioTest {
     @Test
     void 판정을_트리거하는_이벤트는_마지막_이벤트다() {
         // 기대 alert 의 ts = 마지막 이벤트 ts. 이 계약으로 alert id 를 미리 계산해 도착을 기다린다.
-        List<CollectedEvent> chain = DemoScenario.build(DemoScenario.PROCESS_CHAIN, "PC-01", BASE, TENANT);
-        CollectedEvent trigger = chain.get(chain.size() - 1);
-        assertEquals("powershell.exe", trigger.process());
-        assertEquals("winword.exe", trigger.parent());
+        List<Event> chain = DemoScenario.build(DemoScenario.PROCESS_CHAIN, "PC-01", BASE, TENANT);
+        Event trigger = chain.get(chain.size() - 1);
+        assertEquals("powershell.exe", trigger.getProcess());
+        assertEquals("winword.exe", trigger.getParent());
 
-        List<CollectedEvent> download = DemoScenario.build(DemoScenario.DOWNLOAD_EXEC, "PC-01", BASE, TENANT);
-        assertEquals(CollectedEvent.TYPE_PROCESS, download.get(download.size() - 1).type());
+        List<Event> download = DemoScenario.build(DemoScenario.DOWNLOAD_EXEC, "PC-01", BASE, TENANT);
+        assertEquals(EventTypes.PROCESS, download.get(download.size() - 1).getType());
     }
 
     @Test
@@ -138,14 +140,14 @@ class DemoScenarioTest {
     @Test
     void script_와_file_시나리오는_판정_경로를_cmdline_에_담는다() {
         // R3/R4 는 cmdline 의 경로 표식으로 판정한다(process 는 basename).
-        List<CollectedEvent> script = DemoScenario.build(DemoScenario.SCRIPT_EXEC, "PC-01", BASE, TENANT);
-        CollectedEvent scriptTrigger = script.get(script.size() - 1);
-        assertEquals(CollectedEvent.TYPE_SCRIPT, scriptTrigger.type());
-        assertTrue(scriptTrigger.cmdline().toLowerCase().contains("\\downloads\\"));
+        List<Event> script = DemoScenario.build(DemoScenario.SCRIPT_EXEC, "PC-01", BASE, TENANT);
+        Event scriptTrigger = script.get(script.size() - 1);
+        assertEquals(EventTypes.SCRIPT, scriptTrigger.getType());
+        assertTrue(scriptTrigger.getCmdline().toLowerCase().contains("\\downloads\\"));
 
-        List<CollectedEvent> file = DemoScenario.build(DemoScenario.FILE_AUTORUN, "PC-01", BASE, TENANT);
-        CollectedEvent fileTrigger = file.get(file.size() - 1);
-        assertEquals(CollectedEvent.TYPE_FILE, fileTrigger.type());
-        assertTrue(fileTrigger.cmdline().toLowerCase().contains("\\startup\\"));
+        List<Event> file = DemoScenario.build(DemoScenario.FILE_AUTORUN, "PC-01", BASE, TENANT);
+        Event fileTrigger = file.get(file.size() - 1);
+        assertEquals(EventTypes.FILE, fileTrigger.getType());
+        assertTrue(fileTrigger.getCmdline().toLowerCase().contains("\\startup\\"));
     }
 }

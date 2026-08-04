@@ -1,7 +1,9 @@
 package com.edrdog.detectorservice.kafkastreams.topology;
 
 import com.edrdog.detectorservice.dto.Alert;
-import com.edrdog.detectorservice.dto.Event;
+import com.edrdog.detectorservice.kafkastreams.serde.EventBufferSerde;
+import com.edrdog.schema.Event;
+import com.edrdog.schema.EventSerde;
 import com.edrdog.detectorservice.kafkastreams.serde.JsonSerde;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.apache.kafka.common.serialization.Serdes;
@@ -68,15 +70,15 @@ public class DetectionTopology {
         StoreBuilder<KeyValueStore<String, EventBuffer>> storeBuilder = Stores.keyValueStoreBuilder(
                 Stores.persistentKeyValueStore(CorrelationProcessor.STORE),
                 Serdes.String(),
-                new JsonSerde<>(EventBuffer.class));
+                new EventBufferSerde());
         builder.addStateStore(storeBuilder);
 
         // 판정 시각 기준은 이벤트의 ts 이고 그건 CorrelationProcessor 가 host 별로 직접 다룬다.
         // 여기서 stream-time 을 손댈 이유가 없다(TimestampExtractor 를 붙여도 읽는 곳이 없다).
-        builder.stream(eventsTopic, Consumed.with(Serdes.String(), new JsonSerde<>(Event.class)))
-                .selectKey((key, event) -> event == null ? null : event.host())
+        builder.stream(eventsTopic, Consumed.with(Serdes.String(), new EventSerde()))
+                .selectKey((key, event) -> event == null ? null : event.getHost())
                 // host 기준 재분배 — 같은 host 이벤트를 한 태스크/스토어로 모아 상태 분할 방지
-                .repartition(Repartitioned.with(Serdes.String(), new JsonSerde<>(Event.class))
+                .repartition(Repartitioned.with(Serdes.String(), new EventSerde())
                         .withName("events-by-host"))
                 .process(() -> new CorrelationProcessor(windowMs, graceMs, metrics), CorrelationProcessor.STORE)
                 .to(alertsTopic, Produced.with(Serdes.String(), new JsonSerde<>(Alert.class)));

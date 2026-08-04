@@ -5,6 +5,7 @@ import com.edrdog.apiservice.alert.AlertService;
 import com.edrdog.apiservice.alert.web.AlertResponse;
 import com.edrdog.apiservice.auth.AuthException;
 import com.edrdog.apiservice.demo.web.DemoFlowResponse;
+import com.edrdog.schema.Event;
 import com.edrdog.apiservice.demo.web.DemoFlowStep;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -58,13 +59,13 @@ public class DemoFlowService {
     public DemoFlowResponse run(String scenario, String host, String tenantId) {
         String target = (host == null || host.isBlank()) ? DemoScenario.defaultHost(scenario) : host.trim();
         long start = System.currentTimeMillis();
-        List<CollectedEvent> logs = DemoScenario.build(scenario, target, start, tenantId);
+        List<Event> logs = DemoScenario.build(scenario, target, start, tenantId);
 
         logs.forEach(producer::publish);
         long publishedAt = System.currentTimeMillis();
 
         String ruleId = DemoScenario.expectedRuleId(scenario);
-        long triggerTs = logs.get(logs.size() - 1).ts();
+        long triggerTs = logs.get(logs.size() - 1).getTs();
         String alertId = AlertId.of(tenantId, target, ruleId, triggerTs);
 
         Optional<Long> detectedAt = awaitArrival(alertId, publishedAt + detectTimeoutMs);
@@ -82,10 +83,10 @@ public class DemoFlowService {
                 finishedAt - start, steps, logs, stored.orElse(null), nextSteps(alertId));
     }
 
-    private List<DemoFlowStep> steps(List<CollectedEvent> logs, String ruleId, long start, long publishedAt,
+    private List<DemoFlowStep> steps(List<Event> logs, String ruleId, long start, long publishedAt,
                                      Optional<Long> detectedAt, Optional<AlertResponse> stored, long finishedAt) {
         List<DemoFlowStep> steps = new ArrayList<>();
-        long normal = logs.stream().filter(e -> e.ts() < start).count();
+        long normal = logs.stream().filter(e -> e.getTs() < start).count();
         steps.add(DemoFlowStep.ok(1, "수집", "api-service → Kafka(events)", publishedAt - start,
                 "엔드포인트 로그 " + logs.size() + "건 발행 (평소 배경 " + normal + "건 + 공격 "
                         + (logs.size() - normal) + "건). 파티션 키 = host 라 순서가 보존된다"));

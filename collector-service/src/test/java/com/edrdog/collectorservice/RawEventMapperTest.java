@@ -1,13 +1,13 @@
 package com.edrdog.collectorservice;
 
-import com.edrdog.collectorservice.dto.Event;
+import com.edrdog.schema.Event;
+import com.edrdog.schema.EventTypes;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -38,13 +38,13 @@ class RawEventMapperTest {
 
         Event e = map(raw).orElseThrow();
 
-        assertEquals("lab-mac", e.host());
-        assertEquals(Event.TYPE_PROCESS, e.type());
-        assertEquals(1785341400000L, e.ts());
-        assertEquals("sh", e.process());
-        assertEquals("bash", e.parent());
-        assertEquals("sh -c whoami", e.cmdline());
-        assertEquals("1", e.tenantId());
+        assertEquals("lab-mac", e.getHost());
+        assertEquals(EventTypes.PROCESS, e.getType());
+        assertEquals(1785341400000L, e.getTs());
+        assertEquals("sh", e.getProcess());
+        assertEquals("bash", e.getParent());
+        assertEquals("sh -c whoami", e.getCmdline());
+        assertEquals("1", e.getTenantId());
     }
 
     @Test
@@ -62,10 +62,10 @@ class RawEventMapperTest {
 
         Event e = map(raw).orElseThrow();
 
-        assertEquals(Event.TYPE_NETWORK, e.type());
-        assertEquals("curl", e.process());
-        assertEquals("203.0.113.9", e.destIp());
-        assertEquals(443, e.destPort());
+        assertEquals(EventTypes.NETWORK, e.getType());
+        assertEquals("curl", e.getProcess());
+        assertEquals("203.0.113.9", e.getDestIp());
+        assertEquals(443, e.getDestPort());
     }
 
     @Test
@@ -82,9 +82,9 @@ class RawEventMapperTest {
 
         Event e = map(raw).orElseThrow();
 
-        assertEquals(Event.TYPE_FILE, e.type());
-        assertEquals("com.evil.plist", e.process());
-        assertEquals("/Users/victim/Library/LaunchAgents/com.evil.plist", e.cmdline());
+        assertEquals(EventTypes.FILE, e.getType());
+        assertEquals("com.evil.plist", e.getProcess());
+        assertEquals("/Users/victim/Library/LaunchAgents/com.evil.plist", e.getCmdline());
     }
 
     @Test
@@ -102,10 +102,10 @@ class RawEventMapperTest {
 
         Event e = map(raw).orElseThrow();
 
-        assertEquals(Event.TYPE_SCRIPT, e.type());
-        assertEquals("powershell.exe", e.process());
-        assertEquals("explorer.exe", e.parent());
-        assertEquals("powershell -File C:\\Users\\victim\\Downloads\\a.ps1", e.cmdline());
+        assertEquals(EventTypes.SCRIPT, e.getType());
+        assertEquals("powershell.exe", e.getProcess());
+        assertEquals("explorer.exe", e.getParent());
+        assertEquals("powershell -File C:\\Users\\victim\\Downloads\\a.ps1", e.getCmdline());
     }
 
     @Test
@@ -123,10 +123,10 @@ class RawEventMapperTest {
 
         Event e = map(raw).orElseThrow();
 
-        assertEquals(Event.TYPE_DNS, e.type());
-        assertEquals("curl", e.process());
-        assertEquals("evil.example.com", e.domain());
-        assertEquals("{\"qtype\":\"A\",\"answers\":[\"203.0.113.9\"]}", e.detail());
+        assertEquals(EventTypes.DNS, e.getType());
+        assertEquals("curl", e.getProcess());
+        assertEquals("evil.example.com", e.getDomain());
+        assertEquals("{\"qtype\":\"A\",\"answers\":[\"203.0.113.9\"]}", e.getDetail());
     }
 
     @Test
@@ -145,11 +145,11 @@ class RawEventMapperTest {
 
         Event e = map(raw).orElseThrow();
 
-        assertEquals(Event.TYPE_L7, e.type());
-        assertEquals("cdn.example.com", e.domain());
-        assertEquals("203.0.113.9", e.destIp());
-        assertEquals(443, e.destPort());
-        assertEquals("{\"tlsVersion\":\"1.3\",\"issuer\":\"R3\"}", e.detail());
+        assertEquals(EventTypes.L7, e.getType());
+        assertEquals("cdn.example.com", e.getDomain());
+        assertEquals("203.0.113.9", e.getDestIp());
+        assertEquals(443, e.getDestPort());
+        assertEquals("{\"tlsVersion\":\"1.3\",\"issuer\":\"R3\"}", e.getDetail());
     }
 
     @Test
@@ -159,7 +159,7 @@ class RawEventMapperTest {
                 { "host": "lab-mac", "type": "dns", "ts": 1785341400000, "domain": "a.example.com" }
                 """;
 
-        assertNull(map(raw).orElseThrow().detail());
+        assertEquals("", map(raw).orElseThrow().getDetail());
     }
 
     @Test
@@ -195,7 +195,7 @@ class RawEventMapperTest {
                 { "host": "lab-mac", "type": "process", "ts": 1785341400000, "process": "sh" }
                 """;
 
-        assertNull(map(raw).orElseThrow().domain());
+        assertEquals("", map(raw).orElseThrow().getDomain());
     }
 
     @Test
@@ -211,7 +211,7 @@ class RawEventMapperTest {
                 """;
 
         assertEquals("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-                map(raw).orElseThrow().sha256());
+                map(raw).orElseThrow().getSha256());
     }
 
     @Test
@@ -228,7 +228,7 @@ class RawEventMapperTest {
                 """;
 
         assertEquals("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-                map(raw).orElseThrow().sha256());
+                map(raw).orElseThrow().getSha256());
     }
 
     @Test
@@ -246,8 +246,8 @@ class RawEventMapperTest {
 
         Event e = map(raw).orElseThrow();
 
-        assertNull(e.sha256());
-        assertEquals("evil.exe", e.process());
+        assertEquals("", e.getSha256());
+        assertEquals("evil.exe", e.getProcess());
     }
 
     @Test
@@ -262,7 +262,7 @@ class RawEventMapperTest {
                 }
                 """;
 
-        assertNull(map(raw).orElseThrow().sha256());
+        assertEquals("", map(raw).orElseThrow().getSha256());
     }
 
     @Test
@@ -272,7 +272,7 @@ class RawEventMapperTest {
                 { "host": "lab-mac", "type": "network", "ts": 1785341400000, "destIp": "10.0.0.9" }
                 """;
 
-        assertNull(map(raw).orElseThrow().sha256());
+        assertEquals("", map(raw).orElseThrow().getSha256());
     }
 
     @Test
@@ -286,7 +286,7 @@ class RawEventMapperTest {
                 }
                 """;
 
-        assertNull(map(raw).orElseThrow().tenantId());
+        assertEquals("", map(raw).orElseThrow().getTenantId());
     }
 
     @Test
@@ -365,7 +365,7 @@ class RawEventMapperTest {
 
         Event e = RawEventMapper.map(raw, mapper, now).orElseThrow();
 
-        assertEquals(now, e.ts());
+        assertEquals(now, e.getTs());
     }
 
     @Test
@@ -379,7 +379,7 @@ class RawEventMapperTest {
 
         Event e = RawEventMapper.map(raw, mapper, now).orElseThrow();
 
-        assertEquals(slightlyAhead, e.ts());
+        assertEquals(slightlyAhead, e.getTs());
     }
 
     @Test

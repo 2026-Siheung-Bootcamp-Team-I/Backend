@@ -1,6 +1,6 @@
 package com.edrdog.archiverservice.clickhouse;
 
-import com.edrdog.archiverservice.dto.Event;
+import com.edrdog.schema.Event;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.LinkedHashMap;
@@ -10,7 +10,8 @@ import java.util.stream.Collectors;
 
 /**
  * Event 를 ClickHouse JSONEachRow 한 줄(JSON object)로 변환하는 순수 매핑.
- * 컬럼 순서를 events 테이블 정의와 맞추고, null String 필드는 ""(빈 문자열)로 치환한다.
+ * 컬럼 순서를 events 테이블 정의와 맞춘다. proto3 는 관측 못 한 문자열을 빈 값으로 주므로
+ * 예전 null 치환은 필요 없다(적재되는 값은 그때와 같은 "" 다).
  */
 public final class EventRow {
 
@@ -26,26 +27,22 @@ public final class EventRow {
 
     public static String toJson(Event e, ObjectMapper mapper) {
         Map<String, Object> row = new LinkedHashMap<>();
-        row.put("host", nz(e.host()));
-        row.put("tenant_id", nz(e.tenantId()));
-        row.put("type", nz(e.type()));
-        row.put("ts", e.ts());
-        row.put("process", nz(e.process()));
-        row.put("parent", nz(e.parent()));
-        row.put("cmdline", nz(e.cmdline()));
-        row.put("dest_ip", nz(e.destIp()));
-        row.put("dest_port", e.destPort());
-        row.put("domain", nz(e.domain()));
-        row.put("detail", nz(e.detail()));
-        row.put("sha256", nz(e.sha256()));
+        row.put("host", e.getHost());
+        row.put("tenant_id", e.getTenantId());
+        row.put("type", e.getType());
+        row.put("ts", e.getTs());
+        row.put("process", e.getProcess());
+        row.put("parent", e.getParent());
+        row.put("cmdline", e.getCmdline());
+        row.put("dest_ip", e.getDestIp());
+        row.put("dest_port", e.getDestPort());
+        row.put("domain", e.getDomain());
+        row.put("detail", e.getDetail());
+        row.put("sha256", e.getSha256());
         try {
             return mapper.writeValueAsString(row);
         } catch (JsonProcessingException ex) {
             throw new IllegalStateException("Event JSON 직렬화 실패: " + e, ex);
         }
-    }
-
-    private static String nz(String s) {
-        return s == null ? "" : s;
     }
 }

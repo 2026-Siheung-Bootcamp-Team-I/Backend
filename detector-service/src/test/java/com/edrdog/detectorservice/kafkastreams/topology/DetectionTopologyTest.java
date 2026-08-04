@@ -1,7 +1,10 @@
 package com.edrdog.detectorservice.kafkastreams.topology;
 
 import com.edrdog.detectorservice.dto.Alert;
-import com.edrdog.detectorservice.dto.Event;
+import com.edrdog.detectorservice.support.TestEvents;
+import com.edrdog.schema.Event;
+import com.edrdog.schema.EventSerde;
+import com.edrdog.schema.EventTypes;
 import com.edrdog.detectorservice.kafkastreams.serde.JsonSerde;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -43,8 +46,9 @@ class DetectionTopologyTest {
         props.put("bootstrap.servers", "dummy:9092");
 
         driver = new TopologyTestDriver(builder.build(), props);
+        // 입력은 토폴로지가 실제로 읽는 형식이어야 한다. 여기만 JSON 으로 두면 통과해도 아무것도 증명하지 못한다.
         events = driver.createInputTopic(EVENTS, Serdes.String().serializer(),
-                new JsonSerde<>(Event.class).serializer());
+                new EventSerde().serializer());
         alerts = driver.createOutputTopic(ALERTS, Serdes.String().deserializer(),
                 new JsonSerde<>(Alert.class).deserializer());
     }
@@ -55,21 +59,21 @@ class DetectionTopologyTest {
     }
 
     private Event process(String host, String proc, String parent, long ts) {
-        return new Event(host, Event.TYPE_PROCESS, ts, proc, parent, proc, null, 0, null, null, null, "tenant-a");
+        return TestEvents.of(host, EventTypes.PROCESS, ts, proc, parent, proc, null, 0, null, null, null, "tenant-a");
     }
 
     /** cmdline 을 직접 주는 process 이벤트. R2 는 실행 경로를 본다. */
     private Event processFrom(String host, String proc, String cmdline, long ts) {
-        return new Event(host, Event.TYPE_PROCESS, ts, proc, "explorer.exe", cmdline, null, 0, null, null, null, "tenant-a");
+        return TestEvents.of(host, EventTypes.PROCESS, ts, proc, "explorer.exe", cmdline, null, 0, null, null, null, "tenant-a");
     }
 
     private Event network(String host, int destPort, long ts) {
-        return new Event(host, Event.TYPE_NETWORK, ts, null, null, null, "203.0.113.9", destPort, null, null, null, "tenant-a");
+        return TestEvents.of(host, EventTypes.NETWORK, ts, null, null, null, "203.0.113.9", destPort, null, null, null, "tenant-a");
     }
 
     /** 목적지 도메인까지 관측된 network 이벤트. */
     private Event networkTo(String host, String destIp, String domain, int destPort, long ts) {
-        return new Event(host, Event.TYPE_NETWORK, ts, null, null, null, destIp, destPort, domain, null, null, "tenant-a");
+        return TestEvents.of(host, EventTypes.NETWORK, ts, null, null, null, destIp, destPort, domain, null, null, "tenant-a");
     }
 
     /**
@@ -171,7 +175,7 @@ class DetectionTopologyTest {
     @DisplayName("점 룰(단일 이벤트)은 워터마크를 기다리지 않고 즉시 발행한다")
     void pointRule_emitsImmediately() {
         // 기다려서 얻는 게 없는데 지연을 물면 대응만 늦어진다.
-        Event script = new Event("host-6", Event.TYPE_SCRIPT, 1000, "zsh", "explorer.exe",
+        Event script = TestEvents.of("host-6", EventTypes.SCRIPT, 1000, "zsh", "explorer.exe",
                 "/bin/zsh /tmp/evil.sh", null, 0, null, null, null, "tenant-a");
         events.pipeInput("k", script);
 

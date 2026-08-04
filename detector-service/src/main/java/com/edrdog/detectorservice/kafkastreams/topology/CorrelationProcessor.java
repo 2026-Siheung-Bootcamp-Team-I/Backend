@@ -1,7 +1,7 @@
 package com.edrdog.detectorservice.kafkastreams.topology;
 
 import com.edrdog.detectorservice.dto.Alert;
-import com.edrdog.detectorservice.dto.Event;
+import com.edrdog.schema.Event;
 import com.edrdog.detectorservice.rule.Rules;
 import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -74,15 +74,15 @@ public class CorrelationProcessor implements Processor<String, Event, String, Al
         if (buffer == null) {
             buffer = new EventBuffer();
         }
-        buffer.maxTs = Math.max(buffer.maxTs, current.ts());
+        buffer.maxTs = Math.max(buffer.maxTs, current.getTs());
         buffer.lastUpdatedWallMs = ctx.currentSystemTimeMs();
         long watermark = buffer.maxTs - graceMs;
-        lateness.record(Math.max(0, buffer.maxTs - current.ts()));
+        lateness.record(Math.max(0, buffer.maxTs - current.getTs()));
 
         if (Rules.isSequenceTrigger(current)) {
-            if (current.ts() < watermark) {
+            if (current.getTs() < watermark) {
                 // 워터마크를 넘겨 도착 — 버리면 확정 미탐이라 이미 모인 근거로 그 자리에서 판정한다
-                metrics.counter("cep.late.events", "type", current.type()).increment();
+                metrics.counter("cep.late.events", "type", current.getType()).increment();
                 evaluate(host, buffer, current);
             } else {
                 insertByTs(buffer.pending, current);
@@ -104,7 +104,7 @@ public class CorrelationProcessor implements Processor<String, Event, String, Al
     /** 워터마크를 넘긴 대기 트리거를 시각 순서대로 판정한다. */
     private void flushPending(String host, EventBuffer buffer, long watermark) {
         while (!buffer.pending.isEmpty()
-                && (buffer.pending.get(0).ts() <= watermark || buffer.pending.size() > EventBuffer.MAX_PENDING)) {
+                && (buffer.pending.get(0).getTs() <= watermark || buffer.pending.size() > EventBuffer.MAX_PENDING)) {
             evaluate(host, buffer, buffer.pending.remove(0));
         }
     }
@@ -117,11 +117,11 @@ public class CorrelationProcessor implements Processor<String, Event, String, Al
     private List<Event> priorOf(EventBuffer buffer, Event trigger) {
         List<Event> prior = new ArrayList<>();
         for (Event e : buffer.events) {
-            if (e.ts() > trigger.ts()) {
+            if (e.getTs() > trigger.getTs()) {
                 break;   // 정렬돼 있으니 여기부터는 볼 필요가 없다
             }
             // 트리거가 근거 후보이기도 하면 자기 자신과 상관될 수 있어 뺀다
-            if (e.ts() >= trigger.ts() - windowMs && !e.equals(trigger)) {
+            if (e.getTs() >= trigger.getTs() - windowMs && !e.equals(trigger)) {
                 prior.add(e);
             }
         }
@@ -131,7 +131,7 @@ public class CorrelationProcessor implements Processor<String, Event, String, Al
     /** 윈도우 밖 선행 이벤트 제거와 상한 유지. 둘 다 이벤트 시각 기준이라 도착 순서에 흔들리지 않는다. */
     private void prune(EventBuffer buffer, long watermark) {
         long floor = watermark - windowMs;
-        while (!buffer.events.isEmpty() && buffer.events.get(0).ts() < floor) {
+        while (!buffer.events.isEmpty() && buffer.events.get(0).getTs() < floor) {
             buffer.events.remove(0);
         }
         while (buffer.events.size() > EventBuffer.MAX) {
@@ -183,7 +183,7 @@ public class CorrelationProcessor implements Processor<String, Event, String, Al
     /** ts 오름차순을 유지하는 삽입. 순서대로 도착하는 흔한 경우엔 끝에 붙어 바로 끝난다. */
     private static void insertByTs(List<Event> sorted, Event e) {
         int i = sorted.size();
-        while (i > 0 && sorted.get(i - 1).ts() > e.ts()) {
+        while (i > 0 && sorted.get(i - 1).getTs() > e.getTs()) {
             i--;
         }
         sorted.add(i, e);
