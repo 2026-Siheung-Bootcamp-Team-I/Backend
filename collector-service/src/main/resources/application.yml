@@ -4,8 +4,7 @@ spring:
   config:
     import:
       - classpath:observability.yml
-      # 메트릭 익스포터 꺼짐: observability-metrics.yml 을 넣지 않는다.
-      # micrometer-registry-otlp 가 없는 서비스라 트레이스만 보낸다(메트릭은 api/detector/archiver 에만).
+      - classpath:observability-metrics.yml   # 메트릭 익스포터 켜짐 (build.gradle 에 micrometer-registry-otlp 있음)
   datasource:
     url: ${DB_URL:jdbc:mysql://localhost:3306/edrdog_collector}
     username: ${DB_USER:edrdog}
@@ -28,6 +27,12 @@ server:
   port: 8082
 
 edrdog:
+  metrics:
+    # 측정용 임시 스위치. 켜면 이벤트마다 JSON 으로도 직렬화해 크기를 같이 남긴다(발행은 Protobuf 하나뿐).
+    # 나가지 않는 바이트를 재느라 CPU 를 버리므로 부하 테스트를 도는 동안에만 켠다.
+    #   sudo kubectl -n edrdog set env deploy/collector-service EDRDOG_COMPARE_JSON=true
+    # 대시보드는 scripts/loadtest/dashboard-payload.json, 수치를 확정하면 둘 다 걷어낸다.
+    compare-json: ${EDRDOG_COMPARE_JSON:false}
   kafka:
     events-topic: events                # 검증 통과 이벤트 (발행 출력, detector/archiver 입력)
   agent:

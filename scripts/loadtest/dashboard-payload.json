@@ -1,0 +1,199 @@
+{
+  "uid": "edrdog-payload",
+  "title": "EDRdog - 이벤트 전송량 (JSON vs Protobuf)",
+  "description": "같은 이벤트를 두 형식으로 재서 전송량 감소를 확인하는 대시보드. collector 의 측정용 임시 코드와 짝이며, 측정이 끝나면 그 코드와 함께 걷어낸다. 발행되는 것은 Protobuf 하나뿐이고 JSON 쪽은 같은 이벤트를 직렬화만 해 본 값이다.",
+  "tags": ["edrdog", "protobuf"],
+  "timezone": "browser",
+  "editable": true,
+  "schemaVersion": 39,
+  "refresh": "",
+  "time": { "from": "now-15m", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "전송량 감소율",
+      "description": "부하 구간 누적 기준. 1 - Protobuf 총바이트 / JSON 총바이트.",
+      "gridPos": { "h": 9, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "1 - sum(event_payload_bytes_sum{format=\"protobuf\"}) / sum(event_payload_bytes_sum{format=\"json\"})",
+          "legendFormat": "감소율",
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "text", "value": null },
+              { "color": "green", "value": 0.3 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "누적 전송량 (같은 이벤트, 두 형식)",
+      "description": "두 선이 벌어지는 폭이 곧 아낀 양이다. JSON 선은 실제로 나간 것이 아니라 같은 이벤트를 JSON 으로 직렬화했을 때의 크기다.",
+      "gridPos": { "h": 9, "w": 18, "x": 6, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(event_payload_bytes_sum{format=\"json\"})",
+          "legendFormat": "JSON (환산)"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(event_payload_bytes_sum{format=\"protobuf\"})",
+          "legendFormat": "Protobuf (실제 발행)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "decbytes",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "JSON (환산)" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Protobuf (실제 발행)" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } }]
+          }
+        ]
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true, "calcs": ["max"] },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      }
+    },
+    {
+      "id": 3,
+      "type": "bargauge",
+      "title": "이벤트 종류별 감소율",
+      "description": "값이 긴 이벤트(sha256, cmdline 이 붙는 process)일수록 덜 준다. 줄어드는 것은 키와 포장이지 값이 아니기 때문이다.",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 9 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "1 - sum by (type) (event_payload_bytes_sum{format=\"protobuf\"}) / sum by (type) (event_payload_bytes_sum{format=\"json\"})",
+          "legendFormat": "{{type}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 1,
+          "min": 0,
+          "max": 1,
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "건당 크기 백분위별 감소율",
+      "description": "p50 보다 p99 가 낮게 나와야 위 설명과 맞는다. 큰 이벤트일수록 값이 차지하는 비중이 커서 덜 준다.",
+      "gridPos": { "h": 8, "w": 10, "x": 8, "y": 9 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "1 - max(event_payload_bytes{format=\"protobuf\", quantile=\"0.5\"}) / max(event_payload_bytes{format=\"json\", quantile=\"0.5\"})",
+          "legendFormat": "p50"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "1 - max(event_payload_bytes{format=\"protobuf\", quantile=\"0.95\"}) / max(event_payload_bytes{format=\"json\", quantile=\"0.95\"})",
+          "legendFormat": "p95"
+        },
+        {
+          "refId": "C",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "1 - max(event_payload_bytes{format=\"protobuf\", quantile=\"0.99\"}) / max(event_payload_bytes{format=\"json\", quantile=\"0.99\"})",
+          "legendFormat": "p99"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 1,
+          "min": 0,
+          "max": 1,
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 0, "showPoints": "never" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true, "calcs": ["mean"] },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "발행 처리량 (초당 건수)",
+      "description": "부하가 실제로 걸렸다는 증거. 이 값이 0 이면 위 숫자들은 아무것도 말하지 않는다.",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 9 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(rate(event_payload_bytes_count{format=\"protobuf\"}[30s]))",
+          "legendFormat": "발행"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "decimals": 1,
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": false },
+        "tooltip": { "mode": "single", "sort": "none" }
+      }
+    }
+  ]
+}
