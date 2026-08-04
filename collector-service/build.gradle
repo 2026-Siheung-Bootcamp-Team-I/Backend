@@ -5,7 +5,7 @@ dependencies {
     // /actuator/health 가 서빙되지 않는다(k8s probe 가 계속 실패해 컨테이너가 재시작된다).
     implementation 'org.springframework.boot:spring-boot-starter-web'
     implementation 'org.springframework.kafka:spring-kafka'
-    implementation 'io.micrometer:micrometer-registry-otlp'            // 메트릭 OTLP 전송 (발행 페이로드 크기 관측)
+    implementation 'io.micrometer:micrometer-registry-otlp'            // 메트릭 OTLP 전송. 수집 입구만 앱 지표가 없어 EDRdog HTTP/Resources 대시보드에서 빠져 있었다
     implementation 'com.fasterxml.jackson.core:jackson-databind'        // 에이전트가 보낸 검증 전 원본 JSON 파싱 (발행은 Protobuf)
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'    // 등록 노드(node_key 해시 → tenant/host) 저장
     runtimeOnly 'com.mysql:mysql-connector-j'                           // 등록 노드 저장용 MySQL 드라이버
