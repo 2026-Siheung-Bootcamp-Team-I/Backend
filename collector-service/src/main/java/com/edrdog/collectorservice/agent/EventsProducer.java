@@ -24,26 +24,21 @@ public class EventsProducer {
 
     private final KafkaTemplate<String, byte[]> template;
     private final String eventsTopic;
-    private final PayloadSizeMeter payloadSize;   // 측정용 임시 의존. 수치를 확정하면 같이 걷어낸다
 
     public EventsProducer(KafkaTemplate<String, byte[]> template,
-                          @Value("${edrdog.kafka.events-topic}") String eventsTopic,
-                          PayloadSizeMeter payloadSize) {
+                          @Value("${edrdog.kafka.events-topic}") String eventsTopic) {
         this.template = template;
         this.eventsTopic = eventsTopic;
-        this.payloadSize = payloadSize;
     }
 
     /** 1건 발행. 실패하면 false 를 돌려 응답 accepted 에서 빠지게 한다. */
     public boolean publish(Event event) {
         try {
             // 본문이 바이너리라 kafbat UI 로 못 읽는다. 헤더가 그 자리를 메우므로 ProducerRecord 로 직접 만든다.
-            byte[] payload = event.toByteArray();
             ProducerRecord<String, byte[]> record =
-                    new ProducerRecord<>(eventsTopic, event.getHost(), payload);
+                    new ProducerRecord<>(eventsTopic, event.getHost(), event.toByteArray());
             EventHeaders.stamp(record.headers(), event);
             template.send(record);
-            payloadSize.record(event, payload);
             return true;
         } catch (Exception e) {
             log.error("events 발행 실패: {}", event, e);
