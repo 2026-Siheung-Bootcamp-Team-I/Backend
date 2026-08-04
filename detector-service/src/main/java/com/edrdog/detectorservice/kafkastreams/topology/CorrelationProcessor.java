@@ -165,6 +165,9 @@ public class CorrelationProcessor implements Processor<String, Event, String, Al
 
     /** 알림의 레코드 시각은 트리거 이벤트 시각으로 둔다. 발행이 늦어도 하류의 event-time 은 어긋나지 않는다. */
     private void forward(String host, Alert alert) {
+        // 도착 순서를 뒤섞어도 탐지 건수가 같다는 것을 보이려면 발행 건수가 지표로 나와야 한다.
+        // 태그는 룰과 심각도까지만 둔다. host 나 tenant 를 붙이면 카디널리티가 단말 수만큼 늘어난다.
+        metrics.counter("cep.alerts", "rule", alert.ruleId(), "severity", alert.severity()).increment();
         ctx.forward(new Record<>(host, alert, alert.ts()));
     }
 

@@ -85,6 +85,11 @@ class DetectionTopologyTest {
                 .mapToDouble(c -> c.count()).sum();
     }
 
+    private double alertCount(String ruleId) {
+        return metrics.find("cep.alerts").tag("rule", ruleId).counters().stream()
+                .mapToDouble(c -> c.count()).sum();
+    }
+
     @Test
     @DisplayName("office → shell 시퀀스 → alerts 에 T1059 1건 발행")
     void processChain_emitsAlert() {
@@ -97,6 +102,33 @@ class DetectionTopologyTest {
         assertThat(record.key).isEqualTo("host-1");
         assertThat(record.value.ruleId()).isEqualTo("SUSPICIOUS_PROCESS_CHAIN");
         assertThat(record.value.action()).isEqualTo(Alert.ACTION_KILL);
+    }
+
+    @Test
+    @DisplayName("알림을 발행하면 룰별 카운터가 오른다")
+    void alertCounter_incrementsByRule() {
+        // 도착 순서를 뒤섞어도 탐지 건수가 같다는 것을 지표로 보여주려면 이 카운터가 있어야 한다.
+        events.pipeInput("k", process("host-1", "winword.exe", "explorer.exe", 1000));
+        events.pipeInput("k", process("host-1", "powershell.exe", "winword.exe", 2000));
+        settle();
+
+        assertThat(alertCount("SUSPICIOUS_PROCESS_CHAIN")).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("도착 순서를 뒤집어도 룰별 탐지 건수는 같다")
+    void alertCounter_isIndependentOfArrivalOrder() {
+        // 부하테스트에서 증명할 명제를 테스트로 먼저 고정한다.
+        events.pipeInput("k", network("host-1", 443, 1000));
+        events.pipeInput("k", processFrom("host-1", "a.exe", "C:\\Users\\u\\AppData\\Local\\Temp\\a.exe", 2000));
+        settle();
+        assertThat(alertCount("DOWNLOAD_AND_EXECUTE")).isEqualTo(1);
+
+        events.pipeInput("k", processFrom("host-2", "a.exe", "C:\\Users\\u\\AppData\\Local\\Temp\\a.exe", 4000));
+        events.pipeInput("k", network("host-2", 443, 3000));
+        settle();
+
+        assertThat(alertCount("DOWNLOAD_AND_EXECUTE")).isEqualTo(2);
     }
 
     @Test
