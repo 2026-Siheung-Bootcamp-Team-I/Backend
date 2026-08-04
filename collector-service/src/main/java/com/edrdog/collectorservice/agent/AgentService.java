@@ -3,7 +3,7 @@ package com.edrdog.collectorservice.agent;
 import com.edrdog.collectorservice.RawEventMapper;
 import com.edrdog.collectorservice.agent.domain.AgentNode;
 import com.edrdog.collectorservice.agent.repository.AgentNodeRepository;
-import com.edrdog.collectorservice.dto.Event;
+import com.edrdog.schema.Event;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;

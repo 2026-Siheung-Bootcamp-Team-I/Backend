@@ -13,10 +13,10 @@ spring:
         default.key.serde: org.apache.kafka.common.serialization.Serdes$StringSerde
         default.value.serde: org.apache.kafka.common.serialization.Serdes$StringSerde
         num.stream.threads: 3           # events 파티션 3개를 3개 태스크로 나눠 처리 (기본 1이면 순차)
-    # 데모 발행 경로: events 로 JSON 문자열 전송
+    # 데모 발행 경로: events 로 Protobuf 바이트 전송 (collector 와 같은 형식이어야 판정이 성립한다)
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
-      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.ByteArraySerializer
     # 조회 경로: alerts 를 되읽어 최근 판정 결과 보관 (RecentAlerts)
     consumer:
       auto-offset-reset: latest

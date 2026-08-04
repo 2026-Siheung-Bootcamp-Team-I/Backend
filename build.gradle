@@ -7,6 +7,11 @@ allprojects {
     group = 'com.edrdog'
     version = '0.0.1-SNAPSHOT'
 
+    // protobuf-java 와 protoc, protobuf-java-util 은 같은 버전이어야 한다. 어긋나면 런타임에 NoSuchMethodError 로 터진다.
+    // 값은 Spring Boot BOM 이 관리하는 protobuf-java 버전에 맞춘다. 여기만 낮게 잡으면 BOM 이 올려 놓고
+    // util 만 남아 어긋난다(실제로 그렇게 한 번 깨졌다).
+    ext.protobufVersion = '4.28.3'
+
     repositories {
         mavenCentral()
     }

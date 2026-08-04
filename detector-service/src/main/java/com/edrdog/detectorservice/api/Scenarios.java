@@ -1,6 +1,7 @@
 package com.edrdog.detectorservice.api;
 
-import com.edrdog.detectorservice.dto.Event;
+import com.edrdog.schema.Event;
+import com.edrdog.schema.EventTypes;
 
 import java.util.List;
 
@@ -74,22 +75,40 @@ public final class Scenarios {
                         tenantId));
     }
 
+    // 안 채운 필드는 빈 값이다. proto3 는 빈 값을 전선에 싣지 않아 예전 null 과 같은 자리를 차지한다.
     private static Event process(String host, long ts, String proc, String parent, String cmdline, String tenantId) {
-        return new Event(host, Event.TYPE_PROCESS, ts, proc, parent, cmdline, null, 0, null, null, null, tenantId);
+        return base(host, EventTypes.PROCESS, ts, tenantId)
+                .setProcess(proc)
+                .setParent(parent)
+                .setCmdline(cmdline)
+                .build();
     }
 
     private static Event network(String host, long ts, String destIp, int destPort, String tenantId) {
-        return new Event(host, Event.TYPE_NETWORK, ts, null, null, null, destIp, destPort, null, null, null, tenantId);
+        return base(host, EventTypes.NETWORK, ts, tenantId)
+                .setDestIp(destIp)
+                .setDestPort(destPort)
+                .build();
     }
 
     /** script 이벤트: cmdline 에 판정용 전체 경로를 담는다(process 는 인터프리터 basename). */
     private static Event script(String host, long ts, String proc, String fullCmdline, String tenantId) {
-        return new Event(host, Event.TYPE_SCRIPT, ts, proc, "explorer.exe", fullCmdline, null, 0,
-                null, null, null, tenantId);
+        return base(host, EventTypes.SCRIPT, ts, tenantId)
+                .setProcess(proc)
+                .setParent("explorer.exe")
+                .setCmdline(fullCmdline)
+                .build();
     }
 
     /** file 이벤트: cmdline 에 판정용 전체 경로를 담는다(process 는 파일명 basename). */
     private static Event file(String host, long ts, String name, String fullPath, String tenantId) {
-        return new Event(host, Event.TYPE_FILE, ts, name, null, fullPath, null, 0, null, null, null, tenantId);
+        return base(host, EventTypes.FILE, ts, tenantId)
+                .setProcess(name)
+                .setCmdline(fullPath)
+                .build();
+    }
+
+    private static Event.Builder base(String host, String type, long ts, String tenantId) {
+        return Event.newBuilder().setHost(host).setType(type).setTs(ts).setTenantId(tenantId);
     }
 }

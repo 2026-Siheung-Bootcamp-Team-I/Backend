@@ -23,9 +23,9 @@ spring:
       properties:
         spring.json.value.default.type: com.edrdog.apiservice.alert.dto.Alert
         spring.json.trusted.packages: com.edrdog.apiservice.alert.dto
-    producer:                            # 발표용 데모 수집 API 가 events 로 발행(문자열)
+    producer:                            # 발표용 데모 수집 API 가 events 로 발행(Protobuf 바이트)
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
-      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.ByteArraySerializer
     # 발행/소비 스팬 생성 → Kafka 를 건너도 traceId 가 이어진다
     template:
       observation-enabled: true

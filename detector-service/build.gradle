@@ -1,11 +1,25 @@
 // Detector — Kafka Streams 로 엔드포인트 이벤트 상관분석 (group: detector)
+plugins {
+    // 상태 저장소(EventBuffer)도 바이너리로 직렬화한다. Event 가 Protobuf 라 Jackson 으로는 담을 수 없다.
+    id 'com.google.protobuf' version '0.9.4'
+}
+
 dependencies {
+    implementation project(':event-schema')                              // events 스키마(.proto 생성 클래스) + Serde
+    // event_buffer.proto 가 edrdog/v1/event.proto 를 import 한다. protoc 가 볼 수 있게 jar 에서 꺼내 온다.
+    protobuf project(':event-schema')
     implementation 'org.springframework.boot:spring-boot-starter'
     implementation 'org.springframework.boot:spring-boot-starter-web'    // 데모용 이벤트 발행/조회 REST + Swagger 호스팅
     implementation 'org.springframework.kafka:spring-kafka'
     implementation 'io.micrometer:micrometer-registry-otlp'   // 메트릭 OTLP 전송 (판정 처리량/지연 관측 대상)
     implementation 'org.apache.kafka:kafka-streams'
-    implementation 'com.fasterxml.jackson.core:jackson-databind'   // 이벤트 JSON serde
+    implementation 'com.fasterxml.jackson.core:jackson-databind'   // alerts JSON serde + Event.detail 파싱
     implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.9'  // Swagger UI (/swagger-ui.html)
     testImplementation 'org.apache.kafka:kafka-streams-test-utils' // TopologyTestDriver
+}
+
+protobuf {
+    protoc {
+        artifact = "com.google.protobuf:protoc:${protobufVersion}"
+    }
 }
