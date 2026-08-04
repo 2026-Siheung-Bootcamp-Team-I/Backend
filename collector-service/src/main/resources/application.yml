@@ -16,9 +16,10 @@ spring:
     open-in-view: false
   kafka:
     bootstrap-servers: localhost:9092
-    producer:                           # 검증 통과분(Event JSON 문자열)을 events 로 발행
+    producer:                           # 검증 통과분(Event Protobuf 바이트)을 events 로 발행
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
-      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      # 직렬화는 EventsProducer 가 event.toByteArray() 로 이미 끝낸다. 여기서는 바이트를 그대로 흘린다.
+      value-serializer: org.apache.kafka.common.serialization.ByteArraySerializer
     # 발행 스팬 생성 → Kafka 를 건너도 traceId 가 이어진다
     template:
       observation-enabled: true

@@ -1,7 +1,7 @@
 package com.edrdog.apiservice.demo.web;
 
 import com.edrdog.apiservice.alert.web.AlertResponse;
-import com.edrdog.apiservice.demo.CollectedEvent;
+import com.edrdog.schema.Event;
 
 import java.util.List;
 
@@ -27,7 +27,7 @@ public record DemoFlowResponse(
         String alertId,
         long totalElapsedMs,
         List<DemoFlowStep> steps,
-        List<CollectedEvent> collectedLogs,
+        List<Event> collectedLogs,
         AlertResponse alert,
         List<String> nextSteps
 ) {

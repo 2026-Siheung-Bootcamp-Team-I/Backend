@@ -4,6 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -15,7 +16,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /** 시나리오 발행의 tenantId 검증 배선: PK 아니면 400, 유효 PK 면 발행. */
+// 응답에 이벤트가 실린다. 슬라이스는 컴포넌트 스캔을 좁히므로 Protobuf JSON 변환을 직접 들여온다.
 @WebMvcTest(IngestController.class)
+@Import(ProtobufJsonConfig.class)
 class IngestControllerTest {
 
     @Autowired

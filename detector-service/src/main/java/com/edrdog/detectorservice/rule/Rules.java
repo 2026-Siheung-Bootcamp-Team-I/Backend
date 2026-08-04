@@ -1,7 +1,8 @@
 package com.edrdog.detectorservice.rule;
 
 import com.edrdog.detectorservice.dto.Alert;
-import com.edrdog.detectorservice.dto.Event;
+import com.edrdog.schema.Event;
+import com.edrdog.schema.EventTypes;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -52,7 +53,7 @@ public final class Rules {
 
     /** 현재 이벤트가 선행 버퍼와 상관되어 룰을 완성하면 Alert 반환. 여러 룰 매칭 시 가장 심각한 것 채택. */
     public static Optional<Alert> evaluate(List<Event> prior, Event current) {
-        if (current == null || current.host() == null) {
+        if (current == null || current.getHost().isEmpty()) {
             return Optional.empty();
         }
         // 시도 순서가 곧 우선순위다. 순서를 바꾸면 CRITICAL 이 될 이벤트가 낮은 심각도로 덮인다.
@@ -81,11 +82,11 @@ public final class Rules {
      * 프로세서는 이 이벤트만 워터마크까지 대기시킨다. 나머지는 즉시 판정해 탐지 지연을 물지 않는다.
      */
     public static boolean isSequenceTrigger(Event e) {
-        if (e == null || !isProcess(e) || isBaseline(lower(e.process()))) {
+        if (e == null || !isProcess(e) || isBaseline(lower(e.getProcess()))) {
             return false;
         }
-        return executableFromTempPath(e.cmdline())                              // R2 트리거
-                || (in(SHELLS, lower(e.process())) && in(OFFICE_APPS, lower(e.parent())));   // R1 트리거
+        return executableFromTempPath(e.getCmdline())                              // R2 트리거
+                || (in(SHELLS, lower(e.getProcess())) && in(OFFICE_APPS, lower(e.getParent())));   // R1 트리거
     }
 
     /**
@@ -97,11 +98,11 @@ public final class Rules {
             return false;
         }
         if (isNetwork(e)) {
-            return DOWNLOAD_PORTS.contains(e.destPort());
+            return DOWNLOAD_PORTS.contains(e.getDestPort());
         }
         if (isProcess(e)) {
-            return in(OFFICE_APPS, lower(e.process()))
-                    || executableFromTempPath(e.cmdline());
+            return in(OFFICE_APPS, lower(e.getProcess()))
+                    || executableFromTempPath(e.getCmdline());
         }
         return false;
     }
@@ -111,14 +112,14 @@ public final class Rules {
         if (!isProcess(current)) {
             return Optional.empty();
         }
-        String child = lower(current.process());
-        String parent = lower(current.parent());
+        String child = lower(current.getProcess());
+        String parent = lower(current.getParent());
         if (!in(SHELLS, child) || !in(OFFICE_APPS, parent) || isBaseline(child)) {
             return Optional.empty();
         }
         // 시퀀스: 그 office앱(부모)의 exec 이벤트가 버퍼에 선행해야 함
         return nearestBefore(prior, e -> isProcess(e)
-                && parent.equals(lower(e.process()))
+                && parent.equals(lower(e.getProcess()))
                 && lineageMatches(e, current))
                 .map(officeExec -> alertOf("SUSPICIOUS_PROCESS_CHAIN", "T1059", Alert.SEV_HIGH,
                         current, List.of(officeExec)));
@@ -126,18 +127,18 @@ public final class Rules {
 
     /** R2 T1105+T1204: network 다운로드 → 이후 process 실행. 판정은 실행 쪽에서만 완성된다. */
     private static Optional<Alert> downloadAndExecute(List<Event> prior, Event current) {
-        if (!isProcess(current) || isBaseline(lower(current.process()))) {
+        if (!isProcess(current) || isBaseline(lower(current.getProcess()))) {
             return Optional.empty();
         }
         // 이 검사가 없으면 웹 접속 한 번 뒤의 모든 프로세스 실행이 CRITICAL 이 된다.
-        if (!executableFromTempPath(current.cmdline())) {
+        if (!executableFromTempPath(current.getCmdline())) {
             return Optional.empty();
         }
         // ts 비교는 prior 계약과 중복이지만 남긴다. 이 가드를 지우면 42건이 전부 통과하면서
         // '받기 전에 실행한 것'이 CRITICAL 로 새어나갔다(#199). 룰 단독으로도 성립해야 한다.
         return nearestBefore(prior, e -> isNetwork(e)
-                && DOWNLOAD_PORTS.contains(e.destPort())
-                && e.ts() <= current.ts())
+                && DOWNLOAD_PORTS.contains(e.getDestPort())
+                && e.getTs() <= current.getTs())
                 .map(download -> alertOf("DOWNLOAD_AND_EXECUTE", "T1105+T1204", Alert.SEV_CRITICAL,
                         current, List.of(download)));
     }
@@ -155,7 +156,7 @@ public final class Rules {
 
     /** R3 T1059: 임시/다운로드 경로에서 실행된 스크립트 (저심각 point 룰). */
     private static Optional<Alert> scriptFromTempPath(Event current) {
-        if (!isScript(current) || !pathArgumentFromTempPath(current.cmdline())) {
+        if (!isScript(current) || !pathArgumentFromTempPath(current.getCmdline())) {
             return Optional.empty();
         }
         return Optional.of(alertOf("SCRIPT_FROM_TEMP_PATH", "T1059", Alert.SEV_MEDIUM,
@@ -164,7 +165,7 @@ public final class Rules {
 
     /** R4 T1547: 자동실행/시작 경로에 생성된 파일 (지속성 확보, 저심각 point 룰). */
     private static Optional<Alert> fileInAutorunPath(Event current) {
-        if (!isFile(current) || !isAutorunPath(current.cmdline()) || isRemoval(current)) {
+        if (!isFile(current) || !isAutorunPath(current.getCmdline()) || isRemoval(current)) {
             return Optional.empty();
         }
         return Optional.of(alertOf("FILE_IN_AUTORUN_PATH", "T1547", Alert.SEV_MEDIUM,
@@ -191,49 +192,45 @@ public final class Rules {
         evidence.add(trigger);
         Event destination = destinationOf(evidence);
         return new Alert(
-                trigger.host(),
+                trigger.getHost(),
                 ruleId,
                 mitre,
                 severity,
                 Alert.actionFor(severity),
-                trigger.ts(),
+                trigger.getTs(),
                 evidence.stream().map(Rules::summary).toList(),
-                trigger.tenantId(),
+                trigger.getTenantId(),
                 actTarget(trigger),
-                destination == null ? "" : nz(destination.domain()),
-                destination == null ? "" : nz(destination.destIp()));
+                destination == null ? "" : destination.getDomain(),
+                destination == null ? "" : destination.getDestIp());
     }
 
     /** 근거 중 목적지를 관측한 이벤트 (없으면 null). 트리거만 보면 도착 순서에 따라 목적지가 빈다. */
     private static Event destinationOf(List<Event> evidence) {
         return evidence.stream()
-                .filter(e -> !nz(e.destIp()).isBlank() || !nz(e.domain()).isBlank())
+                .filter(e -> !e.getDestIp().isBlank() || !e.getDomain().isBlank())
                 .findFirst()
                 .orElse(null);
     }
 
-    private static String nz(String s) {
-        return s == null ? "" : s;
-    }
-
     private static boolean isProcess(Event e) {
-        return Event.TYPE_PROCESS.equals(e.type());
+        return EventTypes.PROCESS.equals(e.getType());
     }
 
     private static boolean isNetwork(Event e) {
-        return Event.TYPE_NETWORK.equals(e.type());
+        return EventTypes.NETWORK.equals(e.getType());
     }
 
     private static boolean isScript(Event e) {
-        return Event.TYPE_SCRIPT.equals(e.type());
+        return EventTypes.SCRIPT.equals(e.getType());
     }
 
     private static boolean isFile(Event e) {
-        return Event.TYPE_FILE.equals(e.type());
+        return EventTypes.FILE.equals(e.getType());
     }
 
     private static boolean isL7(Event e) {
-        return Event.TYPE_L7.equals(e.type());
+        return EventTypes.L7.equals(e.getType());
     }
 
     /** 리다이렉션 — 바로 뒤 토큰은 실행 대상이 아니라 입출력 파일이다. */
@@ -390,7 +387,7 @@ public final class Rules {
 
     /** detail JSON 의 필드. 없거나 못 읽으면 null 이다(0/빈 값으로 채우면 실제 관측값과 구분이 사라진다). */
     private static JsonNode detailField(Event e, String field) {
-        String detail = e.detail();
+        String detail = e.getDetail();
         if (detail == null || detail.isBlank()) {
             return null;
         }
@@ -412,26 +409,26 @@ public final class Rules {
 
     /** 조치 대상 프로세스 식별자 — 전체 경로(cmdline)가 있으면 우선, 없으면 프로세스명. responder 가 kill 에 사용. */
     private static String actTarget(Event e) {
-        String cmd = e.cmdline();
-        return (cmd != null && !cmd.isBlank()) ? cmd : e.process();
+        String cmd = e.getCmdline();
+        return cmd.isBlank() ? e.getProcess() : cmd;
     }
 
     /** 근거 이벤트를 사람이 읽을 요약으로. */
     private static String summary(Event e) {
         if (isNetwork(e)) {
-            return "network " + e.destIp() + ":" + e.destPort();
+            return "network " + e.getDestIp() + ":" + e.getDestPort();
         }
         if (isScript(e)) {
-            return "script " + e.process() + " (" + e.cmdline() + ")";
+            return "script " + e.getProcess() + " (" + e.getCmdline() + ")";
         }
         if (isFile(e)) {
-            return "file " + e.cmdline();
+            return "file " + e.getCmdline();
         }
         if (isL7(e)) {
             // 여기 없으면 l7 이 아래 process 형식으로 굳어 api-service 가 원본 이벤트를 못 찾는다.
             JsonNode version = detailField(e, "tlsVersion");
-            return "l7 " + e.domain() + " (" + (version == null ? "" : version.asText()) + ")";
+            return "l7 " + e.getDomain() + " (" + (version == null ? "" : version.asText()) + ")";
         }
-        return "process " + e.process() + " (parent " + e.parent() + ")";
+        return "process " + e.getProcess() + " (parent " + e.getParent() + ")";
     }
 }

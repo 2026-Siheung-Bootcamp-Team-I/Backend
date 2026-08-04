@@ -1,7 +1,7 @@
 package com.edrdog.archiverservice;
 
 import com.edrdog.archiverservice.clickhouse.ClickHouseWriter;
-import com.edrdog.archiverservice.dto.Event;
+import com.edrdog.schema.Event;
 import java.util.List;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;

@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package edrdog.detector;
+
+import "edrdog/v1/event.proto";
+
+option java_package = "com.edrdog.detectorservice.kafkastreams.state";
+option java_multiple_files = true;
+option java_outer_classname = "EventBufferProto";
+
+// host 별 상관분석 상태 (Kafka Streams state store 값).
+//
+// 토픽 계약이 아니라 detector 내부 상태다. 그래도 스키마를 두는 이유는 Event 가 Protobuf 라
+// Jackson 으로 담을 수 없고, 손으로 바이트를 자르면 changelog 를 되읽을 때 조용히 어긋나기 때문이다.
+message EventBufferState {
+  // 선행 근거 후보. ts 오름차순.
+  repeated edrdog.v1.Event events = 1;
+  // 워터마크를 기다리는 시퀀스 트리거. ts 오름차순.
+  repeated edrdog.v1.Event pending = 2;
+  // 이 host 에서 본 가장 늦은 이벤트 시각. 워터마크 기준.
+  int64 max_ts = 3;
+  // 이 host 의 마지막 갱신 시각(wall clock). 조용해진 단말을 찾는 데만 쓴다.
+  int64 last_updated_wall_ms = 4;
+}

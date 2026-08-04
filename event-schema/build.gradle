@@ -1,0 +1,31 @@
+// event-schema — events 토픽의 스키마 단일 정의. .proto 하나에서 Java 코드를 생성해
+// collector/detector/archiver 가 같은 클래스를 쓴다. 서비스가 아니라 라이브러리 모듈이다.
+plugins {
+    id 'java-library'                                // api 구성으로 생성 클래스와 protobuf-java 를 같이 노출한다
+    id 'com.google.protobuf' version '0.9.4'
+}
+
+// 실행 가능한 애플리케이션이 아니라서 bootJar 가 main class 를 못 찾고 실패한다.
+// 루트 build.gradle 이 전 모듈에 boot 플러그인을 붙이므로 여기서 되돌린다.
+bootJar { enabled = false }
+jar { enabled = true }
+
+dependencies {
+    // api 로 둬야 이 모듈을 쓰는 서비스가 생성 클래스를 컴파일할 때 protobuf-java 를 같이 받는다.
+    api "com.google.protobuf:protobuf-java:${protobufVersion}"
+    // 데모 REST 가 이벤트를 JSON 으로 주고받는다. proto 의 정식 JSON 매핑(JsonFormat)이 여기 있다.
+    api "com.google.protobuf:protobuf-java-util:${protobufVersion}"
+    // Serde/Serializer 가 Kafka 인터페이스를, Jackson 모듈이 Jackson 인터페이스를 구현한다.
+    // 쓰는 서비스에는 이미 둘 다 있어서 compileOnly 로 둔다.
+    compileOnly 'org.apache.kafka:kafka-clients'
+    compileOnly 'com.fasterxml.jackson.core:jackson-databind'
+    testImplementation 'org.apache.kafka:kafka-clients'
+    testImplementation 'com.fasterxml.jackson.core:jackson-databind'
+    testImplementation 'org.assertj:assertj-core'
+}
+
+protobuf {
+    protoc {
+        artifact = "com.google.protobuf:protoc:${protobufVersion}"
+    }
+}

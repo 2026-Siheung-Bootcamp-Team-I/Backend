@@ -1,6 +1,7 @@
 package com.edrdog.collectorservice;
 
-import com.edrdog.collectorservice.dto.Event;
+import com.edrdog.schema.Event;
+import com.edrdog.schema.EventTypes;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -70,7 +71,7 @@ public final class RawEventMapper {
         }
 
         String destIp = text(root, "destIp");
-        if (Event.TYPE_NETWORK.equals(type) && (destIp == null || destIp.isBlank())) {
+        if (EventTypes.NETWORK.equals(type) && (destIp == null || destIp.isBlank())) {
             return Optional.empty();
         }
 
@@ -79,33 +80,35 @@ public final class RawEventMapper {
             return Optional.empty();
         }
 
-        return Optional.of(new Event(
-                host,
-                type,
-                ts,
-                text(root, "process"),
-                text(root, "parent"),
-                text(root, "cmdline"),
-                destIp,
-                intValue(root, "destPort"),
-                domain,
-                text(root, "detail"),
-                normalizeSha256(text(root, "sha256")),
-                text(root, "tenantId")));
+        // proto3 에는 null 이 없다. 관측 못 한 문자열은 빈 값으로 들어가고, 빈 값은 전선에 아예 실리지 않는다.
+        return Optional.of(Event.newBuilder()
+                .setHost(host)
+                .setType(type)
+                .setTs(ts)
+                .setProcess(nz(text(root, "process")))
+                .setParent(nz(text(root, "parent")))
+                .setCmdline(nz(text(root, "cmdline")))
+                .setDestIp(nz(destIp))
+                .setDestPort(intValue(root, "destPort"))
+                .setDomain(nz(domain))
+                .setDetail(nz(text(root, "detail")))
+                .setSha256(nz(normalizeSha256(text(root, "sha256"))))
+                .setTenantId(nz(text(root, "tenantId")))
+                .build());
     }
 
     private static boolean isKnownType(String type) {
-        return Event.TYPE_PROCESS.equals(type)
-                || Event.TYPE_NETWORK.equals(type)
-                || Event.TYPE_FILE.equals(type)
-                || Event.TYPE_SCRIPT.equals(type)
-                || Event.TYPE_DNS.equals(type)
-                || Event.TYPE_L7.equals(type);
+        return EventTypes.isKnown(type);
     }
 
     /** dns/l7 은 도메인이 핵심 값이다. 그게 없으면 남겨도 조사에 쓸 수 없어 버린다. */
     private static boolean needsDomain(String type) {
-        return Event.TYPE_DNS.equals(type) || Event.TYPE_L7.equals(type);
+        return EventTypes.DNS.equals(type) || EventTypes.L7.equals(type);
+    }
+
+    /** proto3 문자열 필드는 null 을 받지 않는다(빌더가 NPE). 없는 값은 빈 문자열로 넣는다. */
+    private static String nz(String s) {
+        return s == null ? "" : s;
     }
 
     /** 같은 해시가 대소문자 때문에 둘로 보이면 조회가 갈린다. 64자리 16진수가 아니면 null 로 떨어뜨린다(이벤트는 살린다). */

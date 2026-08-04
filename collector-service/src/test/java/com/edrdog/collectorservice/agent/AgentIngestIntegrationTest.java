@@ -1,7 +1,7 @@
 package com.edrdog.collectorservice.agent;
 
 import com.edrdog.collectorservice.agent.repository.AgentNodeRepository;
-import com.edrdog.collectorservice.dto.Event;
+import com.edrdog.schema.Event;
 import com.edrdog.collectorservice.responder.AgentCommand;
 import com.edrdog.collectorservice.responder.ResponderClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -105,9 +105,9 @@ class AgentIngestIntegrationTest {
 
         ArgumentCaptor<Event> published = ArgumentCaptor.forClass(Event.class);
         verify(producer, times(1)).publish(published.capture());
-        assertEquals("mac-001", published.getValue().host());
-        assertEquals("7", published.getValue().tenantId());
-        assertEquals("sh", published.getValue().process());
+        assertEquals("mac-001", published.getValue().getHost());
+        assertEquals("7", published.getValue().getTenantId());
+        assertEquals("sh", published.getValue().getProcess());
 
         mvc.perform(post("/api/agent/command-result")
                         .header("X-Node-Key", nodeKey)

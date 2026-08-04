@@ -2,19 +2,28 @@ package com.edrdog.archiverservice.clickhouse;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.edrdog.archiverservice.dto.Event;
+import com.edrdog.schema.Event;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
+/**
+ * 적재되는 한 줄이 Protobuf 전환 전후로 같아야 한다. ClickHouse 테이블은 그대로이기 때문이다.
+ * proto3 에는 null 이 없어 관측 못 한 문자열이 빈 값으로 오는데, 예전 null 치환 결과와 같은 자리다.
+ */
 class EventRowTest {
 
     private final ObjectMapper mapper = new ObjectMapper();
 
+    private static Event.Builder event(String host, String type, long ts, String tenantId) {
+        return Event.newBuilder().setHost(host).setType(type).setTs(ts).setTenantId(tenantId);
+    }
+
     @Test
     void process_이벤트를_컬럼순서대로_JSON_object_로_변환한다() {
-        Event e = new Event("host-1", "process", 1000L,
-                "powershell.exe", "winword.exe", "-enc AAAA", null, 0, null, null, null, "tenant-a");
+        Event e = event("host-1", "process", 1000L, "tenant-a")
+                .setProcess("powershell.exe").setParent("winword.exe").setCmdline("-enc AAAA")
+                .build();
 
         String json = EventRow.toJson(e, mapper);
 
@@ -26,10 +35,11 @@ class EventRowTest {
     }
 
     @Test
-    void null_문자열_필드는_빈문자열로_치환한다() {
-        // network 이벤트: process/parent/cmdline 없음 -> ClickHouse String 컬럼에 null 대신 "" 적재
-        Event e = new Event("host-2", "network", 2000L,
-                null, null, null, "10.0.0.9", 4444, null, null, null, "tenant-b");
+    void 관측_못_한_문자열_필드는_빈문자열로_적재한다() {
+        // network 이벤트: process/parent/cmdline 없음 -> ClickHouse String 컬럼에 "" 적재
+        Event e = event("host-2", "network", 2000L, "tenant-b")
+                .setDestIp("10.0.0.9").setDestPort(4444)
+                .build();
 
         String json = EventRow.toJson(e, mapper);
 
@@ -43,9 +53,11 @@ class EventRowTest {
     @Test
     void dns_이벤트는_domain_과_detail_을_그대로_싣는다() {
         // detail 은 JSON 문자열 한 칸. archiver 는 구조를 해석하지 않고 문자열 그대로 적재한다.
-        Event e = new Event("host-4", "dns", 4000L,
-                "curl", null, null, null, 0,
-                "evil.example.com", "{\"qtype\":\"A\",\"answers\":[\"203.0.113.9\"]}", null, "tenant-a");
+        Event e = event("host-4", "dns", 4000L, "tenant-a")
+                .setProcess("curl")
+                .setDomain("evil.example.com")
+                .setDetail("{\"qtype\":\"A\",\"answers\":[\"203.0.113.9\"]}")
+                .build();
 
         String json = EventRow.toJson(e, mapper);
 
@@ -60,9 +72,11 @@ class EventRowTest {
 
     @Test
     void l7_이벤트는_SNI_를_domain_에_싣는다() {
-        Event e = new Event("host-5", "l7", 5000L,
-                null, null, null, "203.0.113.9", 443,
-                "cdn.example.com", "{\"tlsVersion\":\"1.3\",\"issuer\":\"R3\"}", null, "tenant-a");
+        Event e = event("host-5", "l7", 5000L, "tenant-a")
+                .setDestIp("203.0.113.9").setDestPort(443)
+                .setDomain("cdn.example.com")
+                .setDetail("{\"tlsVersion\":\"1.3\",\"issuer\":\"R3\"}")
+                .build();
 
         String json = EventRow.toJson(e, mapper);
 
@@ -71,9 +85,10 @@ class EventRowTest {
     }
 
     @Test
-    void tenant_id_가_null_이면_빈문자열로_치환한다() {
-        Event e = new Event("host-3", "process", 3000L,
-                "a.exe", "b.exe", "cmd", null, 0, null, null, null, null);
+    void tenant_id_가_비어도_빈문자열로_적재한다() {
+        Event e = event("host-3", "process", 3000L, "")
+                .setProcess("a.exe").setParent("b.exe").setCmdline("cmd")
+                .build();
 
         String json = EventRow.toJson(e, mapper);
 
@@ -83,9 +98,10 @@ class EventRowTest {
     @Test
     void process_이벤트는_실행파일_해시를_sha256_에_싣는다() {
         // 해시로 찾는 조회의 적재쪽. collector 가 정규화한 값을 archiver 는 그대로 옮긴다.
-        Event e = new Event("host-6", "process", 6000L,
-                "evil.exe", "explorer.exe", "C:\\Temp\\evil.exe", null, 0, null, null,
-                "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "tenant-a");
+        Event e = event("host-6", "process", 6000L, "tenant-a")
+                .setProcess("evil.exe").setParent("explorer.exe").setCmdline("C:\\Temp\\evil.exe")
+                .setSha256("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+                .build();
 
         String json = EventRow.toJson(e, mapper);
 
@@ -95,10 +111,8 @@ class EventRowTest {
 
     @Test
     void 여러_건은_개행으로_이어붙인다() {
-        Event a = new Event("host-1", "process", 1000L,
-                "a.exe", null, null, null, 0, null, null, null, "tenant-a");
-        Event b = new Event("host-2", "process", 2000L,
-                "b.exe", null, null, null, 0, null, null, null, "tenant-a");
+        Event a = event("host-1", "process", 1000L, "tenant-a").setProcess("a.exe").build();
+        Event b = event("host-2", "process", 2000L, "tenant-a").setProcess("b.exe").build();
 
         String rows = EventRow.toJsonRows(List.of(a, b), mapper);
 
@@ -108,8 +122,7 @@ class EventRowTest {
 
     @Test
     void 한_건이면_개행이_붙지_않는다() {
-        Event a = new Event("host-1", "process", 1000L,
-                "a.exe", null, null, null, 0, null, null, null, "tenant-a");
+        Event a = event("host-1", "process", 1000L, "tenant-a").setProcess("a.exe").build();
 
         String rows = EventRow.toJsonRows(List.of(a), mapper);
 

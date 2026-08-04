@@ -4,6 +4,8 @@ import com.edrdog.apiservice.alert.AlertService;
 import com.edrdog.apiservice.alert.web.AlertResponse;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.edrdog.schema.Event;
+import com.edrdog.schema.EventTypes;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
@@ -82,6 +84,23 @@ class DemoCollectIntegrationTest {
     }
 
     @Test
+    void 응답의_collectedLogs_에_발행한_이벤트가_그대로_실린다() throws Exception {
+        // 스키마 클래스는 Protobuf 생성 코드라 Jackson 기본 동작으로는 내부 필드까지 쏟아진다.
+        // ProtobufJacksonModule 이 붙어 있어야 이 형태가 나온다.
+        givenDetectionSucceeds();
+
+        JsonNode logs = collect(DemoScenario.DOWNLOAD_EXEC, status().isOk()).get("collectedLogs");
+
+        assertEquals(5, logs.size());
+        assertEquals("DESKTOP-CHOI", logs.get(0).get("host").asText());
+        assertEquals("OneDrive.exe", logs.get(0).get("process").asText());
+        assertEquals("185.220.101.5", logs.get(3).get("destIp").asText());
+        assertEquals(443, logs.get(3).get("destPort").asInt());
+        // 값이 없는 필드는 응답에도 안 나온다(전선에서 빠지는 것과 같은 규칙).
+        assertTrue(logs.get(0).get("destIp") == null);
+    }
+
+    @Test
     void 발행_대상_tenant_는_데모_계정에서_찾은_값이다() throws Exception {
         // 호출자가 tenant 를 지정할 방법이 없다는 것이 이 API 의 안전장치다.
         givenDetectionSucceeds();
@@ -90,9 +109,9 @@ class DemoCollectIntegrationTest {
 
         String demoTenant = String.valueOf(DemoAccountSeeder.TENANT_ID);
         assertEquals(demoTenant, res.get("tenantId").asText());
-        ArgumentCaptor<CollectedEvent> captor = ArgumentCaptor.forClass(CollectedEvent.class);
+        ArgumentCaptor<Event> captor = ArgumentCaptor.forClass(Event.class);
         verify(producer, Mockito.atLeastOnce()).publish(captor.capture());
-        assertTrue(captor.getAllValues().stream().allMatch(e -> demoTenant.equals(e.tenantId())));
+        assertTrue(captor.getAllValues().stream().allMatch(e -> demoTenant.equals(e.getTenantId())));
     }
 
     @Test
@@ -101,13 +120,13 @@ class DemoCollectIntegrationTest {
 
         collect(DemoScenario.DOWNLOAD_EXEC, status().isOk());
 
-        ArgumentCaptor<CollectedEvent> captor = ArgumentCaptor.forClass(CollectedEvent.class);
+        ArgumentCaptor<Event> captor = ArgumentCaptor.forClass(Event.class);
         verify(producer, Mockito.times(5)).publish(captor.capture());
-        List<CollectedEvent> published = captor.getAllValues();
+        List<Event> published = captor.getAllValues();
         assertEquals(List.of("OneDrive.exe", "Teams.exe", "MsEdgeUpdate.exe", "chrome.exe", "update32.exe"),
-                published.stream().map(CollectedEvent::process).toList());
-        assertEquals(CollectedEvent.TYPE_NETWORK, published.get(3).type());
-        assertTrue(published.stream().allMatch(e -> "DESKTOP-CHOI".equals(e.host())));
+                published.stream().map(Event::getProcess).toList());
+        assertEquals(EventTypes.NETWORK, published.get(3).getType());
+        assertTrue(published.stream().allMatch(e -> "DESKTOP-CHOI".equals(e.getHost())));
     }
 
     @Test

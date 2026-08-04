@@ -1,5 +1,8 @@
 package com.edrdog.apiservice.demo;
 
+import com.edrdog.schema.Event;
+import com.edrdog.schema.EventTypes;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -76,12 +79,12 @@ public final class DemoScenario {
      * @param baseTs   공격 첫 이벤트 시각 (epoch millis). 배경 로그는 이보다 앞에 놓인다.
      * @param tenantId 조직(tenant) 식별자 — 발행되는 모든 이벤트에 태깅
      */
-    public static List<CollectedEvent> build(String name, String host, long baseTs, String tenantId) {
+    public static List<Event> build(String name, String host, long baseTs, String tenantId) {
         if (!isSupported(name)) {
             throw new IllegalArgumentException(
                     "미지원 시나리오: " + name + " (지원: " + String.join(", ", NAMES) + ")");
         }
-        List<CollectedEvent> events = new ArrayList<>(background(host, baseTs, tenantId));
+        List<Event> events = new ArrayList<>(background(host, baseTs, tenantId));
         events.addAll(switch (name) {
             case PROCESS_CHAIN -> processChain(host, baseTs, tenantId);
             case DOWNLOAD_EXEC -> downloadExec(host, baseTs, tenantId);
@@ -96,43 +99,43 @@ public final class DemoScenario {
      * 다른 이름을 쓰면 5분 안에 같은 시나리오를 두 번 돌릴 때 앞 회차의 network 가 버퍼에 남아
      * R2 가 이번 회차 배경 프로세스에 CRITICAL 오탐을 낸다.
      */
-    private static List<CollectedEvent> background(String host, long baseTs, String tenantId) {
+    private static List<Event> background(String host, long baseTs, String tenantId) {
         return List.of(
-                CollectedEvent.process(host, baseTs - 12 * SECOND, "OneDrive.exe", "explorer.exe",
+                process(host, baseTs - 12 * SECOND, "OneDrive.exe", "explorer.exe",
                         "\"C:\\Program Files\\Microsoft OneDrive\\OneDrive.exe\" /background", tenantId),
-                CollectedEvent.process(host, baseTs - 8 * SECOND, "Teams.exe", "explorer.exe",
+                process(host, baseTs - 8 * SECOND, "Teams.exe", "explorer.exe",
                         "\"C:\\Users\\Public\\AppData\\Local\\Microsoft\\Teams\\Teams.exe\"", tenantId),
-                CollectedEvent.process(host, baseTs - 4 * SECOND, "MsEdgeUpdate.exe", "services.exe",
+                process(host, baseTs - 4 * SECOND, "MsEdgeUpdate.exe", "services.exe",
                         "\"C:\\Program Files (x86)\\Microsoft\\EdgeUpdate\\MicrosoftEdgeUpdate.exe\" /svc", tenantId));
     }
 
     /** office 앱 실행 → 그 앱을 부모로 shell 실행 (매크로 문서 침투). */
-    private static List<CollectedEvent> processChain(String host, long baseTs, String tenantId) {
+    private static List<Event> processChain(String host, long baseTs, String tenantId) {
         return List.of(
-                CollectedEvent.process(host, baseTs, "winword.exe", "explorer.exe",
+                process(host, baseTs, "winword.exe", "explorer.exe",
                         "\"C:\\Users\\kim\\Documents\\견적서_2026.docm\"", tenantId),
-                CollectedEvent.process(host, baseTs + SECOND, "powershell.exe", "winword.exe",
+                process(host, baseTs + SECOND, "powershell.exe", "winword.exe",
                         "powershell -nop -w hidden -enc SQBFAFgAIAAoAE4AZQB3AC0ATwBiAGoA...", tenantId));
     }
 
     /** 외부 다운로드 아웃바운드 → 내려받은 파일 실행 (download-and-execute). */
-    private static List<CollectedEvent> downloadExec(String host, long baseTs, String tenantId) {
+    private static List<Event> downloadExec(String host, long baseTs, String tenantId) {
         return List.of(
-                CollectedEvent.network(host, baseTs, "chrome.exe", "185.220.101.5", 443, tenantId),
-                CollectedEvent.process(host, baseTs + SECOND, "update32.exe", "explorer.exe",
+                network(host, baseTs, "chrome.exe", "185.220.101.5", 443, tenantId),
+                process(host, baseTs + SECOND, "update32.exe", "explorer.exe",
                         "C:\\Users\\choi\\Downloads\\update32.exe", tenantId));
     }
 
     /** 다운로드 경로의 스크립트 실행. 단일 이벤트 point 룰. */
-    private static List<CollectedEvent> scriptExec(String host, long baseTs, String tenantId) {
-        return List.of(CollectedEvent.script(host, baseTs, "powershell.exe", "explorer.exe",
+    private static List<Event> scriptExec(String host, long baseTs, String tenantId) {
+        return List.of(script(host, baseTs, "powershell.exe", "explorer.exe",
                 "powershell -ExecutionPolicy Bypass -File C:\\Users\\park\\Downloads\\invoice_setup.ps1",
                 tenantId));
     }
 
     /** 시작프로그램 경로에 파일 생성. 단일 이벤트 point 룰. */
-    private static List<CollectedEvent> fileAutorun(String host, long baseTs, String tenantId) {
-        return List.of(CollectedEvent.file(host, baseTs, "svc-update.lnk",
+    private static List<Event> fileAutorun(String host, long baseTs, String tenantId) {
+        return List.of(file(host, baseTs, "svc-update.lnk",
                 "C:\\Users\\lee\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\svc-update.lnk",
                 tenantId));
     }
@@ -144,5 +147,36 @@ public final class DemoScenario {
                     "미지원 시나리오: " + name + " (지원: " + String.join(", ", NAMES) + ")");
         }
         return value;
+    }
+
+    // 안 채운 필드는 빈 값이다. proto3 는 빈 값을 전선에 싣지 않아 예전 null 과 같은 자리를 차지한다.
+    private static Event process(String host, long ts, String proc, String parent,
+                                 String cmdline, String tenantId) {
+        return base(host, EventTypes.PROCESS, ts, tenantId)
+                .setProcess(proc).setParent(parent).setCmdline(cmdline).build();
+    }
+
+    /** 소유 프로세스를 같이 담아야 lineage 가 process -> network 로 이어진다. */
+    private static Event network(String host, long ts, String proc, String destIp,
+                                 int destPort, String tenantId) {
+        return base(host, EventTypes.NETWORK, ts, tenantId)
+                .setProcess(proc).setDestIp(destIp).setDestPort(destPort).build();
+    }
+
+    /** process 는 인터프리터 basename, cmdline 은 판정용 전체 경로. */
+    private static Event script(String host, long ts, String proc, String parent,
+                                String cmdline, String tenantId) {
+        return base(host, EventTypes.SCRIPT, ts, tenantId)
+                .setProcess(proc).setParent(parent).setCmdline(cmdline).build();
+    }
+
+    /** process 는 파일명 basename, cmdline 은 판정용 전체 경로. */
+    private static Event file(String host, long ts, String name, String fullPath, String tenantId) {
+        return base(host, EventTypes.FILE, ts, tenantId)
+                .setProcess(name).setCmdline(fullPath).build();
+    }
+
+    private static Event.Builder base(String host, String type, long ts, String tenantId) {
+        return Event.newBuilder().setHost(host).setType(type).setTs(ts).setTenantId(tenantId);
     }
 }

@@ -1,6 +1,6 @@
 package com.edrdog.archiverservice.clickhouse;
 
-import com.edrdog.archiverservice.dto.Event;
+import com.edrdog.schema.Event;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
