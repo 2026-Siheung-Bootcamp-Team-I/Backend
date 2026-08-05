@@ -203,7 +203,19 @@ public class CorrelationProcessor implements Processor<String, Event, String, Al
         ctx.forward(new Record<>(host, alert, alert.ts()));
     }
 
-    /** 빈 버퍼는 지운다. 남겨두면 스쳐간 host 마다 상태가 하나씩 쌓인다. */
+    /**
+     * 빈 버퍼는 지운다. 남겨두면 스쳐간 host 마다 상태가 하나씩 쌓인다.
+     *
+     * <p>이벤트 1건마다 버퍼 전체가 다시 직렬화된다(RocksDB 는 값의 부분 갱신이 없다). 그래도 그냥 둔다.
+     * "내용이 안 바뀌었으면 put 을 거른다"는 손쉬운 절약이 안 되기 때문이다. maxTs 는 매 이벤트 갱신되고,
+     * 그걸 안 남기면 다음 이벤트의 워터마크가 뒤로 밀려 late/pending 분류가 달라진다.
+     * 실제로 걸러 보면 lateTrigger_isCountedAndStillEvaluated 가 깨진다.
+     *
+     * <p>(host, ts) 개별 키로 쪼개는 정공법은 store 구성(DetectionTopology)과 상태 스키마를 바꿔야 하고
+     * 워터마크·pending·상한 판정을 다시 짜야 한다. 판정이 바뀔 위험이 이득보다 크다.
+     * 참고로 매 이벤트 비용은 직렬화 한 번이 아니라 store.get 의 역직렬화까지 한 쌍이다.
+     * 손대야 할 만큼 비싼지는 지표로 먼저 확인할 것.
+     */
     private void save(String host, EventBuffer buffer) {
         // store 에 pending 이 남는 유일한 경로가 여기다. 여기서 같이 갱신해야 pendingHosts 가 store 와 어긋나지 않는다.
         if (buffer.pending.isEmpty()) {
