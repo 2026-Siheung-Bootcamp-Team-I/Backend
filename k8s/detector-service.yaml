@@ -28,15 +28,17 @@ spec:
             # 메트릭/트레이스 OTLP 수집기 (k8s/otel-lgtm.yaml)
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: "http://otel-lgtm:4318"
+          # 경로를 그룹별로 나눠야 Kafka Streams 항목이 readiness 에만 걸린다(이슈 #214).
+          # 루트 /actuator/health 를 그대로 두면 Streams 가 죽어도 liveness 까지 DOWN 이 되어 재시작 루프에 빠진다.
           readinessProbe:
             httpGet:
-              path: /actuator/health
+              path: /actuator/health/readiness
               port: 8081
             initialDelaySeconds: 15
             periodSeconds: 10
           livenessProbe:
             httpGet:
-              path: /actuator/health
+              path: /actuator/health/liveness
               port: 8081
             initialDelaySeconds: 30
             periodSeconds: 20
