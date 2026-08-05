@@ -15,7 +15,9 @@ import org.apache.kafka.streams.state.KeyValueStore;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * host(key) 별 이벤트 버퍼를 유지하며 시퀀스 상관분석을 수행.
@@ -32,7 +34,7 @@ public class CorrelationProcessor implements Processor<String, Event, String, Al
 
     static final String STORE = "event-buffer";
 
-    /** 워터마크 진행을 확인하는 주기. 짧을수록 판정이 빠르지만 store 전체 순회가 잦아진다. */
+    /** 워터마크 진행을 확인하는 주기. 짧을수록 판정이 빠르다. */
     static final long PUNCTUATE_INTERVAL_MS = 500;
 
     private final long windowMs;
@@ -42,6 +44,16 @@ public class CorrelationProcessor implements Processor<String, Event, String, Al
 
     private KeyValueStore<String, EventBuffer> store;
     private ProcessorContext<String, Alert> ctx;
+
+    /**
+     * pending 이 남은 host → 그 host 의 마지막 갱신 시각(wall clock).
+     * punctuate 가 볼 후보를 여기로 좁힌다. 이게 없으면 store 전체를 초당 두 번 역직렬화하며 훑어야 하고,
+     * 비용이 단말 수에 정비례한다. 시퀀스 트리거는 드물어서 대부분 host 는 여기 없다.
+     *
+     * <p>메모리에만 두지만 대기 트리거를 잃지 않는다. 재시작·리밸런싱이면 프로세서가 새로 만들어지고
+     * init() 이 store 를 한 번 훑어 복원한다 (Kafka Streams 는 상태 복원이 끝난 뒤에야 init() 을 부른다).
+     */
+    private final Map<String, Long> pendingHosts = new LinkedHashMap<>();
 
     public CorrelationProcessor(long windowMs, long graceMs, MeterRegistry metrics) {
         this.windowMs = windowMs;
@@ -58,8 +70,26 @@ public class CorrelationProcessor implements Processor<String, Event, String, Al
     public void init(ProcessorContext<String, Alert> context) {
         this.ctx = context;
         this.store = context.getStateStore(STORE);
+        restorePendingHosts();
         context.schedule(Duration.ofMillis(PUNCTUATE_INTERVAL_MS), PunctuationType.WALL_CLOCK_TIME,
                 this::flushQuietHosts);
+    }
+
+    /**
+     * 복원된 state store 를 한 번만 훑어 pendingHosts 를 되살린다.
+     * 이 스캔이 없으면 재시작 직전 대기 중이던 트리거는 그 host 가 다시 이벤트를 보낼 때까지,
+     * 단말이 꺼졌다면 영영 판정되지 않는다. 태스크 할당당 한 번이라 punctuate 순회와 달리 누적되지 않는다.
+     */
+    private void restorePendingHosts() {
+        pendingHosts.clear();
+        try (KeyValueIterator<String, EventBuffer> it = store.all()) {
+            while (it.hasNext()) {
+                KeyValue<String, EventBuffer> kv = it.next();
+                if (kv.value != null && !kv.value.pending.isEmpty()) {
+                    pendingHosts.put(kv.key, kv.value.lastUpdatedWallMs);
+                }
+            }
+        }
     }
 
     @Override
@@ -145,21 +175,23 @@ public class CorrelationProcessor implements Processor<String, Event, String, Al
      * 여기서 wall clock 으로 끊어주지 않으면 탐지가 전송 주기만큼 늦고, 단말이 꺼지면 아예 안 나온다.
      */
     private void flushQuietHosts(long nowWallMs) {
-        List<KeyValue<String, EventBuffer>> quiet = new ArrayList<>();
-        try (KeyValueIterator<String, EventBuffer> it = store.all()) {
-            while (it.hasNext()) {
-                KeyValue<String, EventBuffer> kv = it.next();
-                if (kv.value != null && !kv.value.pending.isEmpty()
-                        && nowWallMs - kv.value.lastUpdatedWallMs >= graceMs) {
-                    quiet.add(kv);   // 순회 중 store 를 건드리지 않으려고 먼저 모은다
-                }
+        List<String> quiet = new ArrayList<>();
+        for (Map.Entry<String, Long> e : pendingHosts.entrySet()) {
+            if (nowWallMs - e.getValue() >= graceMs) {
+                quiet.add(e.getKey());   // 순회 중 pendingHosts 를 건드리지 않으려고 먼저 모은다
             }
         }
-        for (KeyValue<String, EventBuffer> kv : quiet) {
+        // 조용해진 host 만 역직렬화한다. 아직 이벤트가 흐르는 host 는 store 를 읽지도 않는다.
+        for (String host : quiet) {
+            EventBuffer buffer = store.get(host);
+            if (buffer == null) {
+                pendingHosts.remove(host);
+                continue;
+            }
             // grace 를 이미 실제 시간으로 기다렸으니 그 host 가 본 마지막 시각까지 판정한다
-            flushPending(kv.key, kv.value, kv.value.maxTs);
-            prune(kv.value, kv.value.maxTs - graceMs);
-            save(kv.key, kv.value);
+            flushPending(host, buffer, buffer.maxTs);
+            prune(buffer, buffer.maxTs - graceMs);
+            save(host, buffer);
         }
     }
 
@@ -173,6 +205,12 @@ public class CorrelationProcessor implements Processor<String, Event, String, Al
 
     /** 빈 버퍼는 지운다. 남겨두면 스쳐간 host 마다 상태가 하나씩 쌓인다. */
     private void save(String host, EventBuffer buffer) {
+        // store 에 pending 이 남는 유일한 경로가 여기다. 여기서 같이 갱신해야 pendingHosts 가 store 와 어긋나지 않는다.
+        if (buffer.pending.isEmpty()) {
+            pendingHosts.remove(host);
+        } else {
+            pendingHosts.put(host, buffer.lastUpdatedWallMs);
+        }
         if (buffer.events.isEmpty() && buffer.pending.isEmpty()) {
             store.delete(host);
         } else {
