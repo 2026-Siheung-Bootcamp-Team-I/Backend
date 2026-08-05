@@ -32,6 +32,21 @@ spring:
 server:
   port: 8081
 
+# Streams 가 죽으면 readiness 가 DOWN 이어야 파드가 트래픽에서 빠지고 배포도 거기서 멈춘다(이슈 #214).
+# liveness 는 건드리지 않는다. 리밸런싱 같은 정상 과정에서 재시작 루프에 빠질 수 있다.
+# 공용 observability.yml 이 아니라 여기 두는 이유: Streams 를 쓰는 서비스는 detector 뿐이다.
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true     # k8s 안에서는 자동으로 켜지지만, 로컬/테스트에서도 그룹이 뜨도록 명시한다
+      group:
+        readiness:
+          # kafkaStreams 는 KafkaStreamsHealthIndicator 빈 이름에서 접미사를 뗀 항목 이름이다.
+          # readinessState 를 같이 적어야 한다. include 를 쓰면 기본 구성원을 덮어쓴다.
+          # 없는 이름을 적으면 기동이 깨지므로(NoSuchHealthContributorException) 오타는 배포 전에 드러난다.
+          include: readinessState, kafkaStreams
+
 edrdog:
   kafka:
     events-topic: events      # 검증을 거친 엔드포인트 이벤트 (판정 입력)
